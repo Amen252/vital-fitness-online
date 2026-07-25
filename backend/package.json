@@ -1,0 +1,36 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "VitalGuide API",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "PORT=5050 nodemon --watch src --legacy-watch src/server.js",
+    "start": "node src/server.js",
+    "stop": "lsof -ti :5050 | xargs kill 2>/dev/null || true",
+    "restart": "npm run stop && sleep 1 && PORT=5050 npm start"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie": "^1.1.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-validator": "^7.3.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.4.1",
+    "morgan": "^1.10.1",
+    "nodemailer": "^8.0.10",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

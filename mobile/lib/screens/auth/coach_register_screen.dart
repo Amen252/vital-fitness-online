@@ -1,0 +1,1369 @@
+import 'package:flutter/material.dart';
+import '../../models/user_model.dart';
+import '../../services/api_service.dart';
+import '../../utils/password_utils.dart';
+import '../../widgets/scrollable_body.dart';
+import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
+import 'auth_home.dart';
+import 'login_screen.dart';
+import '../../services/coach_application_prefs.dart';
+
+class _DayHours {
+  TimeOfDay start;
+  TimeOfDay end;
+
+  _DayHours({
+    required this.start,
+    required this.end,
+  });
+}
+
+class CoachRegisterScreen extends StatefulWidget {
+  final User? existingUser;
+
+  const CoachRegisterScreen({super.key, this.existingUser});
+
+  @override
+  State<CoachRegisterScreen> createState() => _CoachRegisterScreenState();
+}
+
+class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
+  final _apiService = ApiService();
+  final _pageController = PageController();
+  int _currentStep = 0;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+  bool _obscurePassword = true;
+
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _ageController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _yearsExperienceController = TextEditingController();
+  final _certificationsController = TextEditingController();
+  final _specializationController = TextEditingController();
+  final _bioController = TextEditingController();
+  final _experienceController = TextEditingController();
+  final _messageController = TextEditingController();
+
+  late final List<String> _stepTitles;
+  late final bool _isReapply;
+
+  static const _weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  final Set<String> _selectedWorkingDays = {};
+  final Set<String> _selectedAppointmentDays = {};
+  final Map<String, _DayHours> _dayAvailability = {};
+
+  int _appointmentDuration = 60;
+  static const List<int> _durationOptions = [30, 45, 60];
+
+  @override
+  void initState() {
+    super.initState();
+    _isReapply = widget.existingUser != null;
+    _stepTitles = _isReapply
+        ? ['Personal Info', 'Professional', 'Appointment Days', 'About You', 'Review']
+        : ['Account', 'Personal Info', 'Professional', 'Appointment Days', 'About You', 'Review'];
+
+    if (_isReapply) {
+      final user = widget.existingUser!;
+      _nameController.text = user.name;
+      _emailController.text = user.email;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _phoneController.dispose();
+    _ageController.dispose();
+    _locationController.dispose();
+    _yearsExperienceController.dispose();
+    _certificationsController.dispose();
+    _specializationController.dispose();
+    _bioController.dispose();
+    _experienceController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  int get _accountStepIndex => _isReapply ? -1 : 0;
+  int get _personalStepIndex => _isReapply ? 0 : 1;
+  int get _professionalStepIndex => _isReapply ? 1 : 2;
+  int get _availabilityStepIndex => _isReapply ? 2 : 3;
+  int get _aboutStepIndex => _isReapply ? 3 : 4;
+
+  bool _validateCurrentStep() {
+    if (_currentStep == _accountStepIndex) {
+      if (_nameController.text.trim().isEmpty) return _showError('Please enter your full name');
+      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(_emailController.text.trim())) {
+        return _showError('Please enter a valid email');
+      }
+      final passwordError = PasswordUtils.validatePassword(_passwordController.text);
+      if (passwordError != null) return _showError(passwordError);
+      return true;
+    }
+    if (_currentStep == _personalStepIndex) {
+      if (_phoneController.text.trim().isEmpty) return _showError('Phone number is required');
+      final age = int.tryParse(_ageController.text.trim());
+      if (age == null || age < 18) return _showError('You must be at least 18 years old');
+      if (_locationController.text.trim().isEmpty) return _showError('Location is required');
+      return true;
+    }
+    if (_currentStep == _professionalStepIndex) {
+      final years = int.tryParse(_yearsExperienceController.text.trim());
+      if (years == null || years < 0) return _showError('Enter valid years of experience');
+      if (_certificationsController.text.trim().isEmpty) {
+        return _showError('List your certifications');
+      }
+      if (_specializationController.text.trim().isEmpty) {
+        return _showError('Enter at least one specialization');
+      }
+      if (_selectedWorkingDays.isEmpty) {
+        return _showError('Select at least one working day');
+      }
+      return true;
+    }
+    if (_currentStep == _availabilityStepIndex) {
+      if (_orderedAppointmentDays.isEmpty) {
+        return _showError('Select at least one appointment day');
+      }
+      for (final day in _orderedAppointmentDays) {
+        final hours = _dayAvailability[day];
+        if (hours == null) {
+          return _showError('Set working hours for $day');
+        }
+        final startMinutes = hours.start.hour * 60 + hours.start.minute;
+        final endMinutes = hours.end.hour * 60 + hours.end.minute;
+        if (endMinutes <= startMinutes) {
+          return _showError('$day: end time must be after the start time');
+        }
+        if (endMinutes - startMinutes < _appointmentDuration) {
+          return _showError('$day: working hours must fit at least one appointment slot');
+        }
+      }
+      return true;
+    }
+    if (_currentStep == _aboutStepIndex) {
+      if (_bioController.text.trim().length < 20) {
+        return _showError('Bio must be at least 20 characters');
+      }
+      if (_experienceController.text.trim().length < 20) {
+        return _showError('Work experience must be at least 20 characters');
+      }
+      if (_messageController.text.trim().length < 10) {
+        return _showError('Please explain why you want to coach');
+      }
+      return true;
+    }
+    return true;
+  }
+
+  bool _showError(String message) {
+    setState(() => _errorMessage = message);
+    return false;
+  }
+
+  List<String> get _orderedWorkingDays =>
+      _weekdays.where((day) => _selectedWorkingDays.contains(day)).toList();
+
+  List<String> get _orderedAppointmentDays =>
+      _weekdays.where((day) => _selectedAppointmentDays.contains(day)).toList();
+
+  void _toggleWorkingDay(String day) {
+    setState(() {
+      if (_selectedWorkingDays.contains(day)) {
+        _selectedWorkingDays.remove(day);
+      } else {
+        _selectedWorkingDays.add(day);
+      }
+    });
+  }
+
+  void _toggleAppointmentDay(String day) {
+    setState(() {
+      if (_selectedAppointmentDays.contains(day)) {
+        _selectedAppointmentDays.remove(day);
+        _dayAvailability.remove(day);
+      } else {
+        _selectedAppointmentDays.add(day);
+        _dayAvailability.putIfAbsent(
+          day,
+          () => _DayHours(
+            start: const TimeOfDay(hour: 9, minute: 0),
+            end: const TimeOfDay(hour: 17, minute: 0),
+          ),
+        );
+      }
+    });
+  }
+
+  List<Map<String, String>> get _dayAvailabilityPayload =>
+      _orderedAppointmentDays.map((day) {
+        final hours = _dayAvailability[day]!;
+        return {
+          'day': day,
+          'start': _hhmm(hours.start),
+          'end': _hhmm(hours.end),
+        };
+      }).toList();
+
+  Widget _buildWorkingDaysSection(bool isDark) {
+    final selected = _orderedWorkingDays;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Working Days', style: CoachDashboardTheme.sectionTitle(isDark)),
+        const SizedBox(height: 6),
+        Text(
+          'Select the days you actively coach or work with clients. This is your general coaching schedule.',
+          style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+        ),
+        const SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final useTwoColumns = constraints.maxWidth >= 360;
+            if (useTwoColumns) {
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _weekdays
+                    .map((day) => _workingDayChip(day, isDark, width: (constraints.maxWidth - 10) / 2))
+                    .toList(),
+              );
+            }
+            return Column(
+              children: _weekdays
+                  .map((day) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _workingDayChip(day, isDark),
+                      ))
+                  .toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        if (selected.isEmpty)
+          Text(
+            'Select at least one working day to continue.',
+            style: TextStyle(fontSize: 12, color: CoachDashboardTheme.warning.withValues(alpha: 0.9)),
+          )
+        else
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: CoachDashboardTheme.success.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CoachDashboardTheme.success.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${selected.length} working day${selected.length == 1 ? '' : 's'} selected',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white70 : CoachDashboardTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: selected
+                      .map((day) => Chip(
+                            label: Text(day),
+                            avatar: const Icon(Icons.check_circle_rounded, size: 16, color: CoachDashboardTheme.success),
+                            backgroundColor: CoachDashboardTheme.success.withValues(alpha: 0.1),
+                            side: BorderSide(color: CoachDashboardTheme.success.withValues(alpha: 0.3)),
+                          ))
+                      .toList(),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAppointmentDaysSelection(bool isDark) {
+    final selected = _orderedAppointmentDays;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Appointment Days', style: CoachDashboardTheme.sectionTitle(isDark)),
+        const SizedBox(height: 6),
+        Text(
+          'Choose the days when members can book appointments with you. '
+          'This is separate from your working days — pick any combination that fits your availability.',
+          style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: CoachDashboardTheme.primary.withValues(alpha: isDark ? 0.08 : 0.04),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CoachDashboardTheme.primary.withValues(alpha: 0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, size: 16, color: CoachDashboardTheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Examples',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white70 : CoachDashboardTheme.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Monday only · Monday, Wednesday & Friday · Saturday & Sunday · any custom mix',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.4,
+                  color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final useTwoColumns = constraints.maxWidth >= 360;
+            if (useTwoColumns) {
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _weekdays
+                    .map((day) => _appointmentDayChip(day, isDark, width: (constraints.maxWidth - 10) / 2))
+                    .toList(),
+              );
+            }
+            return Column(
+              children: _weekdays
+                  .map((day) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _appointmentDayChip(day, isDark),
+                      ))
+                  .toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        if (selected.isEmpty)
+          Text(
+            'Select at least one appointment day to continue.',
+            style: TextStyle(fontSize: 12, color: CoachDashboardTheme.warning.withValues(alpha: 0.9)),
+          )
+        else
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: CoachDashboardTheme.success.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CoachDashboardTheme.success.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${selected.length} appointment day${selected.length == 1 ? '' : 's'} selected',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white70 : CoachDashboardTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: selected
+                      .map((day) => Chip(
+                            label: Text(day),
+                            avatar: const Icon(Icons.check_circle_rounded, size: 16, color: CoachDashboardTheme.success),
+                            backgroundColor: CoachDashboardTheme.success.withValues(alpha: 0.1),
+                            side: BorderSide(color: CoachDashboardTheme.success.withValues(alpha: 0.3)),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Members can only book on these days. Unselected days will not be available.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _workingDayChip(String day, bool isDark, {double? width}) {
+    final selected = _selectedWorkingDays.contains(day);
+    final chip = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _toggleWorkingDay(day),
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? CoachDashboardTheme.primary.withValues(alpha: 0.12)
+                : (isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? CoachDashboardTheme.primary
+                  : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                size: 20,
+                color: selected ? CoachDashboardTheme.primary : (isDark ? Colors.white38 : CoachDashboardTheme.textSecondary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  day,
+                  style: TextStyle(
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected
+                        ? CoachDashboardTheme.primary
+                        : (isDark ? Colors.white70 : CoachDashboardTheme.textPrimary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (width == null) return chip;
+    return SizedBox(width: width, child: chip);
+  }
+
+  Widget _appointmentDayChip(String day, bool isDark, {double? width}) {
+    final selected = _selectedAppointmentDays.contains(day);
+    final chip = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _toggleAppointmentDay(day),
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? CoachDashboardTheme.primary.withValues(alpha: 0.12)
+                : (isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? CoachDashboardTheme.primary
+                  : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                size: 20,
+                color: selected ? CoachDashboardTheme.primary : (isDark ? Colors.white38 : CoachDashboardTheme.textSecondary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  day,
+                  style: TextStyle(
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected
+                        ? CoachDashboardTheme.primary
+                        : (isDark ? Colors.white70 : CoachDashboardTheme.textPrimary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (width == null) return chip;
+    return SizedBox(width: width, child: chip);
+  }
+
+  void _nextStep() {
+    setState(() => _errorMessage = null);
+    if (!_validateCurrentStep()) return;
+
+    if (_currentStep < _stepTitles.length - 1) {
+      setState(() => _currentStep++);
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _submit();
+    }
+  }
+
+  void _previousStep() {
+    if (_currentStep == 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _currentStep--;
+      _errorMessage = null;
+    });
+    _pageController.previousPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final payload = {
+        'phone': _phoneController.text.trim(),
+        'age': int.parse(_ageController.text.trim()),
+        'location': _locationController.text.trim(),
+        'yearsExperience': int.parse(_yearsExperienceController.text.trim()),
+        'certifications': _certificationsController.text.trim(),
+        'specialization': _specializationController.text.trim(),
+        'bio': _bioController.text.trim(),
+        'experience': _experienceController.text.trim(),
+        'message': _messageController.text.trim(),
+        'workingDays': _orderedWorkingDays,
+        'appointmentDays': _orderedAppointmentDays,
+        'dayAvailability': _dayAvailabilityPayload,
+        'appointmentDurationMinutes': _appointmentDuration,
+      };
+
+      final User user;
+      if (_isReapply) {
+        await CoachApplicationPrefs.clearRejectionDismissed(widget.existingUser!.id);
+        await _apiService.submitCoachApplication(
+          phone: payload['phone'] as String,
+          age: payload['age'] as int,
+          location: payload['location'] as String,
+          yearsExperience: payload['yearsExperience'] as int,
+          certifications: payload['certifications'] as String,
+          specialization: payload['specialization'] as String,
+          bio: payload['bio'] as String,
+          experience: payload['experience'] as String,
+          message: payload['message'] as String,
+          workingDays: payload['workingDays'] as List<String>,
+          appointmentDays: payload['appointmentDays'] as List<String>,
+          dayAvailability: (payload['dayAvailability'] as List)
+              .map((e) => Map<String, String>.from(e as Map))
+              .toList(),
+          appointmentDurationMinutes: payload['appointmentDurationMinutes'] as int,
+        );
+        user = (await _apiService.getMe()) ?? widget.existingUser!;
+      } else {
+        user = await _apiService.registerCoach(
+          name: _nameController.text.trim(),
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+          phone: payload['phone'] as String,
+          age: payload['age'] as int,
+          location: payload['location'] as String,
+          yearsExperience: payload['yearsExperience'] as int,
+          certifications: payload['certifications'] as String,
+          specialization: payload['specialization'] as String,
+          bio: payload['bio'] as String,
+          experience: payload['experience'] as String,
+          message: payload['message'] as String,
+          workingDays: payload['workingDays'] as List<String>,
+          appointmentDays: payload['appointmentDays'] as List<String>,
+          dayAvailability: (payload['dayAvailability'] as List)
+              .map((e) => Map<String, String>.from(e as Map))
+              .toList(),
+          appointmentDurationMinutes: payload['appointmentDurationMinutes'] as int,
+        );
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => AuthHome(user: user)),
+        (_) => false,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = ApiService.friendlyError(e));
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: CoachDashboardTheme.homeBackground(isDark),
+      appBar: AppBar(
+        title: Text(_isReapply ? 'Coach Application' : 'Coach Registration'),
+        backgroundColor: CoachDashboardTheme.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          if (_currentStep < _stepTitles.length - 1)
+            IconButton(
+              tooltip: 'Next step',
+              onPressed: _isSubmitting ? null : _nextStep,
+              icon: const Icon(Icons.arrow_forward_rounded),
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildStepIndicator(isDark),
+          if (_errorMessage != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: CoachDashboardTheme.danger.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: CoachDashboardTheme.danger),
+                  ),
+                  if (_errorMessage!.toLowerCase().contains('already registered') ||
+                      _errorMessage!.toLowerCase().contains('sign in')) ...[
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          (_) => false,
+                        );
+                      },
+                      child: const Text('Go to Sign In'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                if (!_isReapply) _buildAccountStep(isDark),
+                _buildPersonalStep(isDark),
+                _buildProfessionalStep(isDark),
+                _buildAppointmentAvailabilityStep(isDark),
+                _buildAboutStep(isDark),
+                _buildReviewStep(isDark),
+              ],
+            ),
+          ),
+          _buildNavigationBar(isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepIndicator(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      color: isDark ? const Color(0xFF181B24) : Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Step ${_currentStep + 1} of ${_stepTitles.length}: ${_stepTitles[_currentStep]}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: List.generate(_stepTitles.length, (index) {
+              final active = index <= _currentStep;
+              return Expanded(
+                child: Container(
+                  height: 4,
+                  margin: EdgeInsets.only(right: index < _stepTitles.length - 1 ? 6 : 0),
+                  decoration: BoxDecoration(
+                    color: active ? CoachDashboardTheme.primary : Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationBar(bool isDark) {
+    final isLastStep = _currentStep == _stepTitles.length - 1;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF181B24) : Colors.white,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _isSubmitting ? null : _previousStep,
+              child: Text(_currentStep == 0 ? 'Cancel' : 'Back'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              style: CoachDashboardTheme.primaryButtonStyle(),
+              onPressed: _isSubmitting ? null : _nextStep,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Text(isLastStep ? 'Submit Application' : 'Continue'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepScroll({required Widget child}) {
+    return SingleChildScrollView(
+      physics: dashboardScrollPhysics,
+      padding: const EdgeInsets.all(20),
+      child: child,
+    );
+  }
+
+  InputDecoration _fieldDecoration(String label, {String? hint, IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon != null ? Icon(icon) : null,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    );
+  }
+
+  Widget _buildAccountStep(bool isDark) {
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Create your account', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'Start with your login credentials. You will access the coach dashboard after admin approval.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameController,
+            textCapitalization: TextCapitalization.words,
+            decoration: _fieldDecoration('Full Name *', icon: Icons.person_outline),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: _fieldDecoration('Email Address *', icon: Icons.email_outlined),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            decoration: _fieldDecoration('Password *', icon: Icons.lock_outline).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonalStep(bool isDark) {
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Personal information', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'This information is reviewed by admins and kept private from other coaches.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _phoneController,
+            keyboardType: TextInputType.phone,
+            decoration: _fieldDecoration('Phone Number *', icon: Icons.phone_outlined),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _ageController,
+            keyboardType: TextInputType.number,
+            decoration: _fieldDecoration('Age *', hint: 'Must be 18+', icon: Icons.cake_outlined),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _locationController,
+            decoration: _fieldDecoration('City / Location *', icon: Icons.location_on_outlined),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfessionalStep(bool isDark) {
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Professional credentials', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'Share your training background so admins can verify your qualifications.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _yearsExperienceController,
+            keyboardType: TextInputType.number,
+            decoration: _fieldDecoration('Years of Experience *', icon: Icons.timeline),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _certificationsController,
+            maxLines: 3,
+            decoration: _fieldDecoration(
+              'Certifications *',
+              hint: 'e.g. NASM-CPT, ACE, CPR/AED',
+              icon: Icons.verified_outlined,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _specializationController,
+            decoration: _fieldDecoration(
+              'Specializations *',
+              hint: 'Strength, Yoga, Nutrition (comma-separated)',
+              icon: Icons.fitness_center,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildWorkingDaysSection(isDark),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(TimeOfDay time) => time.format(context);
+
+  String _hhmm(TimeOfDay time) =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTimeForDay(String day, {required bool isStart}) async {
+    final hours = _dayAvailability[day];
+    if (hours == null) return;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isStart ? hours.start : hours.end,
+      helpText: isStart ? 'Start time for $day' : 'End time for $day',
+    );
+    if (picked == null) return;
+    setState(() {
+      if (isStart) {
+        hours.start = picked;
+      } else {
+        hours.end = picked;
+      }
+      _errorMessage = null;
+    });
+  }
+
+  Widget _buildAppointmentAvailabilityStep(bool isDark) {
+    final days = _orderedAppointmentDays;
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Appointment Days', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'Choose which days accept bookings, then set start and end times for each selected day.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 22),
+          _buildAppointmentDaysSelection(isDark),
+          const SizedBox(height: 24),
+          if (days.isNotEmpty) ...[
+            Text('Hours per day', style: CoachDashboardTheme.sectionLabel(isDark)),
+            const SizedBox(height: 10),
+            ...days.map((day) => _dayAvailabilityCard(day, isDark)),
+            const SizedBox(height: 24),
+          ],
+          Text('Appointment Duration', style: CoachDashboardTheme.sectionLabel(isDark)),
+          const SizedBox(height: 10),
+          Row(
+            children: _durationOptions
+                .map((minutes) => Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: minutes == _durationOptions.last ? 0 : 10),
+                        child: _durationChip(isDark, minutes),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 26),
+          _availabilityPreviewCard(isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _dayAvailabilityCard(String day, bool isDark) {
+    final hours = _dayAvailability[day];
+    if (hours == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calendar_today_rounded, size: 18, color: CoachDashboardTheme.primary),
+              const SizedBox(width: 8),
+              Text(day, style: CoachDashboardTheme.sectionLabel(isDark)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _timePickerTile(
+                  isDark: isDark,
+                  label: 'Start Time',
+                  value: _formatTime(hours.start),
+                  onTap: () => _pickTimeForDay(day, isStart: true),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _timePickerTile(
+                  isDark: isDark,
+                  label: 'End Time',
+                  value: _formatTime(hours.end),
+                  onTap: () => _pickTimeForDay(day, isStart: false),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _timePickerTile({
+    required bool isDark,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: isDark ? Colors.white38 : CoachDashboardTheme.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.schedule_rounded, size: 18, color: CoachDashboardTheme.primary),
+                  const SizedBox(width: 8),
+                  Text(value, style: _appointmentValueStyle(isDark)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _durationChip(bool isDark, int minutes) {
+    final selected = _appointmentDuration == minutes;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _appointmentDuration = minutes),
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? CoachDashboardTheme.primary.withValues(alpha: 0.12)
+                : (isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? CoachDashboardTheme.primary
+                  : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              '$minutes min',
+              style: TextStyle(
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected
+                    ? CoachDashboardTheme.primary
+                    : (isDark ? Colors.white70 : CoachDashboardTheme.textPrimary),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _availabilityPreviewCard(bool isDark) {
+    const points = [
+      'Clients can only book on your selected working days.',
+      'Each day uses the start and end times you set above.',
+      'Booked time slots automatically become unavailable.',
+      'You can update your availability anytime after registration.',
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: CoachDashboardTheme.primary.withValues(alpha: isDark ? 0.10 : 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: CoachDashboardTheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.event_available_rounded, size: 20, color: CoachDashboardTheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Appointment Availability',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(height: 1, color: CoachDashboardTheme.primary.withValues(alpha: 0.2)),
+          const SizedBox(height: 12),
+          if (_orderedAppointmentDays.isEmpty)
+            Text(
+              'No appointment days selected yet.',
+              style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary),
+            )
+          else
+            ..._orderedAppointmentDays.map((day) {
+              final hours = _dayAvailability[day];
+              if (hours == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle_rounded, size: 16, color: CoachDashboardTheme.success),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$day: ${_formatTime(hours.start)} – ${_formatTime(hours.end)}',
+                        style: _appointmentValueStyle(isDark),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          const SizedBox(height: 8),
+          _appointmentInfoBlock(
+            isDark: isDark,
+            icon: Icons.timer_outlined,
+            label: 'Duration',
+            child: Text('$_appointmentDuration Minutes', style: _appointmentValueStyle(isDark)),
+          ),
+          const SizedBox(height: 14),
+          Divider(height: 1, color: CoachDashboardTheme.primary.withValues(alpha: 0.2)),
+          const SizedBox(height: 12),
+          ...points.map(
+            (point) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.check_circle_rounded, size: 16, color: CoachDashboardTheme.primary),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      point,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  TextStyle _appointmentValueStyle(bool isDark) => TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
+      );
+
+  Widget _appointmentInfoBlock({
+    required bool isDark,
+    required IconData icon,
+    required String label,
+    required Widget child,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: CoachDashboardTheme.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: isDark ? Colors.white38 : CoachDashboardTheme.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              child,
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAboutStep(bool isDark) {
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Tell us about yourself', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'Once approved, your bio and specializations will be visible to app members.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _bioController,
+            maxLines: 4,
+            decoration: _fieldDecoration('Professional Bio *', hint: 'Introduce yourself to future clients'),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _experienceController,
+            maxLines: 4,
+            decoration: _fieldDecoration(
+              'Work Experience *',
+              hint: 'Describe your coaching history and achievements',
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _messageController,
+            maxLines: 3,
+            decoration: _fieldDecoration(
+              'Why do you want to coach? *',
+              hint: 'Your motivation for joining VitalFitness',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewStep(bool isDark) {
+    return _stepScroll(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Review your application', style: CoachDashboardTheme.sectionTitle(isDark)),
+          const SizedBox(height: 8),
+          Text(
+            'Confirm everything is correct before submitting for admin approval.',
+            style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          _reviewCard(isDark, 'Account', [
+            _reviewRow('Name', _nameController.text),
+            _reviewRow('Email', _emailController.text),
+          ]),
+          _reviewCard(isDark, 'Personal', [
+            _reviewRow('Phone', _phoneController.text),
+            _reviewRow('Age', _ageController.text),
+            _reviewRow('Location', _locationController.text),
+          ]),
+          _reviewCard(isDark, 'Professional', [
+            _reviewRow('Experience', '${_yearsExperienceController.text} years'),
+            _reviewRow('Certifications', _certificationsController.text),
+            _reviewRow('Specializations', _specializationController.text),
+            _reviewRow('Working Days', _orderedWorkingDays.join(', ')),
+          ]),
+          _reviewCard(isDark, 'Appointment Days', [
+            _reviewRow('Days', _orderedAppointmentDays.join(', ')),
+            ..._orderedAppointmentDays.map((day) {
+              final hours = _dayAvailability[day];
+              if (hours == null) return _reviewRow(day, '—');
+              return _reviewRow(day, '${_formatTime(hours.start)} – ${_formatTime(hours.end)}');
+            }),
+            _reviewRow('Appointment Duration', '$_appointmentDuration minutes'),
+          ]),
+          _reviewCard(isDark, 'Profile', [
+            _reviewRow('Bio', _bioController.text),
+            _reviewRow('Work History', _experienceController.text),
+            _reviewRow('Motivation', _messageController.text),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _reviewCard(bool isDark, String title, List<Widget> rows) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: CoachDashboardTheme.cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: CoachDashboardTheme.sectionLabel(isDark)),
+          const SizedBox(height: 8),
+          ...rows,
+        ],
+      ),
+    );
+  }
+
+  Widget _reviewRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+          Text(value.isEmpty ? '—' : value, style: const TextStyle(fontSize: 14)),
+        ],
+      ),
+    );
+  }
+}

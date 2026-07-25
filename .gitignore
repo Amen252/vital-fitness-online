@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment / secrets — never commit
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Frontend build
+frontend/dist/
+frontend/dist-ssr/
+
+# Flutter / mobile
+mobile/.dart_tool/
+mobile/.flutter-plugins-dependencies
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/coverage/
+mobile/**/doc/api/
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+mobile/**/*.symbols
+mobile/**/*.map.json
+
+# Backend uploads / local data
+backend/uploads/
+backend/tmp/

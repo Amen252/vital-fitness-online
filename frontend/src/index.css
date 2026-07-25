@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Vital Fitness brand tokens — mirrored from Flutter
+  mobile/lib/screens/dashboard/widgets/coach_home/coach_dashboard_theme.dart
+*/
+:root {
+  --vf-primary: #3d4f9f;
+  --vf-primary-light: #5b6fd6;
+  --vf-primary-deep: #2e3a6b;
+  --vf-accent: #0ea5e9;
+  --vf-success: #059669;
+  --vf-warning: #d97706;
+  --vf-danger: #dc2626;
+  --vf-pink: #db2777;
+
+  --vf-bg: #f3f4f8;
+  --vf-surface: #ffffff;
+  --vf-surface-muted: #f9fafb;
+  --vf-border: #e5e7eb;
+  --vf-text: #111827;
+  --vf-muted: #6b7280;
+  --vf-sidebar: #ffffff;
+  --vf-sidebar-text: #6b7280;
+  --vf-sidebar-muted: #9ca3af;
+  --vf-sidebar-hover: #f3f4f8;
+  --vf-sidebar-active-bg: color-mix(in srgb, var(--vf-primary) 10%, white);
+  --vf-sidebar-active-text: #111827;
+  --vf-sidebar-border: #e5e7eb;
+
+  --vf-radius-card: 16px;
+  --vf-radius-control: 12px;
+  --vf-shadow-card: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --vf-gradient: linear-gradient(135deg, #2e3a6b, #3d4f9f);
+
+  font-family: "Nunito", system-ui, -apple-system, sans-serif;
+  color: var(--vf-text);
+  background: var(--vf-bg);
+  line-height: 1.5;
+}
+
+.dark {
+  --vf-bg: #0f1117;
+  --vf-surface: #181b24;
+  --vf-surface-muted: #0f1117;
+  --vf-border: #2a2f3d;
+  --vf-text: #ffffff;
+  --vf-muted: rgba(255, 255, 255, 0.6);
+  --vf-sidebar: #181b24;
+  --vf-sidebar-text: rgba(255, 255, 255, 0.72);
+  --vf-sidebar-muted: rgba(255, 255, 255, 0.45);
+  --vf-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --vf-sidebar-active-bg: color-mix(in srgb, var(--vf-primary) 28%, transparent);
+  --vf-sidebar-active-text: #ffffff;
+  --vf-sidebar-border: #2a2f3d;
+  --vf-shadow-card: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--vf-bg);
+  color: var(--vf-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes vf-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vf-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.vf-animate-in {
+  animation: vf-fade-in 0.35s ease-out both;
+}
+
+@keyframes vf-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vf-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(2%, -3%) scale(1.04);
+  }
+}
+
+@keyframes vf-pulse-soft {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes vf-shimmer-line {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.vf-login-shell {
+  animation: vf-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.vf-login-stagger > * {
+  animation: vf-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.vf-login-stagger > *:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.vf-login-stagger > *:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.vf-login-stagger > *:nth-child(3) {
+  animation-delay: 0.18s;
+}
+.vf-login-stagger > *:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.vf-login-stagger > *:nth-child(5) {
+  animation-delay: 0.3s;
+}
+.vf-login-stagger > *:nth-child(6) {
+  animation-delay: 0.36s;
+}
+.vf-login-stagger > *:nth-child(7) {
+  animation-delay: 0.42s;
+}
+.vf-login-stagger > *:nth-child(8) {
+  animation-delay: 0.48s;
+}
+
+.vf-login-orb {
+  animation: vf-drift 14s ease-in-out infinite;
+}
+
+.vf-login-orb-delayed {
+  animation: vf-drift 18s ease-in-out infinite reverse;
+}
+
+.vf-login-glow {
+  animation: vf-pulse-soft 6s ease-in-out infinite;
+}
+
+.vf-login-input {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.vf-login-input:focus {
+  border-color: color-mix(in srgb, var(--vf-primary) 55%, var(--vf-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vf-primary) 18%, transparent);
+  background: var(--vf-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vf-login-shell,
+  .vf-login-stagger > *,
+  .vf-login-orb,
+  .vf-login-orb-delayed,
+  .vf-login-glow {
+    animation: none;
+  }
+}
+
+.vf-skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--vf-border) 70%, transparent) 25%,
+    color-mix(in srgb, var(--vf-muted) 18%, transparent) 50%,
+    color-mix(in srgb, var(--vf-border) 70%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: vf-shimmer 1.4s ease-in-out infinite;
+  border-radius: 10px;
+}
+
+.vf-card {
+  background: var(--vf-surface);
+  border: 1px solid var(--vf-border);
+  border-radius: var(--vf-radius-card);
+  box-shadow: var(--vf-shadow-card);
+}
+
+.vf-focus:focus-visible {
+  outline: 2px solid var(--vf-accent);
+  outline-offset: 2px;
+}
