@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/password_utils.dart';
 import '../../widgets/scrollable_body.dart';
-import '../dashboard/dashboard_screen.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
+import 'auth_home.dart';
+import 'auth_routing.dart';
 import 'login_screen.dart';
 
-/// Member self-registration — same `/auth/register` API and field model as the
-/// web Register page / member profile fields used by the admin create flow.
+/// Member (client) self-registration — same `/auth/register` API as the web.
+/// After signup, routes through [AuthHome] like login (role gates + password),
+/// then opens the Coaches tab (web `/member/coaches`).
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -76,11 +78,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
+      // Same path as web: establish session → member shell → coaches.
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (_) => DashboardScreen(
-            initialUser: user,
-            initialTabIndex: 3, // Coaches tab
+          builder: (_) => AuthHome(
+            user: user,
+            memberInitialTabIndex: AuthRouting.memberCoachesTabIndex,
           ),
         ),
         (_) => false,
@@ -167,7 +170,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Create your fitness account',
+                        'Create client account',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w800,
@@ -176,7 +179,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'After you register, you can browse the available coaches and choose the coach you want.',
+                        'You are registering as a client. After signup you can browse coaches and send a request — same as the web member flow.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, color: muted, height: 1.35),
                       ),

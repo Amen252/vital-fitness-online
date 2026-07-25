@@ -9,6 +9,8 @@ import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../widgets/account/change_password_dialog.dart';
 import '../../support/help_support_screen.dart';
+import '../../auth/coach_register_screen.dart';
+import '../../auth/auth_home.dart';
 import '../invite_friends_screen.dart';
 import '../../../utils/share_helpers.dart';
 class UserSettingsTab extends StatefulWidget {
@@ -261,12 +263,30 @@ class _UserSettingsTabState extends State<UserSettingsTab> {
                     const SizedBox(height: 2),
                     Text(_phoneController.text, style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
-                  if (_user.role == 'user') ...[
+                  if (_user.isClient) ...[
                     const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(color: const Color(0xFF00D4AA).withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
-                      child: const Text('USER', style: TextStyle(color: Color(0xFF00D4AA), fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: const Text('CLIENT', style: TextStyle(color: Color(0xFF00D4AA), fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                  if (_user.hasPendingCoachApplication) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: CoachDashboardTheme.warning.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'COACH APPLICATION PENDING',
+                        style: TextStyle(
+                          color: CoachDashboardTheme.warning,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ],
                 ])),
@@ -348,6 +368,46 @@ class _UserSettingsTabState extends State<UserSettingsTab> {
                 onTap: () => shareVitalCard(context, type: 'weekly'),
               ),
             ]),
+            if (_user.isClient && !_user.hasPendingCoachApplication) ...[
+              const SizedBox(height: 24),
+              Text('Become a coach', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 12),
+              _buildSettingsGroup(isDark, [
+                ListTile(
+                  title: const Text('Apply to become a coach'),
+                  subtitle: Text(
+                    _user.hasRejectedCoachApplication
+                        ? 'Your last application was rejected. You can reapply.'
+                        : 'Submit an application for admin review (same as web).',
+                  ),
+                  leading: const Icon(Icons.school_outlined, color: CoachDashboardTheme.primary),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CoachRegisterScreen(existingUser: _user),
+                      ),
+                    );
+                    if (!mounted) return;
+                    try {
+                      final refreshed = await _apiService.getMe();
+                      if (!mounted || refreshed == null) return;
+                      if (refreshed.hasPendingCoachApplication ||
+                          refreshed.isCoach) {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => AuthHome(user: refreshed),
+                          ),
+                          (_) => false,
+                        );
+                        return;
+                      }
+                      widget.onUserUpdated(refreshed);
+                    } catch (_) {}
+                  },
+                ),
+              ]),
+            ],
             const SizedBox(height: 24),
 
             // Notifications

@@ -376,7 +376,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     crossAxisAlignment: WrapCrossAlignment.center,
                                     children: [
                                       Text(
-                                        'New to Vital Fitness? ',
+                                        'New client? ',
                                         style: TextStyle(
                                           fontSize: 13,
                                           color: isDark
@@ -394,7 +394,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                           );
                                         },
                                         child: const Text(
-                                          'Create Account',
+                                          'Create client account',
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: CoachDashboardTheme.primary,
@@ -434,7 +434,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'An admin will review coach applications.',
+                                    'Clients browse coaches and send requests. Coaches need admin approval.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 11,

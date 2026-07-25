@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
-import '../dashboard/coach_dashboard_screen.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
 import 'login_screen.dart';
@@ -26,7 +25,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
   late User _currentUser;
   Timer? _pollTimer;
 
-  bool get _isApproved => _approvedUser?.role == 'coach';
+  bool get _isApproved => _approvedUser?.isCoach == true;
 
   @override
   void initState() {
@@ -48,7 +47,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
     final user = _approvedUser;
     if (user == null) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => CoachDashboardScreen(coachUser: user)),
+      MaterialPageRoute(builder: (_) => AuthHome(user: user)),
       (_) => false,
     );
   }
@@ -71,7 +70,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         return;
       }
 
-      if (user.role == 'coach') {
+      if (user.isCoach) {
         setState(() {
           _approvedUser = user;
           _currentUser = user;
@@ -81,7 +80,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         return;
       }
 
-      if (user.coachApplicationStatus != 'pending') {
+      if (!user.hasPendingCoachApplication) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => AuthHome(user: user)),
         );

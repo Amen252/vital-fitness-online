@@ -287,12 +287,14 @@ class User {
   final String id;
   final String name;
   final String email;
+  /// API role: `user` (client/member), `coach`, or `admin`.
   final String role;
   final String? phone;
   final String? status;
   final Profile? profile;
   final String? coachApplicationStatus;
   final DateTime? coachApplicationReviewedAt;
+  final bool mustChangePassword;
 
   User({
     required this.id,
@@ -304,7 +306,23 @@ class User {
     this.profile,
     this.coachApplicationStatus,
     this.coachApplicationReviewedAt,
+    this.mustChangePassword = false,
   });
+
+  /// Client / member account (same as web `/member/*`).
+  bool get isClient => role == 'user';
+
+  /// Approved coach account (same as web `/coach/*`).
+  bool get isCoach => role == 'coach';
+
+  bool get isAdmin => role == 'admin';
+
+  /// Waiting for admin to approve a coach application.
+  bool get hasPendingCoachApplication =>
+      coachApplicationStatus == 'pending';
+
+  bool get hasRejectedCoachApplication =>
+      coachApplicationStatus == 'rejected';
 
   factory User.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
@@ -328,6 +346,7 @@ class User {
       coachApplicationReviewedAt: json['coachApplicationReviewedAt'] != null
           ? DateTime.tryParse(json['coachApplicationReviewedAt'].toString())
           : null,
+      mustChangePassword: json['must_change_password'] == true,
     );
   }
 
@@ -341,6 +360,7 @@ class User {
     Profile? profile,
     String? coachApplicationStatus,
     DateTime? coachApplicationReviewedAt,
+    bool? mustChangePassword,
   }) {
     return User(
       id: id ?? this.id,
@@ -353,6 +373,7 @@ class User {
       coachApplicationStatus: coachApplicationStatus ?? this.coachApplicationStatus,
       coachApplicationReviewedAt:
           coachApplicationReviewedAt ?? this.coachApplicationReviewedAt,
+      mustChangePassword: mustChangePassword ?? this.mustChangePassword,
     );
   }
 }

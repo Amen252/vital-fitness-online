@@ -3,7 +3,6 @@ import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../services/coach_application_prefs.dart';
 import '../../widgets/scrollable_body.dart';
-import '../dashboard/dashboard_screen.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
 import 'coach_register_screen.dart';
@@ -41,7 +40,7 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
         return;
       }
 
-      if (user.role == 'coach' || user.coachApplicationStatus != 'rejected') {
+      if (user.isCoach || !user.hasRejectedCoachApplication) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => AuthHome(user: user)),
         );
@@ -65,9 +64,10 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
       reviewedAt: widget.user.coachApplicationReviewedAt,
     );
     if (!mounted) return;
+    // Stay on the client (member) shell — same as web member experience.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => DashboardScreen(initialUser: widget.user),
+        builder: (_) => AuthHome(user: widget.user),
       ),
     );
   }
