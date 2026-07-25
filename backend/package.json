@@ -11,7 +11,7 @@
     "restart": "npm run stop && sleep 1 && PORT=5050 npm start"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   },
   "keywords": [],
   "author": "",
