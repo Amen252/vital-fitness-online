@@ -23,7 +23,7 @@ class ApiService {
     try {
       final response = await http
           .get(Uri.parse(ApiConfig.healthUrl))
-          .timeout(const Duration(seconds: 3));
+          .timeout(ApiConfig.healthTimeout);
       if (response.statusCode == 200) return 'connected';
       if (response.statusCode == 503) return 'degraded';
       return 'offline';
@@ -44,12 +44,16 @@ class ApiService {
     if (error is SocketException ||
         message.contains('Connection refused') ||
         message.contains('Failed host lookup') ||
-        message.contains('Network is unreachable')) {
+        message.contains('Network is unreachable') ||
+        message.contains('TimeoutException')) {
+      if (ApiConfig.isLocalOverride) {
+        return 'Cannot reach the server at ${ApiConfig.baseUrl}.\n\n'
+            'Start the backend first:\n'
+            '  cd backend && npm start';
+      }
       return 'Cannot reach the server at ${ApiConfig.baseUrl}.\n\n'
-          'Start the backend first:\n'
-          '  cd backend && npm run dev\n'
-          'Or from the project root:\n'
-          '  ./scripts/dev.sh run';
+          'Check your internet connection. If this persists, the '
+          'production API may be waking up (Render) — wait ~30s and retry.';
     }
     return message.replaceAll('Exception: ', '');
   }

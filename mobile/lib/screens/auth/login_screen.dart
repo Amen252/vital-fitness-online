@@ -215,8 +215,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                   if (_apiStatus == 'offline') ...[
                                     _AlertBanner(
-                                      message:
-                                          'Cannot reach API at ${ApiConfig.baseUrl}.\nStart backend: cd backend && npm start',
+                                      message: ApiConfig.isLocalOverride
+                                          ? 'Cannot reach API at ${ApiConfig.baseUrl}.\nStart backend: cd backend && npm start'
+                                          : 'Cannot reach API at ${ApiConfig.baseUrl}.\nCheck internet, or wait ~30s if the server is waking up, then pull to retry.',
                                       color: CoachDashboardTheme.warning,
                                     ),
                                     const SizedBox(height: 14),

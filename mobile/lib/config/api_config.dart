@@ -1,16 +1,16 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 
-/// Central API configuration.
+/// Central API configuration for Flutter (Android / iOS / web / desktop).
 ///
-/// The mobile app talks to the deployed Express API (same backend + MongoDB
-/// Atlas database used by the web app). By default it points at the production
-/// Render deployment, so a plain `flutter build apk` produces a working APK.
+/// **Release / profile builds always use the production Render API** — never
+/// localhost. That is required so an installed Android APK can reach the
+/// backend from a real device.
 ///
-/// Overrides (all optional):
-///   flutter build apk --dart-define=API_URL=https://my-api.onrender.com/api
-/// or piece-by-piece for local/LAN testing:
+/// **Debug builds** (`flutter run`, simulator) use the local API by default.
+/// Override anytime with `--dart-define`:
+///   flutter run --dart-define=API_URL=http://10.0.2.2:5050/api
 ///   flutter run --dart-define=API_HOST=192.168.1.10 --dart-define=API_PORT=5050
-///   flutter run --dart-define=API_HOST=10.0.2.2 --dart-define=API_PORT=5050
+///   flutter run --dart-define=API_URL=https://vital-online-app-1.onrender.com/api
 class ApiConfig {
   /// Full base URL override, e.g. `https://host/api`. Wins over everything else.
   static const String _urlOverride = String.fromEnvironment('API_URL');
@@ -18,13 +18,22 @@ class ApiConfig {
   static const String _portOverride = String.fromEnvironment('API_PORT');
   static const String _schemeOverride = String.fromEnvironment('API_SCHEME');
 
-  /// Production API (Render). Used when no overrides are provided.
+  /// Production API (Render). Default for release / profile builds.
   static const String _prodHost = 'vital-online-app-1.onrender.com';
+
+  /// Local API for `flutter run` / debug (simulator, desktop, Chrome).
+  static const String _localHost = '127.0.0.1';
 
   static const int defaultPort = 5050;
 
   static bool get _hasUrlOverride => _urlOverride.isNotEmpty;
   static bool get _hasHostOverride => _hostOverride.isNotEmpty;
+
+  /// True when pointing at a non-production host (local / LAN / emulator).
+  static bool get isLocalOverride =>
+      _hasUrlOverride ||
+      _hasHostOverride ||
+      (kDebugMode && !_hasUrlOverride);
 
   static int get port {
     if (_portOverride.isNotEmpty) {
@@ -35,25 +44,29 @@ class ApiConfig {
 
   static String get host {
     if (_hasHostOverride) return _hostOverride;
-
-    // No override → use the deployed production API for real devices/builds.
-    if (kIsWeb) return _prodHost;
+    if (kDebugMode && !_hasUrlOverride) return _localHost;
     return _prodHost;
   }
 
-  /// http vs https. Explicit override wins; otherwise 443 ⇒ https.
+  /// http vs https. Explicit override wins; production Render is always HTTPS.
   static String get scheme {
     if (_schemeOverride.isNotEmpty) return _schemeOverride;
     if (_hasHostOverride) {
       return port == 443 ? 'https' : 'http';
     }
-    // Production Render host is always HTTPS.
+    if (_hasUrlOverride) {
+      final lower = _urlOverride.toLowerCase();
+      if (lower.startsWith('http://')) return 'http';
+      if (lower.startsWith('https://')) return 'https';
+    }
+    if (kDebugMode) return 'http';
     return 'https';
   }
 
   /// True when the effective host:port needs an explicit port in the URL.
   static bool get _includePort {
-    if (_hasHostOverride) {
+    if (_hasUrlOverride) return false;
+    if (_hasHostOverride || (kDebugMode && !_hasUrlOverride)) {
       return !(port == 443 || port == 80);
     }
     return false; // production https on 443
@@ -61,7 +74,7 @@ class ApiConfig {
 
   static String get _authority => _includePort ? '$host:$port' : host;
 
-  /// Base API URL, e.g. `https://host/api` or `http://10.0.2.2:5050/api`.
+  /// Base API URL, e.g. `https://host/api` or `http://127.0.0.1:5050/api`.
   static String get baseUrl {
     if (_hasUrlOverride) {
       return _urlOverride.replaceAll(RegExp(r'/+$'), '');
@@ -78,4 +91,8 @@ class ApiConfig {
     }
     return '$scheme://$_authority';
   }
+
+  /// Health / cold-start timeout. Render free tier often needs >3s to wake.
+  static Duration get healthTimeout =>
+      isLocalOverride ? const Duration(seconds: 5) : const Duration(seconds: 45);
 }

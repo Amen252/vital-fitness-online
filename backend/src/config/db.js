@@ -69,12 +69,25 @@ function wireDatabaseEvents(app) {
   });
 }
 
+function isPlaceholderMongoUri(uri) {
+  return /xxxxx|<user>|<password>|cluster0\.xxxxx\.mongodb\.net|your-cluster|example\.mongodb\.net/i.test(
+    String(uri || ''),
+  );
+}
+
 async function connectDB() {
   const mongoUri = process.env.MONGO_URI;
 
   if (!mongoUri) {
     console.warn('MONGO_URI is not set. API will start without a database connection.');
     return false;
+  }
+
+  if (isPlaceholderMongoUri(mongoUri)) {
+    throw new Error(
+      'MONGO_URI still uses a placeholder host (e.g. cluster0.xxxxx.mongodb.net). '
+      + 'Set the real Atlas connection string for the existing vitalguide database in backend/.env.',
+    );
   }
 
   const dbName = getDatabaseName(mongoUri);
