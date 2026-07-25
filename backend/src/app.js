@@ -54,8 +54,10 @@ app.get('/api/health', async (req, res) => {
   const host = req.get('host') || `127.0.0.1:${process.env.PORT || 5050}`;
   const proto = req.protocol || 'http';
 
-  res.status(dbReady ? 200 : 503).json({
-    status: dbReady ? 'ok' : 'degraded',
+  // Always HTTP 200 so Render healthCheckPath (/api/health) does not restart the service.
+  // Body fields still report DB readiness for clients/ops.
+  res.status(200).json({
+    status: 'ok',
     database: dbReady ? 'connected' : 'unavailable',
     databaseName: databaseName || undefined,
     api: `${proto}://${host}/api`,

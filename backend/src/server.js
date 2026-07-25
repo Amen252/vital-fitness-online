@@ -19,8 +19,8 @@ const port = process.env.PORT || 5050;
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (isProduction && !process.env.MONGO_URI) {
-  console.error('FATAL: MONGO_URI must be set in production.');
-  process.exit(1);
+  // Do not exit — Render needs the process listening on PORT for health checks.
+  console.error('FATAL: MONGO_URI must be set in production (Render Environment). API will start degraded.');
 }
 
 if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-secret' || process.env.JWT_SECRET === 'change-me-in-production')) {
@@ -117,58 +117,59 @@ function startBackgroundJobs() {
   startAppointmentReminderJob();
 }
 
-connectDB()
-  .then((dbReady) => {
-    app.set('dbReady', dbReady);
-    if (dbReady) startBackgroundJobs();
-  })
-  .catch((error) => {
-    app.set('dbReady', false);
-    console.error('Database connection failed:', error.message);
-    scheduleConnectionRetry(app, startBackgroundJobs);
-  })
-  .finally(() => {
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        const healthUrl = `http://127.0.0.1:${port}/api/health`;
-        http.get(healthUrl, (res) => {
-          let body = '';
-          res.on('data', (chunk) => { body += chunk; });
-          res.on('end', () => {
-            if (res.statusCode === 200) {
-              console.log(`Port ${port} is already in use — VitalFitness API is already running.`);
-              console.log(`  ${healthUrl}`);
-              console.log('No action needed. Run your Flutter app, or use "npm run restart" to restart.');
-              process.exit(0);
-            }
-            console.error(`Port ${port} is in use but the health check failed.`);
-            console.error(`Free the port: lsof -ti :${port} | xargs kill`);
-            process.exit(1);
-          });
-        }).on('error', () => {
-          console.error(`Port ${port} is already in use by another process.`);
-          console.error(`Free the port: lsof -ti :${port} | xargs kill`);
-          console.error('Then run: npm start');
-          process.exit(1);
-        });
-        return;
-      }
-
-      console.error('Server failed to start:', err.message);
+// Bind HTTP immediately so Render health checks pass even while MongoDB connects.
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const healthUrl = `http://127.0.0.1:${port}/api/health`;
+    http.get(healthUrl, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          console.log(`Port ${port} is already in use — VitalFitness API is already running.`);
+          console.log(`  ${healthUrl}`);
+          console.log('No action needed. Run your Flutter app, or use "npm run restart" to restart.');
+          process.exit(0);
+        }
+        console.error(`Port ${port} is in use but the health check failed.`);
+        console.error(`Free the port: lsof -ti :${port} | xargs kill`);
+        process.exit(1);
+      });
+    }).on('error', () => {
+      console.error(`Port ${port} is already in use by another process.`);
+      console.error(`Free the port: lsof -ti :${port} | xargs kill`);
+      console.error('Then run: npm start');
       process.exit(1);
     });
+    return;
+  }
 
-    // Bind 0.0.0.0 so Render/Heroku can route traffic to the container.
-    server.listen(port, '0.0.0.0', () => {
-      console.log(`API listening on 0.0.0.0:${port}`);
-      const dbName = app.get('databaseName');
-      if (dbName) {
-        console.log(`Database target: ${dbName} (web + mobile share this via API)`);
-      }
-      if (!app.get('dbReady')) {
+  console.error('Server failed to start:', err.message);
+  process.exit(1);
+});
+
+// Bind 0.0.0.0 so Render/Heroku can route traffic to the container.
+server.listen(port, '0.0.0.0', () => {
+  console.log(`API listening on 0.0.0.0:${port}`);
+  const dbName = app.get('databaseName');
+  if (dbName) {
+    console.log(`Database target: ${dbName} (web + mobile share this via API)`);
+  }
+
+  connectDB()
+    .then((dbReady) => {
+      app.set('dbReady', dbReady);
+      if (dbReady) startBackgroundJobs();
+      if (!dbReady) {
         console.warn(
           'MongoDB is not connected yet — API reads/writes return 503 until Atlas Network Access allows this host (use 0.0.0.0/0 for cloud deploys).',
         );
+        scheduleConnectionRetry(app, startBackgroundJobs);
       }
+    })
+    .catch((error) => {
+      app.set('dbReady', false);
+      console.error('Database connection failed:', error.message);
+      scheduleConnectionRetry(app, startBackgroundJobs);
     });
-  });
+});
