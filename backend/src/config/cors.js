@@ -46,6 +46,17 @@ function isAllowedOrigin(origin) {
     }
   }
 
+  // Vercel frontend previews + production (*.vercel.app)
+  // Set ALLOW_VERCEL_ORIGINS=false to disable.
+  if (process.env.ALLOW_VERCEL_ORIGINS !== 'false') {
+    try {
+      const host = new URL(origin).hostname;
+      if (host.endsWith('.vercel.app')) return true;
+    } catch {
+      return false;
+    }
+  }
+
   return false;
 }
 

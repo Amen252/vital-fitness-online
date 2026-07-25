@@ -22,3 +22,5 @@ services:
         sync: false
       - key: ALLOW_RENDER_ORIGINS
         value: "true"
+      - key: ALLOW_VERCEL_ORIGINS
+        value: "true"
