@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "PORT=5050 nodemon --watch src --legacy-watch src/server.js",
     "start": "node src/server.js",
+    "check-db": "node scripts/check-db.js",
     "stop": "lsof -ti :5050 | xargs kill 2>/dev/null || true",
     "restart": "npm run stop && sleep 1 && PORT=5050 npm start"
   },

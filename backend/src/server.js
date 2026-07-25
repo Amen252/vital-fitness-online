@@ -11,29 +11,24 @@ const {
   scheduleConnectionRetry,
   getDatabaseName,
 } = require('./config/db');
+const { isAllowedOrigin } = require('./config/cors');
 const { startWorkoutScheduleReminderJob } = require('./jobs/workoutScheduleReminders');
 const { startAppointmentReminderJob } = require('./jobs/appointmentReminders');
 
 const port = process.env.PORT || 5050;
-const server = http.createServer(app);
+const isProduction = process.env.NODE_ENV === 'production';
 
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  const allowed = [
-    process.env.CLIENT_URL,
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5174',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-  ].filter(Boolean);
-  return (
-    allowed.includes(origin) ||
-    origin.startsWith('http://localhost:') ||
-    origin.startsWith('http://127.0.0.1:')
-  );
+if (isProduction && !process.env.MONGO_URI) {
+  console.error('FATAL: MONGO_URI must be set in production.');
+  process.exit(1);
 }
+
+if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-secret' || process.env.JWT_SECRET === 'change-me-in-production')) {
+  console.error('FATAL: Set a strong JWT_SECRET in production (Render/Heroku env vars).');
+  process.exit(1);
+}
+
+const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
@@ -163,15 +158,16 @@ connectDB()
       process.exit(1);
     });
 
-    server.listen(port, () => {
-      console.log(`API listening on port ${port}`);
+    // Bind 0.0.0.0 so Render/Heroku can route traffic to the container.
+    server.listen(port, '0.0.0.0', () => {
+      console.log(`API listening on 0.0.0.0:${port}`);
       const dbName = app.get('databaseName');
       if (dbName) {
         console.log(`Database target: ${dbName} (web + mobile share this via API)`);
       }
       if (!app.get('dbReady')) {
         console.warn(
-          'MongoDB is not connected yet — API reads/writes return 503 until Atlas is reachable.',
+          'MongoDB is not connected yet — API reads/writes return 503 until Atlas Network Access allows this host (use 0.0.0.0/0 for cloud deploys).',
         );
       }
     });

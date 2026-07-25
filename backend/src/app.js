@@ -3,6 +3,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 
+const { isAllowedOrigin } = require('./config/cors');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const dietRoutes = require('./routes/dietRoutes');
@@ -18,35 +19,23 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5174',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-].filter(Boolean);
+// Render / Heroku sit behind a proxy — needed for secure cookies & correct IPs
+app.set('trust proxy', 1);
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (
-      !origin || 
-      allowedOrigins.indexOf(origin) !== -1 ||
-      origin.startsWith('http://localhost:') ||
-      origin.startsWith('http://127.0.0.1:')
-    ) {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return;
     }
+    callback(new Error('Not allowed by CORS'));
   },
-  credentials: true
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '6mb' }));
 app.use(cookieParser());
-app.use(morgan('dev'));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/api/health', async (req, res) => {
   const { pingDatabase, scheduleConnectionRetry } = require('./config/db');
@@ -62,16 +51,19 @@ app.get('/api/health', async (req, res) => {
     }
   }
 
+  const host = req.get('host') || `127.0.0.1:${process.env.PORT || 5050}`;
+  const proto = req.protocol || 'http';
+
   res.status(dbReady ? 200 : 503).json({
     status: dbReady ? 'ok' : 'degraded',
     database: dbReady ? 'connected' : 'unavailable',
     databaseName: databaseName || undefined,
-    api: `http://127.0.0.1:${process.env.PORT || 5050}/api`,
+    api: `${proto}://${host}/api`,
     ...(dbReady
       ? {}
       : {
           hint:
-            'MongoDB Atlas is unreachable. Whitelist this machine’s IP under Atlas → Network Access, then wait for the API to reconnect.',
+            'MongoDB Atlas is unreachable. Under Atlas → Network Access, allow 0.0.0.0/0 (or your host IP), then wait for the API to reconnect.',
         }),
   });
 });
@@ -83,7 +75,8 @@ app.use((req, res, next) => {
 
   if (!req.app.get('dbReady')) {
     return res.status(503).json({
-      message: 'Database unavailable. Check that MONGO_URI is set in backend/.env and MongoDB Atlas is reachable, then restart the API.',
+      message:
+        'Database unavailable. Set MONGO_URI on the host and whitelist its IP in MongoDB Atlas Network Access (use 0.0.0.0/0 for Render/Heroku).',
     });
   }
 
@@ -105,8 +98,11 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/share', require('./routes/shareRoutes'));
 
 app.use((error, req, res, next) => {
+  if (error?.message === 'Not allowed by CORS') {
+    return res.status(403).json({ message: 'Not allowed by CORS' });
+  }
   console.error(error);
-  res.status(500).json({ message: 'Something went wrong' });
+  return res.status(500).json({ message: 'Something went wrong' });
 });
 
 module.exports = app;

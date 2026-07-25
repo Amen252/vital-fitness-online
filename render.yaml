@@ -1,5 +1,5 @@
-# Deploy backend on Render: Dashboard → New → Blueprint → connect this repo
-# Or create a Web Service with Root Directory = backend
+# Render Blueprint — connect repo https://github.com/Amen252/Vital-online-app
+# Dashboard → New → Blueprint → select this repo
 services:
   - type: web
     name: vital-api
@@ -20,3 +20,5 @@ services:
         sync: false
       - key: PUBLIC_WEB_URL
         sync: false
+      - key: ALLOW_RENDER_ORIGINS
+        value: "true"
