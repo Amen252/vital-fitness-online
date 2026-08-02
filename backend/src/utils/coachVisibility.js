@@ -62,10 +62,35 @@ async function getAuthorizedCoachIdsForUser(userId) {
   return [...ids].map((id) => new mongoose.Types.ObjectId(id));
 }
 
+/**
+ * Chat and legacy coach APIs use CoachAssignment. Ensure a row exists when only
+ * CoachClientAssignment is active (keeps both collections in sync).
+ */
+async function ensureLegacyCoachAssignment(coachId, userId) {
+  const coachObjId = typeof coachId === 'string' ? new mongoose.Types.ObjectId(coachId) : coachId;
+  const userObjId = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
+  let assignment = await CoachAssignment.findOne({ coach: coachObjId, user: userObjId });
+  if (assignment) {
+    if (assignment.status !== 'active') {
+      assignment.status = 'active';
+      await assignment.save();
+    }
+    return assignment;
+  }
+
+  return CoachAssignment.create({
+    coach: coachObjId,
+    user: userObjId,
+    status: 'active',
+  });
+}
+
 module.exports = {
   hasActiveAssignment,
   hasPendingRequest,
   coachCanAccessUser,
   getActiveClientIds,
   getAuthorizedCoachIdsForUser,
+  ensureLegacyCoachAssignment,
 };

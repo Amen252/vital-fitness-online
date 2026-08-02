@@ -41,6 +41,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final ApiService _apiService = ApiService();
   final GlobalKey<HomeTabState> _homeTabKey = GlobalKey<HomeTabState>();
   final GlobalKey<UserDietPlanScreenState> _dietTabKey = GlobalKey<UserDietPlanScreenState>();
+  late final GlobalKey<UserProgressTabState> _progressTabKey;
+  final GlobalKey<UserSettingsTabState> _settingsTabKey = GlobalKey<UserSettingsTabState>();
+  List<Widget>? _tabs;
 
   static const _navIcons = [
     (Icons.home_outlined, Icons.home_rounded),
@@ -60,7 +63,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _currentUser = widget.initialUser;
     _currentIndex = widget.initialTabIndex.clamp(0, _navIcons.length - 1);
+    _progressTabKey = GlobalKey<UserProgressTabState>();
     _loadUnreadCoachMessages();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _tabs ??= _createTabs();
   }
 
   Future<void> _loadUnreadCoachMessages() async {
@@ -76,6 +86,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _onScheduleDataChanged() {
     _homeTabKey.currentState?.refresh();
+    _progressTabKey.currentState?.refreshFromParent();
+  }
+
+  void _onDietDataChanged() {
+    _homeTabKey.currentState?.refresh();
+    _progressTabKey.currentState?.refreshFromParent();
   }
 
   void _onTabSelected(int index) {
@@ -84,8 +100,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _homeTabKey.currentState?.refresh();
     } else if (index == 1) {
       _dietTabKey.currentState?.refresh();
+    } else if (index == 2) {
+      _progressTabKey.currentState?.refreshFromParent();
     } else if (index == 3) {
       _loadUnreadCoachMessages();
+    } else if (index == 4) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _settingsTabKey.currentState?.scrollToTop();
+      });
     }
   }
 
@@ -96,6 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _onUserUpdated(User updatedUser) {
     setState(() {
       _currentUser = updatedUser;
+      _tabs = _createTabs();
     });
   }
 
@@ -119,7 +142,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  List<Widget> _buildTabs() {
+  List<Widget> _createTabs() {
     final myAppState = MyApp.of(context);
     final isDark = myAppState?.isDark ?? false;
     final toggleTheme = myAppState?.toggleTheme ?? (bool _) {};
@@ -129,12 +152,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         key: _homeTabKey,
         user: _currentUser,
         onOpenDietPlan: () => _onTabSelected(1),
+        onOpenProgress: () => _onTabSelected(2),
+        onOpenWorkouts: () => _openSection(_scheduleScreen()),
         onOpenMenu: () => _scaffoldKey.currentState?.openDrawer(),
       ),
-      UserDietPlanScreen(key: _dietTabKey),
-      UserProgressTab(user: _currentUser),
+      UserDietPlanScreen(key: _dietTabKey, onDietDataChanged: _onDietDataChanged),
+      UserProgressTab(key: _progressTabKey, user: _currentUser),
       UserCoachesTab(user: _currentUser, onUnreadChanged: _loadUnreadCoachMessages),
       UserSettingsTab(
+        key: _settingsTabKey,
         user: _currentUser,
         onUserUpdated: _onUserUpdated,
         onLogout: _handleLogout,
@@ -147,6 +173,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tabs = _tabs ?? _createTabs();
 
     return Scaffold(
       key: _scaffoldKey,
@@ -161,7 +188,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: SafeArea(
         child: IndexedStack(
           index: _currentIndex,
-          children: _buildTabs(),
+          children: tabs,
         ),
       ),
       bottomNavigationBar: AnimatedBottomNav(
@@ -188,25 +215,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _openWorkouts() async {
+    Map<String, dynamic>? coachingData;
     try {
-      final coachingData = await _apiService.getUserCoaching();
-      if (!mounted) return;
-      if (coachingData == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No coach assigned yet!')),
-        );
-        return;
-      }
-      _openSection(AssignmentsScreen(coachingData: coachingData));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ApiService.friendlyError(e)),
-          backgroundColor: CoachDashboardTheme.danger,
-        ),
-      );
-    }
+      coachingData = await _apiService.getUserCoaching();
+    } catch (_) {}
+    if (!mounted) return;
+    _openSection(AssignmentsScreen(
+      coachingData: coachingData,
+      onDataChanged: _onScheduleDataChanged,
+    ));
   }
 
   Widget _scheduleScreen({DateTime? initialWeekStart}) {

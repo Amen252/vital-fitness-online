@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
+import 'coach_rejected_screen.dart';
 import 'login_screen.dart';
 
 class CoachPendingScreen extends StatefulWidget {
@@ -21,11 +23,13 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
   final ApiService _apiService = ApiService();
   bool _isRefreshing = false;
   String? _errorMessage;
+  String? _statusFeedback;
   User? _approvedUser;
   late User _currentUser;
   Timer? _pollTimer;
+  DateTime? _lastCheckedAt;
 
-  bool get _isApproved => _approvedUser?.isCoach == true;
+  bool get _isApproved => _approvedUser?.hasApprovedCoachApplication == true;
 
   @override
   void initState() {
@@ -52,14 +56,47 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
     );
   }
 
+  Future<User?> _fetchLatestUser() async {
+    final user = await _apiService.getMe();
+    if (user == null) return null;
+
+    try {
+      final application = await _apiService.getMyCoachApplication();
+      if (application == null) return user;
+
+      final appStatus = application['status']?.toString();
+      final reviewedRaw = application['reviewedAt']?.toString();
+      final reviewedAt = reviewedRaw != null ? DateTime.tryParse(reviewedRaw) : null;
+
+      return user.copyWith(
+        coachApplicationStatus: appStatus ?? user.coachApplicationStatus,
+        coachApplicationReviewedAt: reviewedAt ?? user.coachApplicationReviewedAt,
+      );
+    } catch (_) {
+      return user;
+    }
+  }
+
+  void _showStatusFeedback(String message, {bool success = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? CoachDashboardTheme.success : CoachDashboardTheme.warning,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _refreshStatus({bool silent = false}) async {
     setState(() {
       _isRefreshing = true;
       _errorMessage = null;
+      if (!silent) _statusFeedback = null;
     });
 
     try {
-      final user = await _apiService.getMe();
+      final user = await _fetchLatestUser();
       if (!mounted) return;
 
       if (user == null) {
@@ -70,13 +107,26 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         return;
       }
 
-      if (user.isCoach) {
+      final checkedAt = DateTime.now();
+
+      if (user.hasApprovedCoachApplication) {
         setState(() {
           _approvedUser = user;
           _currentUser = user;
           _isRefreshing = false;
           _errorMessage = null;
+          _lastCheckedAt = checkedAt;
+          _statusFeedback = 'Your application has been approved.';
         });
+        if (!silent) _showStatusFeedback('Approved! You can open your coach dashboard.');
+        return;
+      }
+
+      if (user.hasRejectedCoachApplication) {
+        if (!silent) _showStatusFeedback('Your application was not approved.', success: false);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => CoachRejectedScreen(user: user)),
+        );
         return;
       }
 
@@ -91,7 +141,12 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         _currentUser = user;
         _approvedUser = null;
         _isRefreshing = false;
+        _lastCheckedAt = checkedAt;
+        _statusFeedback = 'Your application is still pending admin review.';
       });
+      if (!silent) {
+        _showStatusFeedback('Status: Pending — waiting for admin review.', success: false);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -138,6 +193,64 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
           Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
           Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusBadge(bool isDark) {
+    final status = _isApproved ? 'Approved' : _currentUser.coachApplicationStatusLabel;
+    final Color color;
+    final IconData icon;
+    switch (status.toLowerCase()) {
+      case 'approved':
+        color = CoachDashboardTheme.success;
+        icon = Icons.check_circle_outline_rounded;
+        break;
+      case 'rejected':
+        color = CoachDashboardTheme.danger;
+        icon = Icons.cancel_outlined;
+        break;
+      default:
+        color = CoachDashboardTheme.warning;
+        icon = Icons.hourglass_top_rounded;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(width: 10),
+              Text(
+                'Application status: $status',
+                style: TextStyle(fontWeight: FontWeight.w700, color: color, fontSize: 15),
+              ),
+            ],
+          ),
+          if (_lastCheckedAt != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Last checked ${DateFormat('MMM d, h:mm a').format(_lastCheckedAt!.toLocal())}',
+              style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary),
+            ),
+          ],
+          if (_statusFeedback != null && !_isApproved) ...[
+            const SizedBox(height: 6),
+            Text(
+              _statusFeedback!,
+              style: TextStyle(fontSize: 13, height: 1.4, color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary),
+            ),
+          ],
         ],
       ),
     );
@@ -234,6 +347,8 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
+                  _statusBadge(isDark),
+                  const SizedBox(height: 16),
                   if (!_isApproved) ...[
                     _submittedProfileCard(isDark),
                     const SizedBox(height: 16),

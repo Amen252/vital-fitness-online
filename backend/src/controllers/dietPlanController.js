@@ -10,10 +10,20 @@ const {
   applySingleMealToggle,
   buildMealCompletionSummary,
   computeAverageAdherence,
+  buildWeekDayCompletionSummary,
+  enrichWeekCompletionWithPlannedMeals,
+  dateForMondayBasedDay,
+  getPlannedMealTypes,
+  getMealsForDate,
   MEAL_LABELS,
+  DAY_NAMES,
 } = require('../utils/mealAdherenceUtils');
 const { USER_DISPLAY_SELECT, withDisplayName } = require('../utils/userDisplay');
 const { hasActiveAssignment } = require('../utils/coachVisibility');
+const {
+  computeCaloriesInFromDietPlan,
+  computeCaloriesInFromMealLogs,
+} = require('../utils/calorieTrackingUtils');
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snacks'];
 const GOALS = ['weight_loss', 'muscle_gain', 'maintenance'];
@@ -38,13 +48,67 @@ async function loadEnrichedDietPlan(planId) {
 
 function normalizeStatus(status) {
   const value = String(status || 'active').toLowerCase();
-  if (value === 'archived') return 'completed';
   return PLAN_STATUSES.includes(value) ? value : 'active';
 }
 
 function displayStatus(status) {
-  const normalized = normalizeStatus(status);
-  return normalized === 'archived' ? 'completed' : normalized;
+  return normalizeStatus(status);
+}
+
+function mealHasContent(meal) {
+  const name = String(meal?.name || '').trim();
+  const description = String(meal?.description || '').trim();
+  const foodItems = Array.isArray(meal?.foodItems) ? meal.foodItems : [];
+  return Boolean(name || description || foodItems.length);
+}
+
+function normalizeFoodItems(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return String(value || '')
+    .split(/[\n,;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeMeal(meal, fallbackType) {
+  const type = MEAL_TYPES.includes(meal?.type)
+    ? meal.type
+    : (fallbackType || _inferMealType(meal?.name));
+  return {
+    type,
+    name: meal?.name || '',
+    description: meal?.description || '',
+    foodItems: normalizeFoodItems(meal?.foodItems),
+    portionSize: String(meal?.portionSize || '').trim(),
+    calories: Math.max(0, Number(meal?.calories) || 0),
+    protein: Math.max(0, Number(meal?.protein) || 0),
+    carbs: Math.max(0, Number(meal?.carbs) || 0),
+    fats: Math.max(0, Number(meal?.fats) || 0),
+    reminderTime: String(meal?.reminderTime || '').trim(),
+    prepInstructions: String(meal?.prepInstructions || '').trim(),
+    mealNotes: String(meal?.mealNotes || meal?.notes || '').trim(),
+  };
+}
+
+function validateDailyCalories(value) {
+  const calories = Number(value);
+  if (!Number.isFinite(calories) || calories < 1) {
+    return { error: 'dailyCalories must be a positive number' };
+  }
+  if (calories > 20000) {
+    return { error: 'dailyCalories is unrealistically high' };
+  }
+  return { value: Math.round(calories) };
+}
+
+async function findActivePlanForAssignee(coachId, { clientId, fitnessClassId }, excludeId) {
+  const query = { coach: coachId, status: 'active' };
+  if (clientId) query.client = clientId;
+  if (fitnessClassId) query.fitnessClass = fitnessClassId;
+  if (excludeId) query._id = { $ne: excludeId };
+  return DietPlan.findOne(query).select('_id title status updatedAt').lean();
 }
 
 async function completeActivePlansForAssignee(coachId, { clientId, fitnessClassId }, excludeId) {
@@ -129,16 +193,7 @@ function normalizeMealsArray(meals) {
   if (!meals) return [];
 
   if (Array.isArray(meals)) {
-    return meals.map((meal) => ({
-      type: MEAL_TYPES.includes(meal.type) ? meal.type : _inferMealType(meal.name),
-      name: meal.name || '',
-      description: meal.description || '',
-      calories: Number(meal.calories) || 0,
-      protein: Number(meal.protein) || 0,
-      carbs: Number(meal.carbs) || 0,
-      fats: Number(meal.fats) || 0,
-      reminderTime: meal.reminderTime || '',
-    }));
+    return meals.map((meal) => normalizeMeal(meal));
   }
 
   if (typeof meals === 'object') {
@@ -147,18 +202,13 @@ function normalizeMealsArray(meals) {
       .map((type) => {
         const val = meals[type];
         if (typeof val === 'string') {
-          return { type, name: _capitalize(type), description: val, calories: 0, protein: 0, carbs: 0, fats: 0, reminderTime: '' };
+          return normalizeMeal({
+            type,
+            name: _capitalize(type),
+            description: val,
+          }, type);
         }
-        return {
-          type,
-          name: val.name || _capitalize(type),
-          description: val.description || '',
-          calories: Number(val.calories) || 0,
-          protein: Number(val.protein) || 0,
-          carbs: Number(val.carbs) || 0,
-          fats: Number(val.fats) || 0,
-          reminderTime: val.reminderTime || '',
-        };
+        return normalizeMeal({ ...val, type }, type);
       });
   }
 
@@ -185,23 +235,67 @@ function normalizeDietDays(days) {
   });
 }
 
+function dayHasAllWeeklyMealTypes(meals) {
+  const types = new Set((meals || []).filter((m) => mealHasContent(m)).map((m) => m.type));
+  return MEAL_TYPES.every((t) => types.has(t));
+}
+
+/** Weekly: one meal template; each assigned day in days[] gets those meals (schema unchanged). */
+function validateWeeklyPlanStructure(weekDays, flatMeals = []) {
+  const normalizedFlat = normalizeMealsArray(flatMeals).filter((m) => mealHasContent(m));
+  let templateMeals = normalizedFlat;
+  const assignedDays = (weekDays || []).filter((d) => (d.meals || []).some((m) => mealHasContent(m)));
+
+  if (!templateMeals.length && assignedDays.length) {
+    templateMeals = assignedDays[0].meals.filter((m) => mealHasContent(m));
+  }
+
+  if (!dayHasAllWeeklyMealTypes(templateMeals)) {
+    return {
+      error: 'Add Breakfast, Lunch, Dinner, and Snacks for the weekly plan.',
+    };
+  }
+  if (!assignedDays.length) {
+    return {
+      error: 'Select at least one day (Monday–Sunday) for this weekly plan.',
+    };
+  }
+  for (const day of assignedDays) {
+    if (!dayHasAllWeeklyMealTypes(day.meals)) {
+      return {
+        error: `Each selected day needs Breakfast, Lunch, Dinner, and Snacks (${DAY_NAMES[day.dayOfWeek]}).`,
+      };
+    }
+  }
+  return null;
+}
+
 function resolvePlanStructure({ planType, meals, days, targetDayOfWeek }) {
   const type = planType === 'weekly' ? 'weekly' : 'single_day';
   if (type === 'weekly') {
     const normalizedDays = normalizeDietDays(days);
-    const hasAnyMeal = normalizedDays.some((d) => d.meals.some((m) => {
-      const name = String(m.name || '').trim();
-      const description = String(m.description || '').trim();
-      return name || description;
+    const flatMeals = normalizeMealsArray(meals).filter((m) => mealHasContent(m));
+    let weekDays = Array.from({ length: 7 }, (_, i) => ({
+      dayOfWeek: i,
+      meals: (normalizedDays[i]?.meals || []).filter((m) => mealHasContent(m)),
+      notes: normalizedDays[i]?.notes || '',
     }));
-    if (!hasAnyMeal) {
-      return { error: 'Add meals for at least one day of the weekly plan' };
+
+    const assignedCount = weekDays.filter((d) => d.meals.length).length;
+    if (flatMeals.length && dayHasAllWeeklyMealTypes(flatMeals) && assignedCount === 0) {
+      weekDays = weekDays.map((d) => ({ ...d, meals: flatMeals }));
     }
-    const fallback = normalizedDays.find((d) => d.meals.length)?.meals || [];
+
+    const weeklyError = validateWeeklyPlanStructure(weekDays, flatMeals);
+    if (weeklyError) return weeklyError;
+
+    const templateMeals = flatMeals.length
+      ? flatMeals
+      : (weekDays.find((d) => d.meals.length)?.meals || []);
     return {
       planType: 'weekly',
-      days: normalizedDays,
-      meals: fallback,
+      days: weekDays,
+      meals: templateMeals,
       targetDayOfWeek: null,
     };
   }
@@ -218,11 +312,7 @@ function resolvePlanStructure({ planType, meals, days, targetDayOfWeek }) {
   if (day == null) {
     return { error: 'Check one day for the single-day diet plan' };
   }
-  if (!normalizedMeals.some((m) => {
-    const name = String(m.name || '').trim();
-    const description = String(m.description || '').trim();
-    return name || description;
-  })) {
+  if (!normalizedMeals.some((m) => mealHasContent(m))) {
     return { error: 'Add at least one meal for the selected day' };
   }
   return {
@@ -242,10 +332,12 @@ function enrichDietPlan(plan, date = new Date()) {
   const todaysMeals = getMealsForDate(obj, date);
   const dow = mondayBasedDayOfWeek(date);
   const target = obj.targetDayOfWeek != null ? Number(obj.targetDayOfWeek) : null;
+  const rawDays = Array.isArray(obj.days) ? obj.days : [];
+  const daysOut = obj.planType === 'weekly' ? normalizeDietDays(rawDays) : rawDays;
   return {
     ...obj,
     planType: obj.planType || 'single_day',
-    days: Array.isArray(obj.days) ? obj.days : [],
+    days: daysOut,
     meals: Array.isArray(obj.meals) ? obj.meals : [],
     targetDayOfWeek: Number.isFinite(target) ? target : null,
     targetDayName: Number.isFinite(target) ? DAY_NAMES[target] : null,
@@ -352,6 +444,25 @@ async function verifyCoachClient(coachId, clientId) {
 
 // --- User endpoints ---
 
+async function loadWeekCompletion(userId, refDate = new Date(), plan = null) {
+  const weekStart = dateForMondayBasedDay(0, refDate);
+  const weekEnd = dateForMondayBasedDay(6, refDate);
+  if (!weekStart || !weekEnd) {
+    return buildWeekDayCompletionSummary([], refDate);
+  }
+  const endExclusive = new Date(weekEnd);
+  endExclusive.setDate(endExclusive.getDate() + 1);
+  const records = await DietAdherence.find({
+    user: userId,
+    date: { $gte: weekStart, $lt: endExclusive },
+  }).lean();
+  const summary = buildWeekDayCompletionSummary(records, refDate);
+  if (plan?.planType === 'weekly') {
+    return enrichWeekCompletionWithPlannedMeals(plan, summary, refDate);
+  }
+  return summary;
+}
+
 async function getUserAssignedDietPlan(req, res) {
   try {
     const clientId = req.user.role === 'coach' ? req.query.clientId : req.user._id;
@@ -372,6 +483,9 @@ async function getUserAssignedDietPlan(req, res) {
 
     const today = startOfDay();
     const todaySnapshot = await buildTodayProgressSnapshot(clientId, plan);
+    const weekCompletion = plan.planType === 'weekly'
+      ? await loadWeekCompletion(clientId, today, plan)
+      : null;
 
     return res.json({
       plan: enrichDietPlan(plan),
@@ -379,6 +493,7 @@ async function getUserAssignedDietPlan(req, res) {
         ...todaySnapshot,
         adherence: await DietAdherence.findOne({ user: clientId, date: today }).lean(),
         weeklyAveragePercent: await computeAverageAdherence(DietAdherence, clientId, 7),
+        weekCompletion,
       },
     });
   } catch (error) {
@@ -405,6 +520,9 @@ async function getUserDietProgress(req, res) {
 
     const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan);
     const weeklyAveragePercent = await computeAverageAdherence(DietAdherence, req.user._id, 7);
+    const weekCompletion = plan?.planType === 'weekly'
+      ? await loadWeekCompletion(req.user._id, new Date(), plan)
+      : null;
 
     const weightHistory = adherence
       .filter((a) => a.weightKg != null)
@@ -414,7 +532,11 @@ async function getUserDietProgress(req, res) {
       plan,
       avgAdherence,
       weeklyAveragePercent,
-      today: todaySnapshot,
+      today: {
+        ...todaySnapshot,
+        weekCompletion,
+      },
+      weekCompletion,
       adherenceHistory: adherence,
       mealLogs,
       weightHistory,
@@ -428,46 +550,159 @@ async function getUserDietProgress(req, res) {
 async function logUserAdherence(req, res) {
   try {
     const {
-      followedPlan,
       weightKg,
       mealAdherence,
       mealType,
       followed,
       notes,
       caloriesConsumed,
+      dayCompleted,
+      dayOfWeek,
+      date: dateInput,
     } = req.body;
 
     const plan = await resolveUserDietPlan(req.user._id);
-    const today = startOfDay();
+    if (!plan) {
+      return res.status(400).json({ message: 'No active diet plan assigned' });
+    }
+
+    let targetDate = startOfDay();
+    if (dateInput) {
+      const parsed = new Date(dateInput);
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({ message: 'Invalid date' });
+      }
+      targetDate = startOfDay(parsed);
+    } else if (dayOfWeek != null && dayOfWeek !== '') {
+      const dated = dateForMondayBasedDay(Number(dayOfWeek));
+      if (!dated) return res.status(400).json({ message: 'Invalid dayOfWeek' });
+      targetDate = startOfDay(dated);
+    }
+
+    const existing = await DietAdherence.findOne({ user: req.user._id, date: targetDate }).lean();
 
     let resolvedCalories = caloriesConsumed;
     if (resolvedCalories == null) {
-      const todayLogs = await MealLog.find({ user: req.user._id, date: { $gte: today } }).lean();
-      resolvedCalories = todayLogs.reduce((sum, l) => sum + (l.calories || 0), 0);
+      const planMeals = getMealsForDate(plan, targetDate);
+      if (planMeals.length) {
+        resolvedCalories = computeCaloriesInFromDietPlan(plan, existing, targetDate) ?? 0;
+      } else {
+        resolvedCalories = await computeCaloriesInFromMealLogs(req.user._id, targetDate);
+      }
     }
 
-    const existing = await DietAdherence.findOne({ user: req.user._id, date: today }).lean();
+    const clientName = withDisplayName(req.user)?.name
+      || req.user.full_name
+      || req.user.username
+      || 'A client';
+    const coachId = plan?.coach?._id || plan?.coach;
+
+    // Weekly day-level completion toggle.
+    if (typeof dayCompleted === 'boolean') {
+      if (plan.planType !== 'weekly') {
+        return res.status(400).json({ message: 'Day completion is only for weekly diet plans' });
+      }
+      const plannedTypes = getPlannedMealTypes(plan, targetDate);
+      const mealRows = plannedTypes.map((type) => {
+        const prev = (existing?.mealAdherence || []).find((m) => m.type === type);
+        return {
+          type,
+          followed: dayCompleted,
+          notes: prev?.notes || '',
+          completedAt: dayCompleted
+            ? (prev?.followed && prev?.completedAt ? prev.completedAt : new Date())
+            : null,
+        };
+      });
+      if (caloriesConsumed == null && getMealsForDate(plan, targetDate).length) {
+        resolvedCalories = computeCaloriesInFromDietPlan(
+          plan,
+          { mealAdherence: mealRows },
+          targetDate,
+        ) ?? 0;
+      }
+
+      const record = await DietAdherence.findOneAndUpdate(
+        { user: req.user._id, date: targetDate },
+        {
+          $set: {
+            coach: coachId,
+            dietPlan: plan._id,
+            weightKg,
+            caloriesConsumed: resolvedCalories || 0,
+            targetCalories: plan.dailyCalories || 0,
+            dayCompleted,
+            followedPlan: dayCompleted,
+            completedAt: dayCompleted ? (existing?.completedAt || new Date()) : null,
+            adherencePercent: dayCompleted ? 100 : 0,
+            coachMarked: false,
+            mealAdherence: mealRows,
+            notes: notes || existing?.notes || '',
+          },
+          $setOnInsert: {
+            user: req.user._id,
+            date: targetDate,
+          },
+        },
+        { upsert: true, new: true, runValidators: true },
+      );
+
+      if (coachId && dayCompleted && !existing?.dayCompleted && !existing?.followedPlan) {
+        const dayName = DAY_NAMES[Number(dayOfWeek)]
+          || DAY_NAMES[require('../utils/mealAdherenceUtils').mondayBasedDayOfWeek(targetDate)];
+        await Notification.create({
+          user: coachId,
+          message: `${clientName} completed their diet day (${dayName}).`,
+          type: 'diet',
+        });
+      }
+
+      const weekCompletion = await loadWeekCompletion(req.user._id, targetDate, plan);
+      return res.json({
+        ...record.toObject(),
+        weekCompletion,
+        weeklyAveragePercent: weekCompletion.weeklyProgressPercent,
+      });
+    }
 
     let normalizedMeals;
-    if (mealType && MEAL_LABELS[mealType]) {
-      normalizedMeals = applySingleMealToggle(existing, mealType, followed, plan);
+    if (mealType) {
+      if (!MEAL_LABELS[mealType]) {
+        return res.status(400).json({ message: 'Invalid mealType' });
+      }
+      const planned = getPlannedMealTypes(plan, targetDate);
+      if (!planned.includes(mealType)) {
+        return res.status(400).json({
+          message: `${MEAL_LABELS[mealType]} is not planned for this day`,
+        });
+      }
+      normalizedMeals = applySingleMealToggle(existing, mealType, followed, plan, targetDate);
     } else {
-      normalizedMeals = normalizeMealAdherence(existing, mealAdherence, plan);
+      normalizedMeals = normalizeMealAdherence(existing, mealAdherence, plan, targetDate);
     }
 
-    const summary = buildMealCompletionSummary(plan, { mealAdherence: normalizedMeals });
+    const summary = buildMealCompletionSummary(plan, { mealAdherence: normalizedMeals }, targetDate);
     const adherencePercent = summary.dailyProgressPercent;
     const isFullyCompleted = summary.allCompleted;
 
+    if (caloriesConsumed == null && getMealsForDate(plan, targetDate).length) {
+      resolvedCalories = computeCaloriesInFromDietPlan(
+        plan,
+        { mealAdherence: normalizedMeals },
+        targetDate,
+      ) ?? 0;
+    }
+
     const record = await DietAdherence.findOneAndUpdate(
-      { user: req.user._id, date: today },
+      { user: req.user._id, date: targetDate },
       {
         $set: {
-          coach: plan?.coach,
-          dietPlan: plan?._id,
+          coach: coachId,
+          dietPlan: plan._id,
           weightKg,
           caloriesConsumed: resolvedCalories || 0,
-          targetCalories: plan?.dailyCalories || 0,
+          targetCalories: plan.dailyCalories || 0,
+          dayCompleted: isFullyCompleted,
           followedPlan: isFullyCompleted,
           completedAt: isFullyCompleted ? (existing?.completedAt || new Date()) : null,
           adherencePercent,
@@ -477,35 +712,41 @@ async function logUserAdherence(req, res) {
         },
         $setOnInsert: {
           user: req.user._id,
-          date: today,
+          date: targetDate,
         },
       },
       { upsert: true, new: true, runValidators: true },
     );
 
-    if (plan?.coach && mealType && followed) {
+    if (coachId && mealType && followed) {
       const prevMeal = (existing?.mealAdherence || []).find((m) => m.type === mealType);
       if (!(prevMeal && prevMeal.followed)) {
         await Notification.create({
-          user: plan.coach,
-          message: `${req.user.name || 'A client'} completed ${MEAL_LABELS[mealType] || mealType} on their diet plan.`,
+          user: coachId,
+          message: `${clientName} completed ${MEAL_LABELS[mealType] || mealType} on their diet plan.`,
           type: 'diet',
         });
       }
     }
 
-    if (plan?.coach && isFullyCompleted && !(existing && existing.followedPlan)) {
+    if (coachId && isFullyCompleted && !(existing && existing.followedPlan)) {
       await Notification.create({
-        user: plan.coach,
-        message: `${req.user.name || 'A client'} completed all meals on their diet plan today.`,
+        user: coachId,
+        message: `${clientName} completed all meals on their diet plan today.`,
         type: 'diet',
       });
     }
 
+    const weekCompletion = plan.planType === 'weekly'
+      ? await loadWeekCompletion(req.user._id, new Date(), plan)
+      : null;
+
     return res.json({
       ...record.toObject(),
       mealSummary: summary,
-      weeklyAveragePercent: await computeAverageAdherence(DietAdherence, req.user._id, 7),
+      weekCompletion,
+      weeklyAveragePercent: weekCompletion?.weeklyProgressPercent
+        ?? await computeAverageAdherence(DietAdherence, req.user._id, 7),
     });
   } catch (error) {
     console.error('logUserAdherence:', error.message);
@@ -612,13 +853,23 @@ async function getClientDietPlan(req, res) {
     const allowed = await verifyCoachClient(req.user._id, clientId);
     if (!allowed) return res.status(403).json({ message: 'Client not assigned to you' });
 
-    const plan = await DietPlan.findOne({
+    let plan = await DietPlan.findOne({
       coach: req.user._id,
       client: clientId,
       status: 'active',
     })
       .populate('client', USER_DISPLAY_SELECT)
+      .populate('fitnessClass', 'title')
       .lean();
+
+    // Fall back to the plan the user actually sees (e.g. group assignment).
+    if (!plan) {
+      const resolved = await resolveUserDietPlan(clientId);
+      const coachId = resolved?.coach?._id || resolved?.coach;
+      if (resolved && String(coachId) === String(req.user._id)) {
+        plan = resolved;
+      }
+    }
 
     return res.json(plan ? enrichDietPlan(plan) : null);
   } catch (error) {
@@ -767,10 +1018,12 @@ async function createOrUpdateDietPlan(req, res) {
       dailyCalories,
       notes,
       status,
+      confirmSupersede,
     } = req.body;
 
-    if (!dailyCalories) {
-      return res.status(400).json({ message: 'dailyCalories is required' });
+    const caloriesCheck = validateDailyCalories(dailyCalories);
+    if (caloriesCheck.error) {
+      return res.status(400).json({ message: caloriesCheck.error });
     }
     if (!clientId && !fitnessClassId) {
       return res.status(400).json({ message: 'clientId or fitnessClassId is required' });
@@ -787,6 +1040,25 @@ async function createOrUpdateDietPlan(req, res) {
     const resolvedGoal = GOALS.includes(goal) ? goal : 'maintenance';
     const resolvedStatus = normalizeStatus(status || 'active');
     const shouldNotify = resolvedStatus === 'active';
+    const resolvedCalories = caloriesCheck.value;
+
+    const existingActive = await findActivePlanForAssignee(
+      req.user._id,
+      { clientId, fitnessClassId },
+      planId || null,
+    );
+    if (shouldNotify && existingActive && confirmSupersede !== true) {
+      return res.status(409).json({
+        message: 'This assignee already has an active diet plan. Confirm to move it to history and activate the new one.',
+        code: 'ACTIVE_PLAN_EXISTS',
+        existingPlan: {
+          id: existingActive._id,
+          title: existingActive.title,
+          updatedAt: existingActive.updatedAt,
+        },
+        requiresConfirmSupersede: true,
+      });
+    }
 
     const applyFields = (plan) => {
       plan.title = title || plan.title;
@@ -796,10 +1068,23 @@ async function createOrUpdateDietPlan(req, res) {
       plan.days = structure.days;
       plan.targetDayOfWeek = structure.targetDayOfWeek;
       plan.markModified('days');
-      plan.dailyCalories = dailyCalories;
+      plan.markModified('meals');
+      plan.dailyCalories = resolvedCalories;
       plan.notes = notes || '';
       plan.status = resolvedStatus;
+      if (shouldNotify && !plan.assignedAt) {
+        plan.assignedAt = new Date();
+      }
     };
+
+    // Supersede before write so unique active indexes never conflict.
+    if (shouldNotify) {
+      await supersedePlansForActivation(
+        req.user._id,
+        { client: clientId || null, fitnessClass: fitnessClassId || null },
+        planId || null,
+      );
+    }
 
     if (fitnessClassId) {
       const fitnessClass = await FitnessClass.findOne({
@@ -829,16 +1114,19 @@ async function createOrUpdateDietPlan(req, res) {
           meals: structure.meals,
           days: structure.days,
           targetDayOfWeek: structure.targetDayOfWeek,
-          dailyCalories,
+          dailyCalories: resolvedCalories,
           notes: notes || '',
           status: resolvedStatus,
+          assignedAt: shouldNotify ? new Date() : undefined,
         });
       }
 
       if (shouldNotify) {
-        await supersedePlansForActivation(req.user._id, plan, plan._id);
-        plan.status = 'active';
-        await plan.save();
+        if (plan.status !== 'active') {
+          plan.status = 'active';
+          plan.assignedAt = plan.assignedAt || new Date();
+          await plan.save();
+        }
         await notifyPlanAssigned(plan, { isUpdate });
       }
 
@@ -867,21 +1155,31 @@ async function createOrUpdateDietPlan(req, res) {
         meals: structure.meals,
         days: structure.days,
         targetDayOfWeek: structure.targetDayOfWeek,
-        dailyCalories,
+        dailyCalories: resolvedCalories,
         notes: notes || '',
         status: resolvedStatus,
+        assignedAt: shouldNotify ? new Date() : undefined,
       });
     }
 
     if (shouldNotify) {
-      await supersedePlansForActivation(req.user._id, plan, plan._id);
-      plan.status = 'active';
-      await plan.save();
+      if (plan.status !== 'active') {
+        plan.status = 'active';
+        plan.assignedAt = plan.assignedAt || new Date();
+        await plan.save();
+      }
       await notifyPlanAssigned(plan, { isUpdate });
     }
 
     return res.status(isUpdate ? 200 : 201).json(await loadEnrichedDietPlan(plan._id));
   } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        message: 'An active diet plan already exists for this assignee. Confirm supersede and retry.',
+        code: 'ACTIVE_PLAN_EXISTS',
+        requiresConfirmSupersede: true,
+      });
+    }
     console.error('createOrUpdateDietPlan:', error.message);
     return res.status(500).json({ message: 'Error saving diet plan' });
   }
@@ -893,7 +1191,18 @@ async function updateDietPlanById(req, res) {
     if (!plan) return res.status(404).json({ message: 'Diet plan not found' });
 
     const previousStatus = plan.status;
-    const { title, goal, meals, days, planType, targetDayOfWeek, dailyCalories, notes, status } = req.body;
+    const {
+      title,
+      goal,
+      meals,
+      days,
+      planType,
+      targetDayOfWeek,
+      dailyCalories,
+      notes,
+      status,
+      confirmSupersede,
+    } = req.body;
     if (title) plan.title = title;
     if (goal && GOALS.includes(goal)) plan.goal = goal;
     if (planType !== undefined || meals !== undefined || days !== undefined || targetDayOfWeek !== undefined) {
@@ -911,15 +1220,40 @@ async function updateDietPlanById(req, res) {
       plan.days = structure.days;
       plan.targetDayOfWeek = structure.targetDayOfWeek;
       plan.markModified('days');
+      plan.markModified('meals');
     }
-    if (dailyCalories) plan.dailyCalories = dailyCalories;
+    if (dailyCalories !== undefined) {
+      const caloriesCheck = validateDailyCalories(dailyCalories);
+      if (caloriesCheck.error) {
+        return res.status(400).json({ message: caloriesCheck.error });
+      }
+      plan.dailyCalories = caloriesCheck.value;
+    }
     if (notes !== undefined) plan.notes = notes;
     if (status) plan.status = normalizeStatus(status);
 
     const becomingActive = plan.status === 'active' && previousStatus !== 'active';
     if (becomingActive) {
+      const existingActive = await findActivePlanForAssignee(
+        req.user._id,
+        { clientId: plan.client, fitnessClassId: plan.fitnessClass },
+        plan._id,
+      );
+      if (existingActive && confirmSupersede !== true) {
+        return res.status(409).json({
+          message: 'This assignee already has an active diet plan. Confirm to move it to history.',
+          code: 'ACTIVE_PLAN_EXISTS',
+          existingPlan: {
+            id: existingActive._id,
+            title: existingActive.title,
+            updatedAt: existingActive.updatedAt,
+          },
+          requiresConfirmSupersede: true,
+        });
+      }
       await supersedePlansForActivation(req.user._id, plan, plan._id);
       plan.status = 'active';
+      plan.assignedAt = plan.assignedAt || new Date();
     }
 
     await plan.save();
@@ -928,8 +1262,15 @@ async function updateDietPlanById(req, res) {
       await notifyPlanAssigned(plan, { isUpdate: !becomingActive });
     }
 
-    return res.json(plan);
+    return res.json(await loadEnrichedDietPlan(plan._id));
   } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        message: 'An active diet plan already exists for this assignee.',
+        code: 'ACTIVE_PLAN_EXISTS',
+        requiresConfirmSupersede: true,
+      });
+    }
     console.error('updateDietPlanById:', error.message);
     return res.status(500).json({ message: 'Error updating diet plan' });
   }
@@ -940,16 +1281,23 @@ async function sendDietPlanAgain(req, res) {
     const plan = await DietPlan.findOne({ _id: req.params.id, coach: req.user._id });
     if (!plan) return res.status(404).json({ message: 'Diet plan not found' });
 
-    if (plan.status === 'draft') {
+    if (plan.status !== 'active') {
       await supersedePlansForActivation(req.user._id, plan, plan._id);
       plan.status = 'active';
+      plan.assignedAt = new Date();
       await plan.save();
       await notifyPlanAssigned(plan, { isResend: false });
-    } else {
-      await notifyPlanAssigned(plan, { isResend: true });
+      return res.json({
+        message: 'Diet plan activated and sent successfully',
+        plan: await loadEnrichedDietPlan(plan._id),
+      });
     }
 
-    return res.json({ message: 'Diet plan sent successfully', plan });
+    await notifyPlanAssigned(plan, { isResend: true });
+    return res.json({
+      message: 'Diet plan sent successfully',
+      plan: await loadEnrichedDietPlan(plan._id),
+    });
   } catch (error) {
     console.error('sendDietPlanAgain:', error.message);
     return res.status(500).json({ message: 'Error sending diet plan' });
@@ -990,23 +1338,39 @@ async function getDietPlanCompletions(req, res) {
       const clientId = plan.client._id || plan.client;
       const adherence = await DietAdherence.findOne({ user: clientId, date: today }).lean();
       const summary = buildMealCompletionSummary(plan, adherence);
-      const weeklyAveragePercent = await computeAverageAdherence(DietAdherence, clientId, 7);
+      const weekCompletion = plan.planType === 'weekly'
+        ? await loadWeekCompletion(clientId, today, plan)
+        : null;
+      const weeklyAveragePercent = weekCompletion?.weeklyProgressPercent
+        ?? await computeAverageAdherence(DietAdherence, clientId, 7);
+      const completed = plan.planType === 'weekly'
+        ? !!weekCompletion?.allDaysCompleted
+        : summary.allCompleted;
+      const progressPercent = plan.planType === 'weekly'
+        ? (weekCompletion?.weeklyProgressPercent || 0)
+        : summary.dailyProgressPercent;
 
       entries.push({
         userId: clientId,
         userName: withDisplayName(plan.client)?.name || 'Client',
         planId: plan._id,
         planName: plan.title || 'Diet Plan',
+        planType: plan.planType || 'single_day',
         assigneeType: 'user',
-        completed: summary.allCompleted,
-        progressPercent: summary.dailyProgressPercent,
+        completed,
+        progressPercent,
         completedMeals: summary.completedMeals,
         missedMeals: summary.missedMeals,
         mealsPlanned: summary.mealsPlanned,
         meals: summary.meals,
+        completedDays: weekCompletion?.completedDays ?? null,
+        daysPlanned: weekCompletion?.daysPlanned ?? null,
+        weekDays: weekCompletion?.days ?? null,
         weeklyAveragePercent,
-        completionDate: summary.allCompleted ? (adherence?.completedAt || null) : null,
-        status: summary.allCompleted ? 'completed' : 'not_completed',
+        completionDate: completed
+          ? (adherence?.completedAt || null)
+          : null,
+        status: completed ? 'completed' : 'not_completed',
       });
     }
 
@@ -1018,24 +1382,40 @@ async function getDietPlanCompletions(req, res) {
         const studentName = withDisplayName(student)?.name || 'Member';
         const adherence = await DietAdherence.findOne({ user: studentId, date: today }).lean();
         const summary = buildMealCompletionSummary(plan, adherence);
-        const weeklyAveragePercent = await computeAverageAdherence(DietAdherence, studentId, 7);
+        const weekCompletion = plan.planType === 'weekly'
+          ? await loadWeekCompletion(studentId, today, plan)
+          : null;
+        const weeklyAveragePercent = weekCompletion?.weeklyProgressPercent
+          ?? await computeAverageAdherence(DietAdherence, studentId, 7);
+        const completed = plan.planType === 'weekly'
+          ? !!weekCompletion?.allDaysCompleted
+          : summary.allCompleted;
+        const progressPercent = plan.planType === 'weekly'
+          ? (weekCompletion?.weeklyProgressPercent || 0)
+          : summary.dailyProgressPercent;
 
         entries.push({
           userId: studentId,
           userName: studentName,
           planId: plan._id,
           planName: plan.title || `${classDoc?.title || 'Group'} Diet Plan`,
+          planType: plan.planType || 'single_day',
           assigneeType: 'group',
           groupName: classDoc?.title || 'Group',
-          completed: summary.allCompleted,
-          progressPercent: summary.dailyProgressPercent,
+          completed,
+          progressPercent,
           completedMeals: summary.completedMeals,
           missedMeals: summary.missedMeals,
           mealsPlanned: summary.mealsPlanned,
           meals: summary.meals,
+          completedDays: weekCompletion?.completedDays ?? null,
+          daysPlanned: weekCompletion?.daysPlanned ?? null,
+          weekDays: weekCompletion?.days ?? null,
           weeklyAveragePercent,
-          completionDate: summary.allCompleted ? (adherence?.completedAt || null) : null,
-          status: summary.allCompleted ? 'completed' : 'not_completed',
+          completionDate: completed
+            ? (adherence?.completedAt || null)
+            : null,
+          status: completed ? 'completed' : 'not_completed',
         });
       }
     }
@@ -1065,14 +1445,18 @@ async function archiveDietPlan(req, res) {
   try {
     const plan = await DietPlan.findOneAndUpdate(
       { _id: req.params.id, coach: req.user._id },
-      { $set: { status: 'completed' } },
+      { $set: { status: 'archived' } },
       { new: true, runValidators: true },
     );
     if (!plan) return res.status(404).json({ message: 'Diet plan not found' });
-    return res.json(plan);
+    return res.json({
+      ...plan.toObject(),
+      status: displayStatus(plan.status),
+      message: 'Diet plan archived (kept in history)',
+    });
   } catch (error) {
     console.error('archiveDietPlan:', error.message);
-    return res.status(500).json({ message: 'Error deleting diet plan' });
+    return res.status(500).json({ message: 'Error archiving diet plan' });
   }
 }
 
@@ -1120,6 +1504,9 @@ async function getClientDietProgress(req, res) {
       : 0;
 
     const todaySnapshot = await buildTodayProgressSnapshot(clientId, plan);
+    const weekCompletion = plan?.planType === 'weekly'
+      ? await loadWeekCompletion(clientId, new Date(), plan)
+      : null;
     const plannedMealTypes = plan
       ? require('../utils/mealAdherenceUtils').getPlannedMealTypes(plan)
       : [];
@@ -1127,9 +1514,11 @@ async function getClientDietProgress(req, res) {
     return res.json({
       plan,
       avgAdherence,
+      weekCompletion,
       today: {
         ...todaySnapshot,
         plannedMealTypes,
+        weekCompletion,
       },
       caloriesToday: todaySnapshot.caloriesConsumed,
       adherenceHistory: adherence,
@@ -1309,4 +1698,5 @@ module.exports = {
   sendMealReminders,
   sendGroupMealReminders,
   normalizeMealsArray,
+  resolveUserDietPlan,
 };

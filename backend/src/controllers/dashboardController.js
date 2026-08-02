@@ -149,11 +149,35 @@ async function getCoachDashboard(req, res) {
 async function getUserDashboard(req, res) {
   try {
     const userId = req.user._id;
+    const CoachAssignment = require('../models/CoachAssignment');
+    const { ensureLegacyCoachAssignment } = require('../utils/coachVisibility');
 
-    // Fetch active assignment
-    const assignment = await CoachClientAssignment.findOne({ user_id: userId, status: 'active' })
+    // Prefer modern assignment; fall back to legacy CoachAssignment for older records.
+    let assignment = await CoachClientAssignment.findOne({ user_id: userId, status: 'active' })
       .populate('coach_id', 'username full_name phone coachData')
       .lean();
+
+    if (!assignment) {
+      const legacy = await CoachAssignment.findOne({ user: userId, status: 'active' })
+        .populate('coach', 'username full_name phone coachData')
+        .lean();
+      if (legacy?.coach) {
+        assignment = {
+          _id: legacy._id,
+          coach_id: legacy.coach,
+          assigned_at: legacy.createdAt || legacy.updatedAt,
+        };
+      }
+    } else {
+      const modernCoachId = assignment.coach_id?._id || assignment.coach_id;
+      if (modernCoachId) {
+        try {
+          await ensureLegacyCoachAssignment(modernCoachId, userId);
+        } catch (syncError) {
+          console.error('[DASHBOARD] legacy assignment sync:', syncError.message);
+        }
+      }
+    }
 
     // Fetch upcoming appointments
     const appointments = await Appointment.find({ user_id: userId })

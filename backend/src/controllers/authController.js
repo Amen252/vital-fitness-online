@@ -344,6 +344,14 @@ async function register(req, res) {
       clientData.activity_level = activity_level;
     }
 
+    // Role is always member for public registration — ignore any client-supplied role.
+    if (req.body?.role != null && String(req.body.role).trim() !== '' && String(req.body.role).trim() !== 'user') {
+      return res.status(400).json({
+        message: 'Public registration only creates member accounts.',
+        code: 'ROLE_NOT_ALLOWED',
+      });
+    }
+
     const user = await User.create({
       username: normalizedUsername,
       password,
@@ -447,10 +455,8 @@ async function registerCoach(req, res) {
       ['yearsExperience', yearsExperience],
       ['certifications', certifications],
       ['specialization', specialization],
-      ['bio', bio],
-      ['experience', experience],
-      ['message', message],
     ];
+    // bio, experience, and message are optional and may be any length.
     for (const [field, value] of requiredFields) {
       if (value === undefined || value === null || String(value).trim() === '') {
         return res.status(400).json({ message: `${field} is required` });
@@ -494,8 +500,8 @@ async function registerCoach(req, res) {
       yearsExperience: Number(yearsExperience) || 0,
       certifications: String(certifications).trim(),
       specialization: String(specialization).split(',').map((s) => s.trim()).filter(Boolean),
-      bio: String(bio).trim(),
-      experience: String(experience).trim(),
+      bio: String(bio || '').trim(),
+      experience: String(experience || '').trim(),
       workingDays: parsedWorkingDays,
       appointmentDays: parsedAppointmentDays,
       appointmentDurationMinutes: duration,
@@ -511,8 +517,8 @@ async function registerCoach(req, res) {
       yearsExperience: Number(yearsExperience),
       certifications: String(certifications).trim(),
       specialization: String(specialization).trim(),
-      bio: String(bio).trim(),
-      experience: String(experience).trim(),
+      bio: String(bio || '').trim(),
+      experience: String(experience || '').trim(),
       workingDays: parsedWorkingDays,
       appointmentDays: parsedAppointmentDays,
       dayAvailability: daySlots,
@@ -547,9 +553,9 @@ async function registerCoach(req, res) {
       yearsExperience: Number(yearsExperience),
       certifications: String(certifications).trim(),
       specialization: String(specialization).trim(),
-      bio: String(bio).trim(),
-      experience: String(experience).trim(),
-      message: String(message).trim(),
+      bio: String(bio || '').trim(),
+      experience: String(experience || '').trim(),
+      message: String(message || '').trim(),
       workingDays: parsedWorkingDays,
       appointmentDays: parsedAppointmentDays,
       dayAvailability: daySlots,

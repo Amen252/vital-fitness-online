@@ -64,6 +64,7 @@ function attachCompletionStats(schedules, completions) {
     );
     const completed = scheduleCompletions.filter((c) => c.status === 'completed').length;
     const pending = scheduleCompletions.filter((c) => c.status === 'pending').length;
+    const pendingReview = scheduleCompletions.filter((c) => c.status === 'pending_review').length;
     const missed = scheduleCompletions.filter((c) => c.status === 'missed').length;
     const total = scheduleCompletions.length;
     const title = schedule.workoutTemplate?.title || schedule.title || 'Workout';
@@ -74,6 +75,7 @@ function attachCompletionStats(schedules, completions) {
         total,
         completed,
         pending,
+        pendingReview,
         missed,
         completionPercent: total ? Math.round((completed / total) * 100) : 0,
         completions: scheduleCompletions,
@@ -413,6 +415,11 @@ async function getUserWorkoutSchedules(req, res) {
               _id: completion._id,
               status: completion.status,
               completedAt: completion.completedAt,
+              notes: completion.notes || '',
+              durationMinutes: completion.durationMinutes,
+              submittedAt: completion.submittedAt,
+              coachFeedback: completion.coachFeedback || '',
+              hasProofPhoto: Boolean(completion.proofPhoto),
             }
           : { status: 'pending' },
       };
@@ -488,6 +495,12 @@ async function getUserWorkoutSchedules(req, res) {
 
 async function completeWorkoutSchedule(req, res) {
   try {
+    const { validateWorkoutProof } = require('../utils/workoutProofUtils');
+    const proof = validateWorkoutProof(req.body);
+    if (!proof.ok) {
+      return res.status(400).json({ message: proof.message });
+    }
+
     const completion = await ScheduleCompletion.findOne({
       workoutSchedule: req.params.scheduleId,
       user: req.user._id,
@@ -501,15 +514,21 @@ async function completeWorkoutSchedule(req, res) {
       return res.status(404).json({ message: 'No incomplete scheduled workout found' });
     }
 
-    completion.status = 'completed';
-    completion.completedAt = new Date();
+    completion.status = 'pending_review';
+    completion.notes = proof.notes;
+    completion.durationMinutes = proof.durationMinutes;
+    completion.proofPhoto = proof.proofPhoto;
+    completion.submittedAt = new Date();
+    completion.completedAt = undefined;
+    completion.reviewedAt = undefined;
+    completion.coachFeedback = '';
     await completion.save();
 
     if (completion.coach) {
       const title = completion.workoutSchedule?.workoutTemplate?.title || 'Workout';
       await Notification.create({
         user: completion.coach,
-        message: `${req.user.name} completed scheduled workout "${title}"`,
+        message: `${req.user.name} submitted scheduled workout "${title}" for review`,
         type: 'workout',
       });
     }

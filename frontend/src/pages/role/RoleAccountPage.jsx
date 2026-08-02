@@ -26,13 +26,16 @@ export default function RoleAccountPage({ role }) {
   const hasCoachProfile =
     Boolean(displayUser.coachData)
     || Boolean(displayUser.profile && typeof displayUser.profile === "object")
-    || ["pending", "approved"].includes(displayUser.coachApplicationStatus);
+    || ["pending", "approved", "rejected"].includes(displayUser.coachApplicationStatus);
   const coachProfile = (!isMember || hasCoachProfile)
     ? coachProfileFromUser(displayUser)
     : null;
   const isPendingCoach = isMember && displayUser.coachApplicationStatus === "pending";
+  const isRejectedCoach = isMember && displayUser.coachApplicationStatus === "rejected";
   const message = isPendingCoach
     ? "Your coach application is under review. The details below are what admins will see."
+    : isRejectedCoach
+      ? "Your coach application was not approved. You can update your details and submit a new application from the mobile app, or continue using Vital Fitness as a member."
     : isMember
       ? "Your workouts, nutrition, progress, and appointments are managed through Vital Fitness."
       : "Manage clients, training plans, and appointments from your Vital Fitness account.";
@@ -57,6 +60,12 @@ export default function RoleAccountPage({ role }) {
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--vf-muted)]">Application</dt>
               <dd className="capitalize text-amber-700">pending</dd>
+            </div>
+          ) : null}
+          {isRejectedCoach ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--vf-muted)]">Application</dt>
+              <dd className="capitalize text-red-600">not approved</dd>
             </div>
           ) : null}
           <div className="flex justify-between gap-3">

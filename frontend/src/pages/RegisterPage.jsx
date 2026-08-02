@@ -63,7 +63,8 @@ export default function RegisterPage() {
         <BrandMark />
         <h1 className="mt-7 text-2xl font-bold">Create your fitness account</h1>
         <p className="mt-2 text-sm text-[var(--vf-muted)]">
-          After you register, you can browse the available coaches and choose the coach you want.
+          You are registering as a member. After signup you can browse coaches and send a coaching request.
+          Member accounts stay as members — coach roles are assigned by administrators only.
         </p>
         <form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold sm:col-span-2">

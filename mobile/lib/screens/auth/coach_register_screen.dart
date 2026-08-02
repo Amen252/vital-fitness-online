@@ -159,15 +159,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       return true;
     }
     if (_currentStep == _aboutStepIndex) {
-      if (_bioController.text.trim().length < 20) {
-        return _showError('Bio must be at least 20 characters');
-      }
-      if (_experienceController.text.trim().length < 20) {
-        return _showError('Work experience must be at least 20 characters');
-      }
-      if (_messageController.text.trim().length < 10) {
-        return _showError('Please explain why you want to coach');
-      }
+      // Bio / experience / motivation: any length allowed (short or detailed).
       return true;
     }
     return true;
@@ -1259,31 +1251,44 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           Text('Tell us about yourself', style: CoachDashboardTheme.sectionTitle(isDark)),
           const SizedBox(height: 8),
           Text(
-            'Once approved, your bio and specializations will be visible to app members.',
+            'Share as little or as much as you like — short bios and detailed profiles are both fine. '
+            'Once approved, this information can be visible to app members.',
             style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
           ),
           const SizedBox(height: 20),
           TextField(
             controller: _bioController,
-            maxLines: 4,
-            decoration: _fieldDecoration('Professional Bio *', hint: 'Introduce yourself to future clients'),
+            maxLines: null,
+            minLines: 3,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: _fieldDecoration(
+              'Professional Bio',
+              hint: 'Optional — introduce yourself in a few words or a longer story',
+            ),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _experienceController,
-            maxLines: 4,
+            maxLines: null,
+            minLines: 3,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
             decoration: _fieldDecoration(
-              'Work Experience *',
-              hint: 'Describe your coaching history and achievements',
+              'Work Experience',
+              hint: 'Optional — coaching history, certifications highlights, achievements',
             ),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _messageController,
-            maxLines: 3,
+            maxLines: null,
+            minLines: 2,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
             decoration: _fieldDecoration(
-              'Why do you want to coach? *',
-              hint: 'Your motivation for joining VitalFitness',
+              'Why do you want to coach?',
+              hint: 'Optional — your motivation for joining VitalFitness',
             ),
           ),
         ],

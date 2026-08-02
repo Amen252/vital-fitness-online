@@ -1,4 +1,4 @@
-import { Dumbbell, Droplets, Flame, HeartPulse } from "lucide-react";
+import { Dumbbell, Droplets, Flame, HeartPulse, UtensilsCrossed } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { getMe, getMyNotifications } from "../../api/adminApi";
@@ -68,6 +68,8 @@ export default function MemberDashboardPage() {
   const dietAdherence = dietProgress?.weeklyAveragePercent ?? dietProgress?.avgAdherence ?? 0;
   const waterMl = progress?.summary?.hydration ?? 0;
   const caloriesOut = progress?.summary?.caloriesOut ?? 0;
+  const caloriesIn = progress?.summary?.caloriesIn ?? dietProgress?.today?.caloriesConsumed ?? 0;
+  const calorieTarget = dietProgress?.today?.targetCalories ?? dietProgress?.plan?.dailyCalories ?? 0;
 
   return (
     <>
@@ -87,7 +89,7 @@ export default function MemberDashboardPage() {
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="p-4">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--vf-muted)]">
             <Dumbbell className="h-4 w-4 text-[var(--vf-primary)]" />
@@ -108,6 +110,18 @@ export default function MemberDashboardPage() {
             Water
           </div>
           <p className="mt-2 text-2xl font-bold">{Math.round(waterMl / 100) / 10} L</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--vf-muted)]">
+            <UtensilsCrossed className="h-4 w-4 text-[var(--vf-primary)]" />
+            Calories in
+          </div>
+          <p className="mt-2 text-2xl font-bold">
+            {Math.round(caloriesIn)}
+            {calorieTarget > 0 ? (
+              <span className="ml-1 text-sm font-medium text-[var(--vf-muted)]">/ {calorieTarget}</span>
+            ) : null}
+          </p>
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--vf-muted)]">

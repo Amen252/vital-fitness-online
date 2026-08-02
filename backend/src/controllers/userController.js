@@ -120,6 +120,14 @@ async function updateProfile(req, res) {
 
     const body = req.body || {};
 
+    // Clients must never escalate their own role via profile updates.
+    if (body.role !== undefined) {
+      return res.status(400).json({
+        message: 'Role cannot be changed from this endpoint.',
+        code: 'ROLE_IMMUTABLE',
+      });
+    }
+
     if (user.role === 'coach') {
       if (!user.coachData) user.coachData = {};
       if (body.bio !== undefined) user.coachData.bio = String(body.bio || '');
@@ -236,7 +244,10 @@ async function updateProfilePhoto(req, res) {
 async function getCoachingAssignment(req, res) {
   try {
     const CoachAssignment = require('../models/CoachAssignment');
-    const assignment = await CoachAssignment.findOne({ user: req.user._id, status: 'active' })
+    const CoachClientAssignment = require('../models/CoachClientAssignment');
+    const { ensureLegacyCoachAssignment } = require('../utils/coachVisibility');
+
+    let assignment = await CoachAssignment.findOne({ user: req.user._id, status: 'active' })
       .populate({
         path: 'coach',
         select: PUBLIC_COACH_SELECT,
@@ -246,6 +257,27 @@ async function getCoachingAssignment(req, res) {
         select: 'title summary body category createdAt',
       })
       .lean();
+
+    if (!assignment) {
+      const modern = await CoachClientAssignment.findOne({
+        user_id: req.user._id,
+        status: 'active',
+      }).select('coach_id').lean();
+
+      if (modern?.coach_id) {
+        const legacy = await ensureLegacyCoachAssignment(modern.coach_id, req.user._id);
+        assignment = await CoachAssignment.findById(legacy._id)
+          .populate({
+            path: 'coach',
+            select: PUBLIC_COACH_SELECT,
+          })
+          .populate({
+            path: 'assignedArticles',
+            select: 'title summary body category createdAt',
+          })
+          .lean();
+      }
+    }
 
     if (!assignment) {
       return res.json(null);
@@ -588,9 +620,6 @@ function validateCoachApplicationPayload(body) {
     'yearsExperience',
     'certifications',
     'specialization',
-    'bio',
-    'experience',
-    'message',
   ];
 
   for (const field of requiredFields) {
@@ -598,6 +627,8 @@ function validateCoachApplicationPayload(body) {
       return `${field} is required`;
     }
   }
+
+  // bio, experience, and message are optional and may be any length.
 
   const workingDaysError = validateWorkingDays(body.workingDays);
   if (workingDaysError) {
@@ -680,8 +711,8 @@ async function submitCoachApplication(req, res) {
               yearsExperience: Number(yearsExperience),
               certifications: String(certifications).trim(),
               specialization: specArray,
-              bio: String(bio).trim(),
-              experience: String(experience).trim(),
+              bio: String(bio || '').trim(),
+              experience: String(experience || '').trim(),
               workingDays: parsedWorkingDays,
               appointmentDays: parsedAppointmentDays,
               dayAvailability: availability.value,
@@ -708,8 +739,8 @@ async function submitCoachApplication(req, res) {
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
-        bio: String(bio).trim(),
-        experience: String(experience).trim(),
+        bio: String(bio || '').trim(),
+        experience: String(experience || '').trim(),
         location: String(location).trim(),
         age: Number(age) || null,
         years_experience: Number(yearsExperience) || 0,
@@ -734,9 +765,9 @@ async function submitCoachApplication(req, res) {
       yearsExperience: Number(yearsExperience),
       certifications: String(certifications).trim(),
       specialization: String(specialization).trim(),
-      bio: String(bio).trim(),
-      experience: String(experience).trim(),
-      message: String(message).trim(),
+      bio: String(bio || '').trim(),
+      experience: String(experience || '').trim(),
+      message: String(message || '').trim(),
       workingDays: parsedWorkingDays,
       appointmentDays: parsedAppointmentDays,
       dayAvailability: availability.value || [],

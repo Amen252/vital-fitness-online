@@ -25,7 +25,9 @@ import { Link } from "react-router-dom";
 import {
   getDashboard,
   getStatistics,
+  getCoachApplications,
 } from "../api/adminApi";
+import { useEffect, useMemo, useState } from "react";
 import useStableFetch from "../hooks/useStableFetch";
 import { formatDate } from "../utils/profileDisplay";
 import {
@@ -41,6 +43,8 @@ import {
 } from "../components/ui";
 
 export default function DashboardPage() {
+  const [coachApplications, setCoachApplications] = useState([]);
+
   const { data, loading, error, reload } = useStableFetch(
     () =>
       Promise.all([
@@ -56,6 +60,49 @@ export default function DashboardPage() {
   const stats = data?.stats;
   const charts = data?.charts;
   const pendingApps = data?.pendingApps ?? 0;
+
+  async function loadCoachApplications() {
+    try {
+      const apps = await getCoachApplications("all");
+      setCoachApplications(Array.isArray(apps) ? apps : []);
+    } catch {
+      /* keep last snapshot */
+    }
+  }
+
+  useEffect(() => {
+    loadCoachApplications();
+    const timer = setInterval(loadCoachApplications, 12000);
+    const onFocus = () => loadCoachApplications();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") onFocus();
+    });
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  const applicationCounts = useMemo(
+    () => ({
+      pending: coachApplications.filter((a) => a.status === "pending").length,
+      approved: coachApplications.filter((a) => a.status === "approved").length,
+      rejected: coachApplications.filter((a) => a.status === "rejected").length,
+    }),
+    [coachApplications],
+  );
+
+  const recentApplications = useMemo(
+    () => coachApplications.slice(0, 8),
+    [coachApplications],
+  );
+
+  function applicationStatusTone(status) {
+    if (status === "approved") return "green";
+    if (status === "rejected") return "red";
+    return "amber";
+  }
 
   if (loading) {
     return (
@@ -126,7 +173,12 @@ export default function DashboardPage() {
           />
         }
         action={
-          <Button onClick={reload}>
+          <Button
+            onClick={() => {
+              reload();
+              loadCoachApplications();
+            }}
+          >
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
@@ -222,6 +274,57 @@ export default function DashboardPage() {
           tone="accent"
         />
       </div>
+
+      <Card className="mt-6 p-5 vf-animate-in">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-[var(--vf-text)]">Coach registration requests</h3>
+            <p className="mt-1 text-sm text-[var(--vf-muted)]">
+              Pending, approved, and rejected applications — synced from the database.
+            </p>
+          </div>
+          <Link
+            to="/coaches"
+            className="inline-flex items-center justify-center rounded-[12px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--vf-text)] hover:bg-[var(--vf-border)]/40"
+          >
+            Manage registrations
+          </Link>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Badge tone="amber">Pending {applicationCounts.pending}</Badge>
+          <Badge tone="green">Approved {applicationCounts.approved}</Badge>
+          <Badge tone="red">Rejected {applicationCounts.rejected}</Badge>
+        </div>
+        <ul className="mt-4 space-y-2">
+          {recentApplications.length === 0 ? (
+            <li className="text-sm text-[var(--vf-muted)]">No coach registration requests yet.</li>
+          ) : (
+            recentApplications.map((app) => {
+              const name =
+                app.user?.full_name || app.user?.username || app.user?.email || "Applicant";
+              const status = app.status || "pending";
+              return (
+                <li
+                  key={app._id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-[var(--vf-border)] px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{name}</p>
+                    <p className="truncate text-xs text-[var(--vf-muted)]">
+                      {app.specialization || "—"}
+                      {app.createdAt ? ` · Applied ${formatDate(app.createdAt)}` : ""}
+                      {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
+                    </p>
+                  </div>
+                  <Badge tone={applicationStatusTone(status)}>
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </Badge>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </Card>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         <ChartCard title="Weekly activity">

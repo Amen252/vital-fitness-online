@@ -14,6 +14,7 @@ const {
 const { isAllowedOrigin } = require('./config/cors');
 const { startWorkoutScheduleReminderJob } = require('./jobs/workoutScheduleReminders');
 const { startAppointmentReminderJob } = require('./jobs/appointmentReminders');
+const { startDietMealReminderJob } = require('./jobs/dietMealReminders');
 
 const port = process.env.PORT || 5050;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -115,6 +116,7 @@ function startBackgroundJobs() {
   app.set('backgroundJobsStarted', true);
   startWorkoutScheduleReminderJob();
   startAppointmentReminderJob();
+  startDietMealReminderJob();
 }
 
 // Bind HTTP immediately so Render health checks pass even while MongoDB connects.

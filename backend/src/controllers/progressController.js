@@ -1,32 +1,88 @@
 const ActivityLog = require('../models/ActivityLog');
 const MealLog = require('../models/MealLog');
 const WaterLog = require('../models/WaterLog');
+const DietAdherence = require('../models/DietAdherence');
 const User = require('../models/User');
 const { buildSeries, sum } = require('../utils/progressMetrics');
+const {
+  resolveCaloriesIn,
+  computeCaloriesOut,
+  computeCaloriesOutByDay,
+  dayKey,
+} = require('../utils/calorieTrackingUtils');
+const { resolveUserDietPlan } = require('./dietPlanController');
 const dataScientistAgent = require('../agents/dataScientistAgent');
 const habitAgent = require('../agents/habitAgent');
 
+function startOfDay(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date = new Date()) {
+  const d = startOfDay(date);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
 async function getProgress(req, res) {
-  const [meals, allActivities, water] = await Promise.all([
-    MealLog.find({ user: req.user._id }).sort({ date: -1 }).limit(7),
-    ActivityLog.find({ user: req.user._id }).sort({ date: -1 }).limit(7),
-    WaterLog.find({ user: req.user._id }).sort({ date: -1 }).limit(7),
+  const today = startOfDay();
+  const tomorrow = endOfDay();
+  const weekStart = startOfDay();
+  weekStart.setDate(weekStart.getDate() - 6);
+
+  const [
+    todayMeals,
+    todayActivities,
+    todayWater,
+    weekMeals,
+    weekActivities,
+    weekWater,
+    plan,
+    todayAdherence,
+    caloriesOutByDay,
+  ] = await Promise.all([
+    MealLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+    ActivityLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+    WaterLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+    MealLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+    ActivityLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+    WaterLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+    resolveUserDietPlan(req.user._id),
+    DietAdherence.findOne({ user: req.user._id, date: today }).lean(),
+    computeCaloriesOutByDay(req.user._id, weekStart, tomorrow),
   ]);
 
-  const approvedActivities = allActivities.filter((a) => a.status === 'approved');
+  const [caloriesIn, caloriesOut] = await Promise.all([
+    resolveCaloriesIn(req.user._id, { plan, adherence: todayAdherence, date: today }),
+    computeCaloriesOut(req.user._id, today),
+  ]);
 
-  const caloriesIn = sum(meals, 'calories');
-  const caloriesOut = sum(approvedActivities, 'caloriesBurned');
-  const hydration = sum(water, 'amountMl');
+  const approvedToday = todayActivities.filter((a) => a.status === 'approved');
+  const approvedWeek = weekActivities.filter((a) => a.status === 'approved');
+
+  const hydration = sum(todayWater, 'amountMl');
+
+  const caloriesOutTrend = buildSeries(approvedWeek, 'date', 'caloriesBurned');
+  for (const point of caloriesOutTrend) {
+    const totalForDay = caloriesOutByDay.get(dayKey(point.date));
+    if (totalForDay != null) point.value = totalForDay;
+  }
+  for (const [key, value] of caloriesOutByDay.entries()) {
+    if (caloriesOutTrend.some((p) => dayKey(p.date) === key)) continue;
+    caloriesOutTrend.push({ date: new Date(Number(key)), value });
+  }
+  caloriesOutTrend.sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const analysis = dataScientistAgent.processLogsForCharts({
-    meals,
-    activities: approvedActivities,
-    water,
+    meals: weekMeals,
+    activities: approvedWeek,
+    water: weekWater,
   });
   const habitCompliance = habitAgent.generateComplianceReport({
-    activities: approvedActivities,
-    water,
+    activities: approvedWeek,
+    water: weekWater,
     profile: req.user.profile,
   });
 
@@ -43,22 +99,22 @@ async function getProgress(req, res) {
       caloriesIn,
       caloriesOut,
       hydration,
-      netCalories: analysis.dailyBalance,
+      netCalories: caloriesIn - caloriesOut,
       bmi: bmi ?? req.user.profile?.bmi ?? null,
       weightKg: weight ?? null,
-      logCount: meals.length + approvedActivities.length + water.length,
+      logCount: todayMeals.length + approvedToday.length + todayWater.length,
     },
     trends: {
-      caloriesIn: buildSeries(meals, 'date', 'calories'),
-      caloriesOut: buildSeries(approvedActivities, 'date', 'caloriesBurned'),
-      hydration: buildSeries(water, 'date', 'amountMl'),
+      caloriesIn: buildSeries(weekMeals, 'date', 'calories'),
+      caloriesOut: caloriesOutTrend,
+      hydration: buildSeries(weekWater, 'date', 'amountMl'),
     },
     reports: analysis.healthReport,
     compliance: habitCompliance,
     recentLogs: {
-      meals: meals.slice(0, 5),
-      activities: allActivities.slice(0, 5),
-      water: water.slice(0, 5),
+      meals: weekMeals.slice(0, 5),
+      activities: weekActivities.slice(0, 5),
+      water: weekWater.slice(0, 5),
     },
   });
 }

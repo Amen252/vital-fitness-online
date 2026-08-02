@@ -9,9 +9,9 @@ const coachApplicationSchema = new mongoose.Schema(
     yearsExperience: { type: Number, required: true },
     certifications: { type: String, required: true, trim: true },
     specialization: { type: String, required: true, trim: true },
-    bio: { type: String, required: true, trim: true },
-    experience: { type: String, required: true, trim: true },
-    message: { type: String, required: true, trim: true },
+    bio: { type: String, default: '', trim: true },
+    experience: { type: String, default: '', trim: true },
+    message: { type: String, default: '', trim: true },
     workingDays: {
       type: [String],
       default: [],

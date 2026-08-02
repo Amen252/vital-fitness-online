@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../services/coach_application_prefs.dart';
@@ -21,6 +22,35 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
   final ApiService _apiService = ApiService();
   bool _isRefreshing = false;
   String? _errorMessage;
+  late User _currentUser;
+  DateTime? _lastCheckedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = widget.user;
+  }
+
+  Future<User?> _fetchLatestUser() async {
+    final user = await _apiService.getMe();
+    if (user == null) return null;
+
+    try {
+      final application = await _apiService.getMyCoachApplication();
+      if (application == null) return user;
+
+      final appStatus = application['status']?.toString();
+      final reviewedRaw = application['reviewedAt']?.toString();
+      final reviewedAt = reviewedRaw != null ? DateTime.tryParse(reviewedRaw) : null;
+
+      return user.copyWith(
+        coachApplicationStatus: appStatus ?? user.coachApplicationStatus,
+        coachApplicationReviewedAt: reviewedAt ?? user.coachApplicationReviewedAt,
+      );
+    } catch (_) {
+      return user;
+    }
+  }
 
   Future<void> _refreshStatus() async {
     setState(() {
@@ -29,7 +59,7 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
     });
 
     try {
-      final user = await _apiService.getMe();
+      final user = await _fetchLatestUser();
       if (!mounted) return;
 
       if (user == null) {
@@ -40,14 +70,35 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
         return;
       }
 
-      if (user.isCoach || !user.hasRejectedCoachApplication) {
+      _lastCheckedAt = DateTime.now();
+
+      if (user.hasApprovedCoachApplication || user.hasPendingCoachApplication) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => AuthHome(user: user)),
         );
         return;
       }
 
-      setState(() => _isRefreshing = false);
+      if (!user.hasRejectedCoachApplication) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => AuthHome(user: user)),
+        );
+        return;
+      }
+
+      setState(() {
+        _currentUser = user;
+        _isRefreshing = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Status: Rejected — you can update your details and reapply.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -131,8 +182,47 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: CoachDashboardTheme.danger.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: CoachDashboardTheme.danger.withValues(alpha: 0.35)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.cancel_outlined, color: CoachDashboardTheme.danger, size: 22),
+                            SizedBox(width: 10),
+                            Text(
+                              'Application status: Rejected',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: CoachDashboardTheme.danger,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_lastCheckedAt != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Last checked ${DateFormat('MMM d, h:mm a').format(_lastCheckedAt!.toLocal())}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   Text(
-                    'Hi ${widget.user.name}, thank you for applying to coach at VitalFitness. '
+                    'Hi ${_currentUser.name}, thank you for applying to coach at VitalFitness. '
                     'After reviewing your submission, we are unable to approve your application at this time.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -143,7 +233,7 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'We sent a confirmation email to ${widget.user.email}.',
+                    'We sent a confirmation email to ${_currentUser.email}.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,

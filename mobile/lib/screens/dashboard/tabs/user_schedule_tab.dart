@@ -7,6 +7,9 @@ import '../../../widgets/animations/animations.dart';
 import '../../../utils/date_utils.dart';
 import '../../../utils/workout_media_urls.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
+import '../../../widgets/workout_proof_sheet.dart';
+import '../../../widgets/workout_completion_proof_view.dart';
+import '../../../widgets/workout_mark_complete_control.dart';
 import 'user_classes_tab.dart';
 
 class UserScheduleTab extends StatefulWidget {
@@ -183,15 +186,26 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
     }).toList();
   }
 
-  Future<void> _complete(String scheduleId) async {
+  Future<void> _complete(String scheduleId, {String title = 'Workout'}) async {
+    final proof = await showWorkoutProofSheet(context, workoutTitle: title);
+    if (proof == null || !mounted) return;
+
     setState(() => _completing = true);
     try {
-      await _apiService.completeWorkoutSchedule(scheduleId);
+      await _apiService.completeWorkoutSchedule(
+        scheduleId,
+        notes: proof['notes'] as String,
+        durationMinutes: proof['durationMinutes'] as int,
+        proofPhoto: proof['proofPhoto'] as String,
+      );
       await _load(isRefresh: true, respectSelectedWeek: true);
       widget.onScheduleDataChanged?.call();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task marked as completed!'), backgroundColor: CoachDashboardTheme.success),
+          const SnackBar(
+            content: Text('Submitted for coach review · Streak updates when your coach approves'),
+            backgroundColor: CoachDashboardTheme.warning,
+          ),
         );
       }
     } catch (e) {
@@ -284,20 +298,32 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
                 ),
               ),
             ),
-            if (status != 'completed') ...[
+            if (status == 'pending' || status == 'missed') ...[
               const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _completing ? null : () {
-                    Navigator.pop(ctx);
-                    _complete(scheduleId);
-                  },
-                  icon: const Icon(Icons.check_circle_outline),
-                  label: const Text('Mark as Completed'),
-                  style: ElevatedButton.styleFrom(backgroundColor: CoachDashboardTheme.success, foregroundColor: Colors.white),
-                ),
+              WorkoutCompleteButton(
+                isLoading: _completing,
+                onPressed: _completing
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _complete(scheduleId, title: workoutTitle);
+                      },
               ),
+            ],
+            if (status == 'pending_review') ...[
+              const SizedBox(height: 12),
+              Text(
+                'Awaiting coach review',
+                style: TextStyle(color: CoachDashboardTheme.warning, fontWeight: FontWeight.w600),
+              ),
+            ],
+            if (completion.isNotEmpty &&
+                (status == 'pending_review' ||
+                    status == 'completed' ||
+                    completion['hasProofPhoto'] == true ||
+                    (completion['notes']?.toString().trim().isNotEmpty ?? false))) ...[
+              const SizedBox(height: 12),
+              WorkoutCompletionProofView(completion: completion, isDark: isDark, title: 'Your submission'),
             ],
           ],
         ),
@@ -528,11 +554,13 @@ class _ScheduleCard extends StatelessWidget {
   String _statusLabel(String status) {
     switch (status) {
       case 'completed':
-        return 'Completed';
+        return 'Approved';
+      case 'pending_review':
+        return 'Pending Review';
       case 'missed':
         return 'Missed';
       case 'pending':
-        return 'Pending';
+        return 'Assigned';
       default:
         return status;
     }
@@ -547,8 +575,7 @@ class _ScheduleCard extends StatelessWidget {
     final isGroup = item['fitnessClass'] != null;
     final groupTitle = item['fitnessClass']?['title'] as String?;
     final status = item['completion']?['status'] as String? ?? 'pending';
-    final isCompleted = status == 'completed';
-    final canComplete = !isCompleted;
+    final canComplete = status == 'pending' || status == 'missed';
     final timeStr = start != null
         ? '${start.month}/${start.day} · ${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}'
         : '';
@@ -557,6 +584,9 @@ class _ScheduleCard extends StatelessWidget {
     switch (status) {
       case 'completed':
         statusColor = CoachDashboardTheme.success;
+        break;
+      case 'pending_review':
+        statusColor = CoachDashboardTheme.warning;
         break;
       case 'missed':
         statusColor = CoachDashboardTheme.danger;
@@ -580,20 +610,11 @@ class _ScheduleCard extends StatelessWidget {
             if (onComplete != null)
               Padding(
                 padding: const EdgeInsets.only(right: 4),
-                  child: isCompleting && canComplete
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
-                      )
-                    : Checkbox(
-                        value: isCompleted,
-                        activeColor: CoachDashboardTheme.success,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        onChanged: canComplete && !isCompleting
-                            ? (_) => onComplete!()
-                            : null,
-                      ),
+                child: WorkoutMarkCompleteControl(
+                  status: status,
+                  isLoading: isCompleting && canComplete,
+                  onMarkComplete: canComplete && !isCompleting ? onComplete : null,
+                ),
               ),
             Container(
               padding: const EdgeInsets.all(10),
@@ -732,7 +753,6 @@ class _WeeklyGrid extends StatelessWidget {
           final day = dayRows[i] as Map<String, dynamic>;
           final has = day['hasWorkout'] == true;
           final isOff = day['isOffDay'] == true || day['status'] == 'off';
-          final completed = day['completed'] == true;
           final status = day['status'] as String? ?? 'none';
           final schedule = day['schedule'] as Map<String, dynamic>?;
           final title = schedule?['title'] as String? ?? schedule?['workoutTemplate']?['title'] as String? ?? '';
@@ -747,6 +767,10 @@ class _WeeklyGrid extends StatelessWidget {
           final timeStr = _formatTime(schedule?['startDateTime']?.toString());
           final dayDate = weekDayDate(weekStart, i);
           final dayLabel = '${labels[i]} ${dayDate.month}/${dayDate.day}';
+          final completed = day['completed'] == true || status == 'completed';
+          final inReview = status == 'pending_review';
+          final missed = status == 'missed';
+          final canMarkDay = has && !completed && !inReview;
 
           Color statusColor = Colors.grey;
           String statusLabel = 'Rest';
@@ -759,13 +783,16 @@ class _WeeklyGrid extends StatelessWidget {
             mainLabel = title;
             if (completed) {
               statusColor = CoachDashboardTheme.success;
-              statusLabel = 'Completed';
+              statusLabel = 'Approved';
+            } else if (inReview) {
+              statusColor = CoachDashboardTheme.warning;
+              statusLabel = 'Pending Review';
             } else if (status == 'missed') {
               statusColor = CoachDashboardTheme.danger;
               statusLabel = 'Missed';
             } else {
               statusColor = Colors.orange;
-              statusLabel = 'Pending';
+              statusLabel = 'Assigned';
             }
           }
 
@@ -790,24 +817,18 @@ class _WeeklyGrid extends StatelessWidget {
               child: Row(
                 children: [
                   if (has && onCompleteWorkout != null) ...[
-                    completing && !completed
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
-                          )
-                        : Checkbox(
-                            value: completed,
-                            activeColor: CoachDashboardTheme.success,
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            visualDensity: VisualDensity.compact,
-                            onChanged: completed || completing
-                                ? null
-                                : (_) {
-                                    final id = schedule?['_id']?.toString();
-                                    if (id != null && id.isNotEmpty) onCompleteWorkout!(id);
-                                  },
-                          ),
+                    WorkoutMarkCompleteControl(
+                      status: completed
+                          ? 'completed'
+                          : (inReview ? 'pending_review' : (missed ? 'missed' : 'pending')),
+                      isLoading: completing && canMarkDay,
+                      onMarkComplete: canMarkDay && !completing
+                          ? () {
+                              final id = schedule?['_id']?.toString();
+                              if (id != null && id.isNotEmpty) onCompleteWorkout!(id);
+                            }
+                          : null,
+                    ),
                     const SizedBox(width: 4),
                   ],
                   SizedBox(

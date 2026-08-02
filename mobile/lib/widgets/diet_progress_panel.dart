@@ -13,6 +13,7 @@ class DietProgressPanel extends StatelessWidget {
   final VoidCallback? onRefresh;
   final bool shrinkWrap;
   final List<Widget> footer;
+  final String? progressTitle;
 
   const DietProgressPanel({
     super.key,
@@ -25,6 +26,7 @@ class DietProgressPanel extends StatelessWidget {
     this.onRefresh,
     this.shrinkWrap = false,
     this.footer = const [],
+    this.progressTitle,
   });
 
   String _mealLabel(String type) {
@@ -50,6 +52,10 @@ class DietProgressPanel extends StatelessWidget {
     final mealPct = today.mealsPlanned > 0
         ? ((today.mealsCompleted / today.mealsPlanned) * 100).round()
         : 0;
+    final remaining = (today.mealsPlanned - today.mealsCompleted).clamp(0, today.mealsPlanned);
+    final mealProgressLabel = today.mealsPlanned > 0
+        ? '${today.mealsCompleted} completed · $remaining remaining · $mealPct%'
+        : 'No meals planned for this day';
 
     return ListView(
       shrinkWrap: shrinkWrap,
@@ -67,10 +73,13 @@ class DietProgressPanel extends StatelessWidget {
               icon: const Icon(Icons.refresh_rounded),
             ),
           ),
-        _overallCard(mealPct),
+        _overallCard(mealPct, mealProgressLabel, progressTitle),
         if (mealTypes.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text('Meal completion today', style: CoachDashboardTheme.sectionTitle(isDark)),
+          Text(
+            progressTitle ?? 'Meal completion',
+            style: CoachDashboardTheme.sectionTitle(isDark),
+          ),
           const SizedBox(height: 8),
           ...mealTypes.map((type) {
             final done = mealFollowed[type] ?? _isMealCompletedInToday(type);
@@ -209,7 +218,7 @@ class DietProgressPanel extends StatelessWidget {
     );
   }
 
-  Widget _overallCard(int mealPct) {
+  Widget _overallCard(int mealPct, String mealProgressLabel, [String? title]) {
     final pct = today.mealsPlanned > 0 ? mealPct : (today.hasActivity ? today.dailyGoalPercent : 0);
     return Container(
       padding: const EdgeInsets.all(18),
@@ -217,11 +226,13 @@ class DietProgressPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (title != null && title.isNotEmpty) ...[
+            Text(title, style: CoachDashboardTheme.sectionTitle(isDark)),
+            const SizedBox(height: 6),
+          ],
           Text('$pct%', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: CoachDashboardTheme.primary)),
           Text(
-            today.mealsPlanned > 0
-                ? '${today.mealsCompleted}/${today.mealsPlanned} Meals Completed'
-                : 'Daily goal completion',
+            today.mealsPlanned > 0 ? mealProgressLabel : 'Daily goal completion',
             style: CoachDashboardTheme.bodyMuted(isDark),
           ),
           const SizedBox(height: 12),

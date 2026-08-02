@@ -27,7 +27,7 @@ const { validationResult } = require('express-validator');
 const { purgeUserAccount } = require('../utils/purgeUserAccount');
 const { buildMemberUserFilter } = require('../utils/memberUserQuery');
 const { enrichCoachUser } = require('../utils/coachProfile');
-const { USER_DISPLAY_SELECT, normalizeEnrolledStudents } = require('../utils/userDisplay');
+const { USER_DISPLAY_SELECT, normalizeEnrolledStudents, withDisplayName } = require('../utils/userDisplay');
 const {
   sendCoachApplicationApprovedEmail,
   sendCoachApplicationRejectedEmail,
@@ -950,6 +950,8 @@ async function approveCoachApplication(req, res) {
 
 async function rejectCoachApplication(req, res) {
   try {
+    const reason = String(req.body?.reason || '').trim();
+
     // Claim the pending application so concurrent reviews cannot double-process it.
     const application = await CoachApplication.findOneAndUpdate(
       { _id: req.params.id, status: 'pending' },
@@ -964,16 +966,15 @@ async function rejectCoachApplication(req, res) {
     }
 
     if (!application.user) {
-      await CoachApplication.findByIdAndDelete(application._id);
       return res.status(400).json({ message: 'Application is missing an applicant user' });
     }
 
     const applicant = application.user;
     if (applicant.role === 'admin') {
-      return res.status(403).json({ message: 'Admin accounts cannot be rejected or deleted' });
+      return res.status(403).json({ message: 'Admin accounts cannot be rejected' });
     }
 
-    // Never delete an already-approved coach via the applications flow.
+    // Never reject an already-approved coach via the applications flow.
     if (
       applicant.role === 'coach'
       && applicant.coachData?.approval_status === 'approved'
@@ -983,12 +984,36 @@ async function rejectCoachApplication(req, res) {
       });
     }
 
-    const applicantSnapshot = {
-      _id: applicant._id,
-      username: applicant.username,
-      full_name: applicant.full_name,
-      role: applicant.role,
-    };
+    const existingCoachData = applicant.coachData?.toObject?.()
+      || applicant.coachData
+      || {};
+
+    // Keep the member account so applicants can see rejection status and reapply.
+    await User.findByIdAndUpdate(
+      applicant._id,
+      {
+        $set: {
+          role: 'user',
+          coachData: {
+            ...existingCoachData,
+            approval_status: 'rejected',
+          },
+        },
+      },
+      { runValidators: true },
+    );
+
+    try {
+      await Notification.create({
+        user: applicant._id,
+        message: reason
+          ? `Your coach application was not approved: ${reason}. You can update your details and reapply, or continue as a member.`
+          : 'Your coach application was not approved. You can update your details and reapply, or continue as a member.',
+        type: 'update',
+      });
+    } catch (notificationError) {
+      console.error('[ADMIN] coach reject notification:', notificationError.message);
+    }
 
     try {
       await sendCoachApplicationRejectedEmail(applicant);
@@ -996,34 +1021,31 @@ async function rejectCoachApplication(req, res) {
       console.error('[EMAIL] Failed to send coach rejection email:', emailError.message);
     }
 
-    const purgeResult = await purgeUserAccount(applicant._id);
-    if (!purgeResult.deleted) {
-      return res.status(500).json({ message: 'Application rejected but account could not be deleted' });
-    }
-
     try {
       await AuditLog.create({
         actor_id: req.user._id,
-        action: 'REJECT_AND_DELETE_COACH_APPLICATION',
+        action: 'REJECT_COACH_APPLICATION',
         target_type: 'CoachApplication',
         target_id: application._id,
         details: {
-          username: applicantSnapshot.username,
-          full_name: applicantSnapshot.full_name,
-          role: applicantSnapshot.role,
-          permanent: true,
+          username: applicant.username,
+          full_name: applicant.full_name,
+          role: applicant.role,
+          reason: reason || undefined,
         },
       });
     } catch (auditError) {
       console.error('[ADMIN] coach reject audit:', auditError.message);
     }
 
+    const payload = await CoachApplication.findById(application._id)
+      .populate('user', 'username full_name phone status role')
+      .lean();
+
     return res.json({
-      message: 'Coach application rejected and account deleted',
+      message: 'Coach application rejected',
       status: 'rejected',
-      deleted: true,
-      deletedId: String(applicantSnapshot._id),
-      applicationId: String(application._id),
+      application: payload,
     });
   } catch (error) {
     console.error('[ADMIN] Failed to reject application:', error.message);
@@ -1219,12 +1241,27 @@ async function getAdminDietPlans(req, res) {
       });
     }
 
-    const enriched = plans.map((p) => ({
-      ...p,
-      assigneeType: p.client ? 'user' : 'group',
-      assigneeName: p.client?.name || p.fitnessClass?.title || '—',
-      mealTypes: (p.meals || []).map((m) => m.type),
-    }));
+    const enriched = plans.map((p) => {
+      const coach = withDisplayName(p.coach);
+      const client = withDisplayName(p.client);
+      const mealSource = p.planType === 'weekly' && Array.isArray(p.days) && p.days.length
+        ? p.days.flatMap((d) => d.meals || [])
+        : (p.meals || []);
+      const mealTypes = [...new Set(
+        mealSource
+          .map((m) => m?.type)
+          .filter(Boolean),
+      )];
+      return {
+        ...p,
+        coach,
+        client,
+        planType: p.planType || 'single_day',
+        assigneeType: p.client ? 'user' : 'group',
+        assigneeName: client?.name || p.fitnessClass?.title || '—',
+        mealTypes,
+      };
+    });
 
     return res.json({ plans: enriched });
   } catch (error) {

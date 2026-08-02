@@ -14,7 +14,6 @@ const {
   parseSlotDateTime,
   parseSlotDateTimeInOffset,
   parseTimezoneOffsetMinutes,
-  wallClockHHMM,
   isValidSlotTime,
   getHoursForDay,
 } = require('../utils/appointmentSlots');
@@ -34,21 +33,66 @@ function getEndTime(dateTime, durationMinutes) {
   return new Date(new Date(dateTime).getTime() + (durationMinutes || 60) * 60000);
 }
 
+const BLOCKING_APPOINTMENT_STATUSES = ['pending', 'approved', 'rescheduled', 'confirmed'];
+
+function coachFilter(coachId) {
+  return { $or: [{ coach: coachId }, { coach_id: coachId }] };
+}
+
+function appointmentStart(appt) {
+  const raw = appt?.dateTime || appt?.datetime;
+  if (!raw) return null;
+  const start = new Date(raw);
+  return Number.isNaN(start.getTime()) ? null : start;
+}
+
+function appointmentDuration(appt, fallback = DEFAULT_DURATION) {
+  const duration = appt?.durationMinutes ?? appt?.duration ?? fallback;
+  return Number(duration) > 0 ? Number(duration) : fallback;
+}
+
+function slotsOverlap(startA, durationA, startB, durationB) {
+  const endA = getEndTime(startA, durationA);
+  const endB = getEndTime(startB, durationB);
+  return startA < endB && startB < endA;
+}
+
+async function fetchBlockingAppointments(coachId, { dayBegin, dayEnd } = {}) {
+  const query = {
+    ...coachFilter(coachId),
+    status: { $in: BLOCKING_APPOINTMENT_STATUSES },
+  };
+
+  if (dayBegin && dayEnd) {
+    query.$and = [
+      {
+        $or: [
+          { dateTime: { $gte: dayBegin, $lte: dayEnd } },
+          { datetime: { $gte: dayBegin, $lte: dayEnd } },
+        ],
+      },
+    ];
+  }
+
+  return Appointment.find(query)
+    .select('dateTime datetime durationMinutes duration')
+    .lean();
+}
+
 async function hasOverlap(coachId, dateTime, durationMinutes, excludeId = null) {
   const start = new Date(dateTime);
-  const end = getEndTime(start, durationMinutes);
-  const blockingStatuses = ['pending', 'approved', 'rescheduled'];
-
-  const existing = await Appointment.find({
-    coach: coachId,
-    status: { $in: blockingStatuses },
-    ...(excludeId ? { _id: { $ne: excludeId } } : {}),
-  }).select('dateTime durationMinutes');
+  const existing = await fetchBlockingAppointments(coachId);
 
   return existing.some((appt) => {
-    const otherStart = new Date(appt.dateTime);
-    const otherEnd = getEndTime(otherStart, appt.durationMinutes);
-    return start < otherEnd && otherStart < end;
+    if (excludeId && String(appt._id) === String(excludeId)) return false;
+    const otherStart = appointmentStart(appt);
+    if (!otherStart) return false;
+    return slotsOverlap(
+      start,
+      durationMinutes,
+      otherStart,
+      appointmentDuration(appt, durationMinutes),
+    );
   });
 }
 
@@ -58,6 +102,17 @@ async function verifyActiveAssignment(clientId, coachId) {
     CoachClientAssignment.findOne({ user_id: clientId, coach_id: coachId, status: 'active' }),
   ]);
   return legacy || modern || null;
+}
+
+async function getActiveCoachIdForClient(clientId) {
+  const legacy = await CoachAssignment.findOne({ user: clientId, status: 'active' })
+    .select('coach')
+    .lean();
+  if (legacy?.coach) return legacy.coach;
+  const modern = await CoachClientAssignment.findOne({ user_id: clientId, status: 'active' })
+    .select('coach_id')
+    .lean();
+  return modern?.coach_id || null;
 }
 
 async function notifyUser(userId, message, type = 'reminder') {
@@ -75,11 +130,8 @@ async function requestAppointment(req, res) {
       return res.status(400).json({ message: 'Date and time are required' });
     }
 
-    const assignment = await CoachAssignment.findOne({
-      user: req.user._id,
-      status: 'active',
-    });
-    if (!assignment) {
+    const coachId = await getActiveCoachIdForClient(req.user._id);
+    if (!coachId) {
       return res.status(403).json({ message: 'You need an assigned coach to request an appointment' });
     }
 
@@ -89,7 +141,7 @@ async function requestAppointment(req, res) {
     }
 
     const duration = durationMinutes || 60;
-    const overlap = await hasOverlap(assignment.coach, parsedDate, duration);
+    const overlap = await hasOverlap(coachId, parsedDate, duration);
     if (overlap) {
       return res.status(409).json({ message: 'That time slot is already booked. Please choose another time.' });
     }
@@ -97,8 +149,8 @@ async function requestAppointment(req, res) {
     const appointment = await Appointment.create({
       client: req.user._id,
       user_id: req.user._id,
-      coach: assignment.coach,
-      coach_id: assignment.coach,
+      coach: coachId,
+      coach_id: coachId,
       dateTime: parsedDate,
       datetime: parsedDate,
       durationMinutes: duration,
@@ -109,7 +161,7 @@ async function requestAppointment(req, res) {
     });
 
     await notifyUser(
-      assignment.coach,
+      coachId,
       `${req.user.full_name || req.user.username} requested an appointment for ${formatDateTime(parsedDate)}.`,
       'update',
     );
@@ -480,11 +532,7 @@ async function getCoachAvailability(req, res) {
     }
 
     // Only an actively-assigned client can view a coach's availability.
-    const assignment = await CoachAssignment.findOne({
-      user: req.user._id,
-      coach: coachId,
-      status: 'active',
-    });
+    const assignment = await verifyActiveAssignment(req.user._id, coachId);
     if (!assignment) {
       return res.status(403).json({ message: 'You can only book with your assigned coach.' });
     }
@@ -520,21 +568,22 @@ async function getCoachAvailability(req, res) {
 
     const dayEnd = parseSlotDateTimeInOffset(dateStr, '23:59', timezoneOffsetMinutes);
     const dayBegin = parseSlotDateTimeInOffset(dateStr, '00:00', timezoneOffsetMinutes);
-    const booked = await Appointment.find({
-      coach: coachId,
-      status: { $in: ['pending', 'approved', 'rescheduled'] },
-      dateTime: { $gte: dayBegin, $lte: dayEnd },
-    }).select('dateTime');
-
-    const bookedTimes = new Set(
-      booked.map((a) => wallClockHHMM(new Date(a.dateTime), timezoneOffsetMinutes)),
-    );
+    const booked = await fetchBlockingAppointments(coachId, { dayBegin, dayEnd });
 
     const now = new Date();
     const slots = generateSlotTimes(start, end, settings.duration).map((time) => {
       const slotDate = parseSlotDateTimeInOffset(dateStr, time, timezoneOffsetMinutes);
       const isPast = slotDate <= now;
-      const isBooked = bookedTimes.has(time);
+      const isBooked = booked.some((appt) => {
+        const otherStart = appointmentStart(appt);
+        if (!otherStart) return false;
+        return slotsOverlap(
+          slotDate,
+          settings.duration,
+          otherStart,
+          appointmentDuration(appt, settings.duration),
+        );
+      });
       return { time, available: !isPast && !isBooked, booked: isBooked, past: isPast };
     });
 
@@ -550,7 +599,8 @@ async function getCoachAvailability(req, res) {
       workingHoursStart: start,
       workingHoursEnd: end,
       appointmentDurationMinutes: settings.duration,
-      slots: availableSlots,
+      slots,
+      availableCount: availableSlots.length,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -574,11 +624,7 @@ async function bookAppointment(req, res) {
       return res.status(404).json({ message: 'Coach not found' });
     }
 
-    const assignment = await CoachAssignment.findOne({
-      user: req.user._id,
-      coach: coachId,
-      status: 'active',
-    });
+    const assignment = await verifyActiveAssignment(req.user._id, coachId);
     if (!assignment) {
       return res.status(403).json({ message: 'You can only book with your assigned coach.' });
     }
@@ -622,19 +668,31 @@ async function bookAppointment(req, res) {
       return res.status(409).json({ message: 'That time slot has already been booked. Please choose another.' });
     }
 
-    const appointment = await Appointment.create({
-      client: req.user._id,
-      coach: coachId,
-      dateTime: slotDate,
-      durationMinutes: settings.duration,
-      notes: String(notes || '').trim(),
-      type: 'user_request',
-      status: 'pending',
-    });
+    let appointment;
+    try {
+      appointment = await Appointment.create({
+        client: req.user._id,
+        user_id: req.user._id,
+        coach: coachId,
+        coach_id: coachId,
+        dateTime: slotDate,
+        datetime: slotDate,
+        durationMinutes: settings.duration,
+        duration: settings.duration,
+        notes: String(notes || '').trim(),
+        type: 'user_request',
+        status: 'pending',
+      });
+    } catch (createError) {
+      if (createError?.code === 11000) {
+        return res.status(409).json({ message: 'That time slot has already been booked. Please choose another.' });
+      }
+      throw createError;
+    }
 
     await notifyUser(
       coachId,
-      `${req.user.name || 'A client'} booked an appointment for ${formatDateTime(slotDate)}.`,
+      `${req.user.full_name || req.user.username || 'A client'} booked an appointment for ${formatDateTime(slotDate)}.`,
       'update',
     );
 

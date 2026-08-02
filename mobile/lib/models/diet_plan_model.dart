@@ -3,22 +3,30 @@ class DietMeal {
   final String type;
   final String name;
   final String description;
+  final List<String> foodItems;
+  final String portionSize;
   final int calories;
   final int protein;
   final int carbs;
   final int fats;
   final String reminderTime;
+  final String prepInstructions;
+  final String mealNotes;
 
   const DietMeal({
     this.id,
     required this.type,
     this.name = '',
     this.description = '',
+    this.foodItems = const [],
+    this.portionSize = '',
     this.calories = 0,
     this.protein = 0,
     this.carbs = 0,
     this.fats = 0,
     this.reminderTime = '',
+    this.prepInstructions = '',
+    this.mealNotes = '',
   });
 
   factory DietMeal.fromJson(Map<String, dynamic> json) => DietMeal(
@@ -26,25 +34,50 @@ class DietMeal {
         type: json['type']?.toString() ?? 'snacks',
         name: json['name']?.toString() ?? '',
         description: json['description']?.toString() ?? '',
+        foodItems: (json['foodItems'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .toList(),
+        portionSize: json['portionSize']?.toString() ?? '',
         calories: (json['calories'] as num?)?.toInt() ?? 0,
         protein: (json['protein'] as num?)?.toInt() ?? 0,
         carbs: (json['carbs'] as num?)?.toInt() ?? 0,
         fats: (json['fats'] as num?)?.toInt() ?? 0,
         reminderTime: json['reminderTime']?.toString() ?? '',
+        prepInstructions: json['prepInstructions']?.toString() ?? '',
+        mealNotes: json['mealNotes']?.toString() ?? json['notes']?.toString() ?? '',
       );
 
   Map<String, dynamic> toJson() => {
         'type': type,
         'name': name,
         'description': description,
+        'foodItems': foodItems,
+        'portionSize': portionSize,
         'calories': calories,
         'protein': protein,
         'carbs': carbs,
         'fats': fats,
         'reminderTime': reminderTime,
+        'prepInstructions': prepInstructions,
+        'mealNotes': mealNotes,
       };
 
-  bool get hasContent => name.trim().isNotEmpty || description.trim().isNotEmpty;
+  bool get hasContent =>
+      name.trim().isNotEmpty ||
+      description.trim().isNotEmpty ||
+      foodItems.isNotEmpty ||
+      portionSize.trim().isNotEmpty ||
+      prepInstructions.trim().isNotEmpty;
+
+  String get macrosLabel {
+    final parts = <String>[];
+    if (calories > 0) parts.add('$calories kcal');
+    if (protein > 0) parts.add('P ${protein}g');
+    if (carbs > 0) parts.add('C ${carbs}g');
+    if (fats > 0) parts.add('F ${fats}g');
+    return parts.join(' · ');
+  }
 
   static DietMeal empty(String type) => DietMeal(type: type, name: labelForType(type));
 
@@ -221,9 +254,10 @@ class DietPlan {
     switch (status) {
       case 'draft':
         return 'Draft';
-      case 'completed':
       case 'archived':
-        return 'Completed';
+        return 'Archived';
+      case 'completed':
+        return 'Previous';
       case 'active':
       default:
         return 'Active';

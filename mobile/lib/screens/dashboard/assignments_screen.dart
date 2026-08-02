@@ -1,31 +1,46 @@
 import 'package:flutter/material.dart';
 import 'widgets/coach_home/coach_dashboard_theme.dart';
 import '../../../services/api_service.dart';
-import '../../../utils/share_helpers.dart';
-import '../../../utils/workout_media_urls.dart';
+import '../../../utils/date_utils.dart';
+import '../../../widgets/user_workout_detail_sheet.dart';
+import '../../../widgets/workout_proof_sheet.dart';
+import '../../../widgets/workout_completion_proof_view.dart';
+import '../../../widgets/workout_mark_complete_control.dart';
 
 class AssignmentsScreen extends StatefulWidget {
-  final Map<String, dynamic> coachingData;
+  final Map<String, dynamic>? coachingData;
+  final VoidCallback? onDataChanged;
 
-  const AssignmentsScreen({super.key, required this.coachingData});
+  const AssignmentsScreen({super.key, this.coachingData, this.onDataChanged});
 
   @override
   State<AssignmentsScreen> createState() => _AssignmentsScreenState();
 }
 
-class _AssignmentsScreenState extends State<AssignmentsScreen> {
+class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
+  late final TabController _filterTab;
   bool _isLoading = true;
   bool _isRefreshing = false;
   bool _isSubmitting = false;
   String _error = '';
-  List<dynamic> _workouts = [];
+  List<Map<String, dynamic>> _workouts = [];
   Map<String, dynamic>? _progress;
 
   @override
   void initState() {
     super.initState();
+    _filterTab = TabController(length: 3, vsync: this);
+    _filterTab.addListener(() {
+      if (!_filterTab.indexIsChanging) setState(() {});
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _filterTab.dispose();
+    super.dispose();
   }
 
   Future<void> _load({bool isRefresh = false}) async {
@@ -44,11 +59,21 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       final results = await Future.wait([
         _apiService.getUserExercisePlans(),
         _apiService.getUserWorkoutProgress(),
+        _apiService.getUserWorkoutSchedules().catchError((_) => <String, dynamic>{}),
       ]);
       if (mounted) {
+        final plans = List<dynamic>.from(results[0] as List);
+        final scheduleData = results[2] as Map<String, dynamic>?;
+        final progress = results[1] as Map<String, dynamic>;
+        final history = (progress['history'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((h) => Map<String, dynamic>.from(h))
+            .toList();
+        final merged = mergeUserWorkoutSources(plans: plans, scheduleData: scheduleData);
+        enrichWorkoutsWithHistoryProof(merged, history);
         setState(() {
-          _workouts = List<dynamic>.from(results[0] as List);
-          _progress = results[1] as Map<String, dynamic>;
+          _workouts = merged;
+          _progress = progress;
           _isLoading = false;
           _isRefreshing = false;
         });
@@ -70,20 +95,36 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     final source = plan['source']?.toString() ?? 'exercise_plan';
     if (planId.isEmpty) return;
 
+    final proof = await showWorkoutProofSheet(context, workoutTitle: title);
+    if (proof == null || !mounted) return;
+
     setState(() => _isSubmitting = true);
     try {
       if (source == 'schedule') {
-        await _apiService.completeWorkoutSchedule(planId);
+        await _apiService.completeWorkoutSchedule(
+          planId,
+          notes: proof['notes'] as String,
+          durationMinutes: proof['durationMinutes'] as int,
+          proofPhoto: proof['proofPhoto'] as String,
+        );
       } else {
-        await _apiService.completeWorkout(planId);
+        await _apiService.completeWorkout(
+          planId,
+          notes: proof['notes'] as String,
+          durationMinutes: proof['durationMinutes'] as int,
+          proofPhoto: proof['proofPhoto'] as String,
+        );
       }
       await _load(isRefresh: true);
+      widget.onDataChanged?.call();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Workout marked as completed!'),
-          backgroundColor: CoachDashboardTheme.success,
+        final streak = (_progress?['summary'] as Map<String, dynamic>?)?['streak'] ?? 0;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Submitted for coach review · Streak updates on approval (current: $streak days)',
+          ),
+          backgroundColor: CoachDashboardTheme.warning,
         ));
-        await offerShareWorkoutWin(context, workoutTitle: title);
       }
     } catch (e) {
       if (mounted) {
@@ -97,15 +138,37 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     }
   }
 
+  String get _coachName {
+    final fromCoaching = widget.coachingData?['coach']?['name'] as String?;
+    if (fromCoaching != null && fromCoaching.isNotEmpty) return fromCoaching;
+    for (final workout in _workouts) {
+      if (workout['coach'] is Map) {
+        final name = ApiService.displayName(
+          Map<dynamic, dynamic>.from(workout['coach'] as Map),
+          fallback: '',
+        );
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return 'Your coach';
+  }
+
+  List<Map<String, dynamic>> get _filteredWorkouts =>
+      _workouts.where((w) => workoutMatchesFilter(w, _filterTab.index)).toList();
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final coachName = widget.coachingData['coach']?['name'] as String? ?? 'Your Coach';
-    final articles = (widget.coachingData['assignedArticles'] as List<dynamic>? ?? [])
+    final articles = (widget.coachingData?['assignedArticles'] as List<dynamic>? ?? [])
         .whereType<Map>()
         .map((a) => Map<String, dynamic>.from(a))
         .toList();
     final summary = _progress?['summary'] as Map<String, dynamic>?;
+    final history = (_progress?['history'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((h) => Map<String, dynamic>.from(h))
+        .toList();
+    final recentHistory = history.take(8).toList();
 
     return Scaffold(
       backgroundColor: CoachDashboardTheme.homeBackground(isDark),
@@ -129,62 +192,177 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
           : _error.isNotEmpty
-              ? Center(child: Text(_error, style: const TextStyle(color: CoachDashboardTheme.danger)))
-              : RefreshIndicator(
-                  onRefresh: () => _load(isRefresh: true),
-                  color: CoachDashboardTheme.primary,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(20),
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
                     child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: CoachDashboardTheme.headerGradient,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [BoxShadow(color: CoachDashboardTheme.primary.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Icon(Icons.fitness_center_rounded, color: Colors.white, size: 32),
-                          const SizedBox(height: 12),
-                          const Text('Your Workouts', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 6),
-                          Text('Assigned by $coachName', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13)),
-                          if (summary != null) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              '${summary['completionPercent'] ?? 0}% complete · ${summary['completed'] ?? 0} done · ${summary['pending'] ?? 0} pending',
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
-                            ),
-                          ],
-                        ]),
-                      ),
-                      const SizedBox(height: 24),
-                      if (_workouts.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: CoachDashboardTheme.cardDecoration(isDark),
-                          child: const Center(child: Text('No workouts assigned yet.', style: TextStyle(color: Colors.grey))),
-                        )
-                      else
-                        ..._workouts.map((w) => _buildWorkoutCard(w as Map<String, dynamic>, isDark)),
-                      const SizedBox(height: 32),
-                      const Text('Coach Resources', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 12),
-                      if (articles.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: CoachDashboardTheme.cardDecoration(isDark),
-                          child: const Center(child: Text('No resources assigned right now.', style: TextStyle(color: Colors.grey))),
-                        )
-                      else
-                        ...articles.map((a) => _buildArticleCard(a, isDark)),
-                    ],
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error, textAlign: TextAlign.center, style: const TextStyle(color: CoachDashboardTheme.danger)),
+                        const SizedBox(height: 16),
+                        ElevatedButton(onPressed: () => _load(), child: const Text('Retry')),
+                      ],
+                    ),
                   ),
+                )
+              : Column(
+                  children: [
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: () => _load(isRefresh: true),
+                        color: CoachDashboardTheme.primary,
+                        child: CustomScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                                child: _headerCard(summary, isDark),
+                              ),
+                            ),
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      '${_workouts.length} assigned',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            SliverToBoxAdapter(
+                              child: TabBar(
+                                controller: _filterTab,
+                                labelColor: CoachDashboardTheme.primary,
+                                unselectedLabelColor: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                                indicatorColor: CoachDashboardTheme.primary,
+                                onTap: (_) => setState(() {}),
+                                tabs: const [
+                                  Tab(text: 'All'),
+                                  Tab(text: 'Active'),
+                                  Tab(text: 'Completed'),
+                                ],
+                              ),
+                            ),
+                            if (_filteredWorkouts.isEmpty)
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: CoachDashboardTheme.emptyState(
+                                    icon: Icons.fitness_center_outlined,
+                                    title: _filterTab.index == 0 ? 'No workouts yet' : 'Nothing here',
+                                    message: _filterTab.index == 0
+                                        ? 'Workouts assigned by your coach will appear here automatically.'
+                                        : 'Try another filter to see more workouts.',
+                                    isDark: isDark,
+                                  ),
+                                ),
+                              )
+                            else
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                                sliver: SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (context, index) => _buildWorkoutCard(_filteredWorkouts[index], isDark),
+                                    childCount: _filteredWorkouts.length,
+                                  ),
+                                ),
+                              ),
+                            if (recentHistory.isNotEmpty) ...[
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 12),
+                                  child: Text(
+                                    'Recent activity',
+                                    style: CoachDashboardTheme.sectionTitle(isDark),
+                                  ),
+                                ),
+                              ),
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                                sliver: SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (context, index) => _buildHistoryRow(recentHistory[index], isDark),
+                                    childCount: recentHistory.length,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (articles.isNotEmpty) ...[
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 12),
+                                  child: Text(
+                                    'Coach resources',
+                                    style: CoachDashboardTheme.sectionTitle(isDark),
+                                  ),
+                                ),
+                              ),
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                                sliver: SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (context, index) => _buildArticleCard(articles[index], isDark),
+                                    childCount: articles.length,
+                                  ),
+                                ),
+                              ),
+                            ] else
+                              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+    );
+  }
+
+  Widget _headerCard(Map<String, dynamic>? summary, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: CoachDashboardTheme.headerGradient,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: CoachDashboardTheme.primary.withValues(alpha: 0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.fitness_center_rounded, color: Colors.white, size: 32),
+          const SizedBox(height: 12),
+          const Text('My Workouts', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(
+            'Assigned by $_coachName',
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+          ),
+          if (summary != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              '${summary['completionPercent'] ?? 0}% approved · '
+              '${summary['completed'] ?? 0} done · '
+              '${summary['pendingReview'] ?? 0} in review · '
+              '${summary['pending'] ?? 0} assigned · '
+              'streak ${summary['streak'] ?? 0}',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -194,28 +372,35 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     final description = plan['description'] as String? ?? '';
     final exercises = plan['exercises'] as List<dynamic>? ?? [];
     final completion = plan['completion'] as Map<String, dynamic>? ?? {};
-    final status = completion['status'] as String? ?? 'pending';
+    final status = workoutStatusForFilter(plan);
     final source = plan['source']?.toString() ?? 'exercise_plan';
     final assigneeType = plan['assigneeType']?.toString() ?? 'user';
     final groupName = plan['groupName']?.toString();
-    final weeklyDays = (plan['days'] as List<dynamic>? ?? const [])
-        .whereType<Map>()
-        .map((day) => Map<String, dynamic>.from(day))
-        .where((day) => day['enabled'] == true && day['offDay'] != true)
-        .toList();
-    final isPending = status == 'pending';
-    final isCompleted = status == 'completed';
     final canComplete = source != 'weekly_plan' &&
         (completion['completable'] != false) &&
-        isPending;
+        (status == 'pending' || status == 'missed');
+    final showProof = status == 'pending_review' ||
+        status == 'completed' ||
+        completion['hasProofPhoto'] == true ||
+        (completion['notes']?.toString().trim().isNotEmpty ?? false);
 
     final subtitleParts = <String>[
       level,
-      if (assigneeType == 'group')
-        (groupName != null && groupName.isNotEmpty) ? 'Group · $groupName' : 'Group',
-      if (source == 'weekly_plan') 'Weekly plan',
-      if (source == 'schedule') 'Scheduled',
+      _sourceShortLabel(source),
+      if (assigneeType == 'group' && groupName != null && groupName.isNotEmpty) groupName,
+      if (source == 'schedule' && plan['startDateTime'] != null)
+        formatApiDateTime(plan['startDateTime']?.toString()),
     ];
+
+    final weeklyDays = (plan['days'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((d) => Map<String, dynamic>.from(d))
+        .where((d) => d['enabled'] == true && d['offDay'] != true)
+        .toList();
+    final completedDays = weeklyDays.where((d) {
+      final dayStatus = d['completion'] is Map ? d['completion']['status']?.toString() : null;
+      return dayStatus == 'completed' || dayStatus == 'pending_review';
+    }).length;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -227,37 +412,35 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (canComplete || isCompleted)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8, top: 2),
-                  child: _isSubmitting && canComplete
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
-                        )
-                      : Checkbox(
-                          value: isCompleted,
-                          activeColor: CoachDashboardTheme.success,
-                          onChanged: canComplete && !_isSubmitting
-                              ? (_) => _completeWorkout(plan)
-                              : null,
-                        ),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: CoachDashboardTheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: const Icon(Icons.fitness_center_rounded, color: CoachDashboardTheme.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                        Expanded(
+                          child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
                         _statusBadge(status),
                       ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       subtitleParts.join(' · '),
-                      style: const TextStyle(color: CoachDashboardTheme.primary, fontSize: 12),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -265,98 +448,93 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
             ],
           ),
           if (description.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(description, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.grey.shade700)),
-          ],
-          if (source == 'weekly_plan') ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              'Tick each workout day after you complete it.',
-              style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey.shade600),
+              description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.grey.shade700),
             ),
-            const SizedBox(height: 10),
-            ...weeklyDays.map((day) {
-              final scheduleId = day['scheduleId']?.toString() ?? '';
-              final dayName = day['dayName']?.toString() ?? 'Workout day';
-              final dayCompletion = day['completion'] is Map
-                  ? Map<String, dynamic>.from(day['completion'] as Map)
-                  : <String, dynamic>{};
-              final dayStatus = dayCompletion['status']?.toString() ?? 'pending';
-              final completed = dayStatus == 'completed';
-              final missed = dayStatus == 'missed';
-              final canMark = scheduleId.isNotEmpty && dayStatus != 'completed' && !_isSubmitting;
-              final dayExercises = day['exercises'] as List<dynamic>? ?? const [];
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: completed
-                        ? CoachDashboardTheme.success.withValues(alpha: 0.35)
-                        : (isDark ? Colors.white10 : Colors.grey.shade200),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Checkbox(
-                      value: completed,
-                      activeColor: CoachDashboardTheme.success,
-                      visualDensity: VisualDensity.compact,
-                      onChanged: canMark
-                          ? (_) => _completeWorkout({
-                                '_id': scheduleId,
-                                'source': 'schedule',
-                                'title': '$title · $dayName',
-                              })
-                          : null,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(dayName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                          Text(
-                            '${dayExercises.length} exercise${dayExercises.length == 1 ? '' : 's'} · '
-                            '${completed ? 'Completed' : (missed ? 'Missed' : 'Pending')}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: completed
-                                  ? CoachDashboardTheme.success
-                                  : (missed ? CoachDashboardTheme.danger : Colors.orange),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
+          ],
+          if (showProof) ...[
+            const SizedBox(height: 12),
+            WorkoutCompletionProofView(
+              completion: completion,
+              isDark: isDark,
+              title: 'Your submission',
+            ),
           ],
           const SizedBox(height: 10),
-          if (exercises.isEmpty)
-            Text(
-              'No exercises listed yet.',
-              style: TextStyle(fontSize: 13, color: isDark ? Colors.white54 : Colors.grey),
-            )
-          else
-            ...exercises.map((ex) {
-              final map = ex is Map
-                  ? Map<dynamic, dynamic>.from(ex)
-                  : <dynamic, dynamic>{'name': ex?.toString() ?? 'Exercise'};
-              final dayName = map['dayName']?.toString();
-              if (dayName != null && dayName.isNotEmpty && map['name'] != null) {
-                map['name'] = '$dayName · ${map['name']}';
-              }
-              return WorkoutExerciseRow(exercise: map, isDark: isDark);
-            }),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _metaChip(
+                isDark,
+                source == 'weekly_plan'
+                    ? '$completedDays / ${weeklyDays.length} days'
+                    : '${exercises.length} exercise${exercises.length == 1 ? '' : 's'}',
+              ),
+              if (plan['coach'] is Map)
+                _metaChip(
+                  isDark,
+                  ApiService.displayName(
+                    Map<dynamic, dynamic>.from(plan['coach'] as Map),
+                    fallback: 'Coach',
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () => showUserWorkoutDetailSheet(
+                  context,
+                  workout: plan,
+                  onSubmitProof: _completeWorkout,
+                  isSubmitting: _isSubmitting,
+                ),
+                icon: const Icon(Icons.visibility_outlined, size: 16),
+                label: const Text('View details'),
+              ),
+              if (canComplete)
+                WorkoutCompleteButton(
+                  compact: true,
+                  isLoading: _isSubmitting,
+                  onPressed: () => _completeWorkout(plan),
+                ),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  Widget _metaChip(bool isDark, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary),
+      ),
+    );
+  }
+
+  String _sourceShortLabel(String source) {
+    switch (source) {
+      case 'schedule':
+        return 'Scheduled';
+      case 'weekly_plan':
+        return 'Weekly plan';
+      default:
+        return 'Assigned';
+    }
   }
 
   Widget _statusBadge(String status) {
@@ -365,15 +543,19 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     switch (status) {
       case 'completed':
         color = CoachDashboardTheme.success;
-        label = 'Completed';
+        label = 'Approved';
+        break;
+      case 'pending_review':
+        color = CoachDashboardTheme.warning;
+        label = 'In Review';
         break;
       case 'missed':
         color = CoachDashboardTheme.danger;
         label = 'Missed';
         break;
       default:
-        color = Colors.orange;
-        label = 'Pending';
+        color = CoachDashboardTheme.primary;
+        label = 'Assigned';
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -385,6 +567,37 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
+  Widget _buildHistoryRow(Map<String, dynamic> item, bool isDark) {
+    final status = item['status']?.toString() ?? 'pending';
+    final title = item['exercisePlan'] is Map
+        ? (item['exercisePlan']['title']?.toString() ?? 'Workout')
+        : (item['workoutSchedule'] is Map
+            ? ((item['workoutSchedule']['workoutTemplate'] is Map
+                    ? item['workoutSchedule']['workoutTemplate']['title']
+                    : null)
+                ?.toString() ??
+                'Workout')
+            : 'Workout');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: CoachDashboardTheme.cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
+              _statusBadge(status),
+            ],
+          ),
+          const SizedBox(height: 8),
+          WorkoutCompletionProofView(completion: item, isDark: isDark),
+        ],
+      ),
+    );
+  }
+
   Widget _buildArticleCard(Map<String, dynamic> a, bool isDark) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -393,7 +606,10 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         contentPadding: const EdgeInsets.all(16),
         leading: Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: CoachDashboardTheme.primary.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+          decoration: BoxDecoration(
+            color: CoachDashboardTheme.primary.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(10),
+          ),
           child: const Icon(Icons.article_rounded, color: CoachDashboardTheme.primary),
         ),
         title: Text(a['title'] as String? ?? 'Document', style: const TextStyle(fontWeight: FontWeight.bold)),

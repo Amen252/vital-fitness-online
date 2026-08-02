@@ -70,6 +70,16 @@ export default function DietPage({ embedded = false }) {
         sortKey: "coach.name",
         render: (row) => row.coach?.name || "—",
       },
+      {
+        key: "planType",
+        header: "Type",
+        sortable: true,
+        render: (row) => (
+          <Badge tone={row.planType === "weekly" ? "blue" : "green"}>
+            {row.planType === "weekly" ? "Weekly" : "Single-Day"}
+          </Badge>
+        ),
+      },
       { key: "dailyCalories", header: "Calories", sortable: true },
       {
         key: "meals",

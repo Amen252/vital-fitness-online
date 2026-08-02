@@ -27,7 +27,7 @@ class HelpSupportScreen extends StatelessWidget {
     ),
     (
       'Coach application status',
-      'If you applied to become a coach, sign in and check Settings. Approved coaches should sign out and sign back in.',
+      'If you applied to become a coach, sign in and check your status. Approved coaches should sign out and sign back in.',
     ),
   ];
 

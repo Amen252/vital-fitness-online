@@ -27,7 +27,7 @@ class ProgressSummary {
         logCount: 0,
       );
     }
-    
+
     return ProgressSummary(
       caloriesIn: (json['caloriesIn'] as num?)?.toDouble() ?? 0.0,
       caloriesOut: (json['caloriesOut'] as num?)?.toDouble() ?? 0.0,
@@ -35,6 +35,60 @@ class ProgressSummary {
       netCalories: (json['netCalories'] as num?)?.toDouble() ?? 0.0,
       bmi: (json['bmi'] as num?)?.toDouble(),
       logCount: (json['logCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class ProgressTrendPoint {
+  final String label;
+  final double value;
+
+  const ProgressTrendPoint({required this.label, required this.value});
+
+  factory ProgressTrendPoint.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const ProgressTrendPoint(label: '', value: 0);
+    return ProgressTrendPoint(
+      label: json['label']?.toString() ?? '',
+      value: (json['value'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  /// Short weekday from YYYY-MM-DD.
+  String get shortWeekday {
+    final parsed = DateTime.tryParse(label);
+    if (parsed == null) return label.isNotEmpty ? label[0] : '';
+    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    return days[parsed.weekday - 1];
+  }
+}
+
+class ProgressTrends {
+  final List<ProgressTrendPoint> caloriesIn;
+  final List<ProgressTrendPoint> caloriesOut;
+  final List<ProgressTrendPoint> hydration;
+
+  const ProgressTrends({
+    this.caloriesIn = const [],
+    this.caloriesOut = const [],
+    this.hydration = const [],
+  });
+
+  factory ProgressTrends.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const ProgressTrends();
+
+    List<ProgressTrendPoint> parse(String key) {
+      final raw = json[key];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((e) => ProgressTrendPoint.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+
+    return ProgressTrends(
+      caloriesIn: parse('caloriesIn'),
+      caloriesOut: parse('caloriesOut'),
+      hydration: parse('hydration'),
     );
   }
 }
@@ -86,12 +140,14 @@ class ComplianceFeedback {
 
 class ProgressData {
   final ProgressSummary summary;
+  final ProgressTrends trends;
   final List<String> reports;
   final Map<String, dynamic> compliance;
   final List<ActivityLog> recentActivities;
 
   ProgressData({
     required this.summary,
+    this.trends = const ProgressTrends(),
     required this.reports,
     required this.compliance,
     required this.recentActivities,
@@ -101,13 +157,13 @@ class ProgressData {
     if (json == null) {
       return ProgressData(
         summary: ProgressSummary.fromJson(null),
+        trends: const ProgressTrends(),
         reports: [],
         compliance: {},
         recentActivities: [],
       );
     }
 
-    // Parse reports which might be a list or map
     List<String> rawReports = [];
     if (json['reports'] != null) {
       if (json['reports'] is List) {
@@ -120,7 +176,6 @@ class ProgressData {
       }
     }
 
-    // Parse recent activities
     List<ActivityLog> activities = [];
     if (json['recentLogs'] != null && json['recentLogs']['activities'] != null) {
       final list = json['recentLogs']['activities'] as List;
@@ -129,6 +184,7 @@ class ProgressData {
 
     return ProgressData(
       summary: ProgressSummary.fromJson(json['summary'] as Map<String, dynamic>?),
+      trends: ProgressTrends.fromJson(json['trends'] as Map<String, dynamic>?),
       reports: rawReports,
       compliance: json['compliance'] != null ? json['compliance'] as Map<String, dynamic> : {},
       recentActivities: activities,

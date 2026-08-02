@@ -19,6 +19,8 @@ const dietAdherenceSchema = new mongoose.Schema({
   weightKg: { type: Number },
   caloriesConsumed: { type: Number, default: 0 },
   targetCalories: { type: Number, default: 0 },
+  /** True when the user marked the whole diet day complete (weekly plans). */
+  dayCompleted: { type: Boolean, default: false },
   followedPlan: { type: Boolean, default: false },
   completedAt: { type: Date },
   adherencePercent: { type: Number, default: 0, min: 0, max: 100 },
@@ -28,5 +30,6 @@ const dietAdherenceSchema = new mongoose.Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 dietAdherenceSchema.index({ user: 1, date: 1 }, { unique: true });
+dietAdherenceSchema.index({ user: 1, dayCompleted: 1, date: -1 });
 
 module.exports = mongoose.model('DietAdherence', dietAdherenceSchema);

@@ -112,15 +112,15 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reject & Delete Application'),
+        title: const Text('Reject Application'),
         content: const Text(
-          'Reject this coach application? The applicant account and related data will be permanently deleted.',
+          'Reject this coach application? The applicant will be notified and can continue as a member or reapply later.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reject & delete', style: TextStyle(color: CoachDashboardTheme.danger)),
+            child: const Text('Reject', style: TextStyle(color: CoachDashboardTheme.danger)),
           ),
         ],
       ),
@@ -138,7 +138,7 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Application rejected and account deleted.'),
+            content: Text('Application rejected.'),
             backgroundColor: CoachDashboardTheme.warning,
           ),
         );

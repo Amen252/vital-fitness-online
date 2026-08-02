@@ -55,8 +55,29 @@ function getPlannedMealTypes(plan, date = new Date()) {
   return types;
 }
 
-function normalizeMealAdherence(existingRecord, incomingMeals, plan) {
-  const plannedTypes = getPlannedMealTypes(plan);
+function applySingleMealToggle(existingRecord, mealType, followed, plan, date = new Date()) {
+  const plannedTypes = getPlannedMealTypes(plan, date);
+  if (!plannedTypes.includes(mealType)) {
+    return existingRecord?.mealAdherence || [];
+  }
+
+  const existing = normalizeMealAdherence(existingRecord, existingRecord?.mealAdherence || [], plan, date);
+  return existing.map((meal) => {
+    if (meal.type !== mealType) return meal;
+    const isFollowed = !!followed;
+    return {
+      type: mealType,
+      followed: isFollowed,
+      notes: meal.notes || '',
+      completedAt: isFollowed
+        ? (meal.followed && meal.completedAt ? meal.completedAt : new Date())
+        : null,
+    };
+  });
+}
+
+function normalizeMealAdherence(existingRecord, incomingMeals, plan, date = new Date()) {
+  const plannedTypes = getPlannedMealTypes(plan, date);
   const existingMap = new Map((existingRecord?.mealAdherence || []).map((m) => [m.type, m]));
   const incomingMap = new Map((incomingMeals || []).map((m) => [m.type, m]));
 
@@ -93,29 +114,8 @@ function normalizeMealAdherence(existingRecord, incomingMeals, plan) {
   });
 }
 
-function applySingleMealToggle(existingRecord, mealType, followed, plan) {
-  const plannedTypes = getPlannedMealTypes(plan);
-  if (!plannedTypes.includes(mealType)) {
-    return existingRecord?.mealAdherence || [];
-  }
-
-  const existing = normalizeMealAdherence(existingRecord, existingRecord?.mealAdherence || [], plan);
-  return existing.map((meal) => {
-    if (meal.type !== mealType) return meal;
-    const isFollowed = !!followed;
-    return {
-      type: mealType,
-      followed: isFollowed,
-      notes: meal.notes || '',
-      completedAt: isFollowed
-        ? (meal.followed && meal.completedAt ? meal.completedAt : new Date())
-        : null,
-    };
-  });
-}
-
-function buildMealCompletionSummary(plan, adherence) {
-  const plannedTypes = getPlannedMealTypes(plan);
+function buildMealCompletionSummary(plan, adherence, date = new Date()) {
+  const plannedTypes = getPlannedMealTypes(plan, date);
   const adherenceMap = new Map((adherence?.mealAdherence || []).map((m) => [m.type, m]));
 
   const meals = plannedTypes.map((type) => {
@@ -162,6 +162,94 @@ async function computeAverageAdherence(DietAdherence, userId, days = 7) {
   return Math.round(total / records.length);
 }
 
+function startOfLocalDay(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Calendar date for a Monday-based weekday (0=Mon…6=Sun) in the week of `refDate`. */
+function dateForMondayBasedDay(dayOfWeek, refDate = new Date()) {
+  const dow = Number(dayOfWeek);
+  if (!Number.isFinite(dow) || dow < 0 || dow > 6) return null;
+  const today = startOfLocalDay(refDate);
+  const todayDow = mondayBasedDayOfWeek(today);
+  const result = new Date(today);
+  result.setDate(today.getDate() + (dow - todayDow));
+  return result;
+}
+
+function isDayCompletedRecord(record) {
+  if (!record) return false;
+  if (record.dayCompleted === true) return true;
+  if (record.followedPlan === true && (record.adherencePercent || 0) >= 100) return true;
+  return false;
+}
+
+/**
+ * Build Mon–Sun completion status for the week containing `refDate`.
+ * Uses DietAdherence rows keyed by calendar date.
+ */
+function buildWeekDayCompletionSummary(adherenceRecords = [], refDate = new Date()) {
+  const byTime = new Map();
+  for (const record of adherenceRecords || []) {
+    const key = startOfLocalDay(record.date).getTime();
+    byTime.set(key, record);
+  }
+
+  const days = [];
+  let completedDays = 0;
+  for (let i = 0; i < 7; i += 1) {
+    const date = dateForMondayBasedDay(i, refDate);
+    const record = byTime.get(date.getTime());
+    const completed = isDayCompletedRecord(record);
+    if (completed) completedDays += 1;
+    days.push({
+      dayOfWeek: i,
+      dayName: DAY_NAMES[i],
+      date: date.toISOString(),
+      completed,
+      completedAt: completed ? (record?.completedAt || null) : null,
+      adherencePercent: record?.adherencePercent || (completed ? 100 : 0),
+      isToday: mondayBasedDayOfWeek(refDate) === i,
+      mealAdherence: record?.mealAdherence || [],
+    });
+  }
+
+  return {
+    days,
+    daysPlanned: 7,
+    completedDays,
+    missedDays: 7 - completedDays,
+    weeklyProgressPercent: Math.round((completedDays / 7) * 100),
+    allDaysCompleted: completedDays === 7,
+  };
+}
+
+/** Merge planned B/L/D/Snacks per weekday with adherence check-offs (coach/user week views). */
+function enrichWeekCompletionWithPlannedMeals(plan, weekSummary, refDate = new Date()) {
+  if (!plan || plan.planType !== 'weekly' || !weekSummary?.days) return weekSummary;
+  const days = weekSummary.days.map((day) => {
+    const date = dateForMondayBasedDay(day.dayOfWeek, refDate);
+    const plannedTypes = getPlannedMealTypes(plan, date);
+    const adherenceMap = new Map((day.mealAdherence || []).map((m) => [m.type, m]));
+    const mealAdherence = plannedTypes.map((type) => {
+      const record = adherenceMap.get(type);
+      const followed = !!record?.followed;
+      return {
+        type,
+        label: MEAL_LABELS[type],
+        followed,
+        completed: followed,
+        notes: record?.notes || '',
+        completedAt: followed ? (record?.completedAt || null) : null,
+      };
+    });
+    return { ...day, mealAdherence };
+  });
+  return { ...weekSummary, days };
+}
+
 module.exports = {
   MEAL_TYPES,
   MEAL_LABELS,
@@ -174,4 +262,9 @@ module.exports = {
   applySingleMealToggle,
   buildMealCompletionSummary,
   computeAverageAdherence,
+  startOfLocalDay,
+  dateForMondayBasedDay,
+  isDayCompletedRecord,
+  buildWeekDayCompletionSummary,
+  enrichWeekCompletionWithPlannedMeals,
 };

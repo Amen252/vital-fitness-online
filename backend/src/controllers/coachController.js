@@ -1,5 +1,6 @@
 const CoachAssignment = require('../models/CoachAssignment');
 const CoachClientAssignment = require('../models/CoachClientAssignment');
+const { ensureLegacyCoachAssignment } = require('../utils/coachVisibility');
 const User = require('../models/User');
 const { hasActiveAssignment, getActiveClientIds } = require('../utils/coachVisibility');
 const ActivityLog = require('../models/ActivityLog');
@@ -107,11 +108,12 @@ async function getClients(req, res) {
     if (!u?._id) continue;
     const key = String(u._id);
     if (!seen.has(key)) {
+      const legacy = await ensureLegacyCoachAssignment(coachId, u._id);
       seen.set(key, {
-        _id: a._id,
+        _id: legacy._id,
         user: u,
         assigned_at: a.assigned_at,
-        status: a.status,
+        status: 'active',
         _source: 'CoachClientAssignment',
       });
     }
@@ -162,12 +164,12 @@ async function getClientDetail(req, res) {
     }).populate('user_id', 'username full_name phone clientData avatar').lean();
 
     if (modernAssignment) {
+      const legacy = await ensureLegacyCoachAssignment(coachId, clientId);
       userDoc = modernAssignment.user_id;
       assignmentBase = {
-        _id: modernAssignment._id,
-        user: modernAssignment.user_id,
-        assigned_at: modernAssignment.assigned_at,
-        status: modernAssignment.status,
+        ...(await CoachAssignment.findById(legacy._id)
+          .populate('user', 'username full_name phone clientData avatar')
+          .lean()),
       };
     }
   }
@@ -274,6 +276,11 @@ async function deleteAssignment(req, res) {
   if (!assignment) {
     return res.status(404).json({ message: 'Assignment not found' });
   }
+
+  await CoachClientAssignment.updateMany(
+    { coach_id: req.user._id, user_id: assignment.user, status: 'active' },
+    { $set: { status: 'ended' } },
+  );
 
   return res.json({ message: 'Client unlinked successfully', assignmentId: req.params.id });
 }
@@ -487,6 +494,125 @@ async function updateActivityStatus(req, res) {
     return res.json(populated);
   } catch (error) {
     return res.status(500).json({ message: 'Error updating activity status' });
+  }
+}
+
+async function getPendingWorkoutSubmissions(req, res) {
+  try {
+    const WorkoutCompletion = require('../models/WorkoutCompletion');
+    const ScheduleCompletion = require('../models/ScheduleCompletion');
+
+    const [exerciseSubs, scheduleSubs] = await Promise.all([
+      WorkoutCompletion.find({ coach: req.user._id, status: 'pending_review' })
+        .populate('user', USER_DISPLAY_SELECT)
+        .populate('exercisePlan', 'title level exercises description instructions')
+        .sort({ submittedAt: -1, createdAt: -1 })
+        .lean(),
+      ScheduleCompletion.find({ coach: req.user._id, status: 'pending_review' })
+        .populate('user', USER_DISPLAY_SELECT)
+        .populate({
+          path: 'workoutSchedule',
+          select: 'startDateTime endDateTime durationMinutes notes workoutTemplate',
+          populate: { path: 'workoutTemplate', select: 'title level exercises' },
+        })
+        .sort({ submittedAt: -1, createdAt: -1 })
+        .lean(),
+    ]);
+
+    const items = [
+      ...exerciseSubs.map((c) => ({
+        ...c,
+        source: 'exercise_plan',
+        title: c.exercisePlan?.title || 'Workout',
+        workoutDetails: c.exercisePlan,
+      })),
+      ...scheduleSubs.map((c) => ({
+        ...c,
+        source: 'schedule',
+        title: c.workoutSchedule?.workoutTemplate?.title || 'Scheduled Workout',
+        workoutDetails: c.workoutSchedule,
+      })),
+    ].sort((a, b) => {
+      const da = new Date(a.submittedAt || a.createdAt || 0).getTime();
+      const db = new Date(b.submittedAt || b.createdAt || 0).getTime();
+      return db - da;
+    });
+
+    return res.json(items);
+  } catch (error) {
+    console.error('getPendingWorkoutSubmissions:', error.message);
+    return res.status(500).json({ message: 'Error fetching pending workout submissions' });
+  }
+}
+
+async function reviewWorkoutSubmission(req, res) {
+  try {
+    const WorkoutCompletion = require('../models/WorkoutCompletion');
+    const ScheduleCompletion = require('../models/ScheduleCompletion');
+    const { source, status, feedback } = req.body || {};
+
+    if (!['exercise_plan', 'schedule'].includes(source)) {
+      return res.status(400).json({ message: 'source must be exercise_plan or schedule' });
+    }
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be approved or rejected' });
+    }
+
+    const Model = source === 'schedule' ? ScheduleCompletion : WorkoutCompletion;
+    const completion = await Model.findById(req.params.id);
+    if (!completion) return res.status(404).json({ message: 'Submission not found' });
+    if (String(completion.coach) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized for this submission' });
+    }
+    if (completion.status !== 'pending_review') {
+      return res.status(400).json({ message: 'This workout is not awaiting review' });
+    }
+
+    const note = String(feedback || '').trim();
+    completion.coachFeedback = note;
+    completion.reviewedAt = new Date();
+
+    if (status === 'approved') {
+      completion.status = 'completed';
+      completion.completedAt = new Date();
+    } else {
+      completion.status = 'pending';
+      // Keep proof so user can edit/resubmit, but allow resubmit from pending
+    }
+
+    await completion.save();
+
+    let title = 'Workout';
+    if (source === 'exercise_plan') {
+      const populated = await WorkoutCompletion.findById(completion._id)
+        .populate('exercisePlan', 'title')
+        .lean();
+      title = populated?.exercisePlan?.title || title;
+    } else {
+      const populated = await ScheduleCompletion.findById(completion._id)
+        .populate({
+          path: 'workoutSchedule',
+          populate: { path: 'workoutTemplate', select: 'title' },
+        })
+        .lean();
+      title = populated?.workoutSchedule?.workoutTemplate?.title || title;
+    }
+
+    await Notification.create({
+      user: completion.user,
+      message: status === 'approved'
+        ? `Your coach approved "${title}"${note ? `: ${note}` : ''}`
+        : `Your coach requested changes on "${title}"${note ? `: ${note}` : ''}. Please resubmit.`,
+      type: 'workout',
+    });
+
+    const result = await Model.findById(completion._id)
+      .populate('user', USER_DISPLAY_SELECT)
+      .lean();
+    return res.json({ ...result, source });
+  } catch (error) {
+    console.error('reviewWorkoutSubmission:', error.message);
+    return res.status(500).json({ message: 'Error reviewing workout submission' });
   }
 }
 
@@ -887,6 +1013,8 @@ module.exports = {
   getExerciseLibrary,
   getPendingActivities,
   updateActivityStatus,
+  getPendingWorkoutSubmissions,
+  reviewWorkoutSubmission,
   getCoachReports,
   getClasses,
   getClassDetail,

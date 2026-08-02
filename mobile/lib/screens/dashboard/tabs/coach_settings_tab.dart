@@ -227,155 +227,146 @@ class _CoachSettingsTabState extends State<CoachSettingsTab> {
           const SizedBox(height: 24),
           _SectionLabel('PROFILE', isDark),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: CoachDashboardTheme.cardDecoration(isDark),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Professional Details', style: CoachDashboardTheme.sectionTitle(isDark)),
-                const SizedBox(height: 4),
-                Text(
-                  'Visible to your clients on their coaching profile.',
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary),
+          _ExpandableSettingsCard(
+            isDark: isDark,
+            title: 'Professional Details',
+            subtitle: 'Visible to your clients on their coaching profile.',
+            children: [
+              TextField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Phone',
+                  hint: 'Contact number',
+                  prefixIcon: Icons.phone_outlined,
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Phone',
-                    hint: 'Contact number',
-                    prefixIcon: Icons.phone_outlined,
-                  ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _bioController,
+                maxLines: 3,
+                style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Bio',
+                  hint: 'Tell clients about your coaching style...',
+                  prefixIcon: Icons.person_outline_rounded,
                 ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _experienceController,
+                style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Experience',
+                  hint: 'e.g. 8 years, NASM certified',
+                  prefixIcon: Icons.workspace_premium_outlined,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _specializationController,
+                style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Specializations',
+                  hint: 'Weight Loss, Strength Training',
+                  prefixIcon: Icons.fitness_center_outlined,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _certificationsController,
+                style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Certifications',
+                  hint: 'ACE, NASM, ...',
+                  prefixIcon: Icons.verified_outlined,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _readOnlyInfoGrid(isDark),
+              if (_workingDays.isNotEmpty) ...[
                 const SizedBox(height: 14),
-                TextField(
-                  controller: _bioController,
-                  maxLines: 3,
-                  style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Bio',
-                    hint: 'Tell clients about your coaching style...',
-                    prefixIcon: Icons.person_outline_rounded,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _experienceController,
-                  style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Experience',
-                    hint: 'e.g. 8 years, NASM certified',
-                    prefixIcon: Icons.workspace_premium_outlined,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _specializationController,
-                  style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Specializations',
-                    hint: 'Weight Loss, Strength Training',
-                    prefixIcon: Icons.fitness_center_outlined,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _certificationsController,
-                  style: TextStyle(color: isDark ? Colors.white : CoachDashboardTheme.textPrimary),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Certifications',
-                    hint: 'ACE, NASM, ...',
-                    prefixIcon: Icons.verified_outlined,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _readOnlyInfoGrid(isDark),
-                if (_workingDays.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text('Working days', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: _workingDays
-                        .map(
-                          (day) => Chip(
-                            label: Text(day, style: const TextStyle(fontSize: 12)),
-                            backgroundColor: CoachDashboardTheme.primary.withValues(alpha: 0.1),
-                            side: BorderSide.none,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-                if (_appointmentDays.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text('Appointment days', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: _appointmentDays
-                        .map(
-                          (day) => Chip(
-                            label: Text(day, style: const TextStyle(fontSize: 12)),
-                            backgroundColor: CoachDashboardTheme.accent.withValues(alpha: 0.12),
-                            side: BorderSide.none,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-                if (_dayAvailability.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text('Day availability', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
-                  const SizedBox(height: 8),
-                  ..._dayAvailability.map((raw) {
-                    if (raw is! Map) return const SizedBox.shrink();
-                    final day = raw['day']?.toString() ?? '';
-                    final start = raw['start']?.toString() ?? '';
-                    final end = raw['end']?.toString() ?? '';
-                    if (day.isEmpty) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        '$day  $start–$end',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDark ? Colors.white70 : CoachDashboardTheme.textPrimary,
+                Text('Working days', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _workingDays
+                      .map(
+                        (day) => Chip(
+                          label: Text(day, style: const TextStyle(fontSize: 12)),
+                          backgroundColor: CoachDashboardTheme.primary.withValues(alpha: 0.1),
+                          side: BorderSide.none,
+                          visualDensity: VisualDensity.compact,
                         ),
-                      ),
-                    );
-                  }),
-                ],
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: CoachDashboardTheme.primaryButtonStyle(),
-                    onPressed: _isSaving ? null : _saveProfile,
-                    icon: _isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
-                  ),
+                      )
+                      .toList(),
                 ),
               ],
-            ),
+              if (_appointmentDays.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text('Appointment days', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _appointmentDays
+                      .map(
+                        (day) => Chip(
+                          label: Text(day, style: const TextStyle(fontSize: 12)),
+                          backgroundColor: CoachDashboardTheme.accent.withValues(alpha: 0.12),
+                          side: BorderSide.none,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+              if (_dayAvailability.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text('Day availability', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary)),
+                const SizedBox(height: 8),
+                ..._dayAvailability.map((raw) {
+                  if (raw is! Map) return const SizedBox.shrink();
+                  final day = raw['day']?.toString() ?? '';
+                  final start = raw['start']?.toString() ?? '';
+                  final end = raw['end']?.toString() ?? '';
+                  if (day.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '$day  $start–$end',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.white70 : CoachDashboardTheme.textPrimary,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: CoachDashboardTheme.primaryButtonStyle(),
+                  onPressed: _isSaving ? null : _saveProfile,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
           _SectionLabel(l10n.preferences, isDark),
@@ -529,6 +520,51 @@ class _SectionLabel extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(text, style: CoachDashboardTheme.sectionLabel(isDark)),
+    );
+  }
+}
+
+class _ExpandableSettingsCard extends StatelessWidget {
+  final bool isDark;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  const _ExpandableSettingsCard({
+    required this.isDark,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: CoachDashboardTheme.cardDecoration(isDark),
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          iconColor: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+          collapsedIconColor: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+          title: Text(title, style: CoachDashboardTheme.sectionTitle(isDark)),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+              ),
+            ),
+          ),
+          children: children,
+        ),
+      ),
     );
   }
 }

@@ -9,6 +9,18 @@ import '../models/activity_log_model.dart';
 import '../models/progress_model.dart';
 import '../utils/password_utils.dart';
 
+/// Thrown when the API returns HTTP 409 (e.g. active diet plan already exists).
+class ApiConflictException implements Exception {
+  final String message;
+  final String code;
+  final Map<String, dynamic>? body;
+
+  ApiConflictException(this.message, {this.code = '', this.body});
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
@@ -384,6 +396,22 @@ class ApiService {
       final errorMsg = _parseError(response);
       throw Exception(errorMsg);
     }
+  }
+
+  /// Existing user dashboard aggregate (assignments, dailyTrackings, etc.).
+  Future<Map<String, dynamic>?> getUserDashboard() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/dashboard/user'),
+      headers: _headers(),
+    );
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic>) return body;
+      if (body is Map) return Map<String, dynamic>.from(body);
+      return null;
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception(_parseError(response));
   }
 
   // --- Log Workouts ---
@@ -887,8 +915,22 @@ class ApiService {
       headers: _headers(),
       body: jsonEncode(data),
     );
-    if (response.statusCode == 200 || response.statusCode == 201)
-      return jsonDecode(response.body);
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    Map<String, dynamic>? body;
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    if (response.statusCode == 409) {
+      throw ApiConflictException(
+        body?['message']?.toString() ??
+            'An active diet plan already exists for this assignee.',
+        code: body?['code']?.toString() ?? 'ACTIVE_PLAN_EXISTS',
+        body: body,
+      );
+    }
     throw Exception(_parseError(response));
   }
 
@@ -1248,10 +1290,20 @@ class ApiService {
     throw Exception(_parseError(response));
   }
 
-  Future<Map<String, dynamic>> completeWorkout(String planId) async {
+  Future<Map<String, dynamic>> completeWorkout(
+    String planId, {
+    required String notes,
+    required int durationMinutes,
+    required String proofPhoto,
+  }) async {
     final response = await http.patch(
       Uri.parse('$baseUrl/user/workouts/$planId/complete'),
       headers: _headers(),
+      body: jsonEncode({
+        'notes': notes,
+        'durationMinutes': durationMinutes,
+        'proofPhoto': proofPhoto,
+      }),
     );
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1483,11 +1535,49 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> completeWorkoutSchedule(
-    String scheduleId,
-  ) async {
+    String scheduleId, {
+    required String notes,
+    required int durationMinutes,
+    required String proofPhoto,
+  }) async {
     final response = await http.patch(
       Uri.parse('$baseUrl/user/workout-schedules/$scheduleId/complete'),
       headers: _headers(),
+      body: jsonEncode({
+        'notes': notes,
+        'durationMinutes': durationMinutes,
+        'proofPhoto': proofPhoto,
+      }),
+    );
+    if (response.statusCode == 200)
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    throw Exception(_parseError(response));
+  }
+
+  Future<List<dynamic>> getPendingWorkoutSubmissions() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/coach/workout-submissions/pending'),
+      headers: _headers(),
+    );
+    if (response.statusCode == 200)
+      return jsonDecode(response.body) as List<dynamic>;
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> reviewWorkoutSubmission({
+    required String id,
+    required String source,
+    required String status,
+    String feedback = '',
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/coach/workout-submissions/$id/review'),
+      headers: _headers(),
+      body: jsonEncode({
+        'source': source,
+        'status': status,
+        'feedback': feedback,
+      }),
     );
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;

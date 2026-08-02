@@ -1,4 +1,14 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// Helps Atlas SRV resolution on some macOS / hotspot / VPN setups.
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function getDatabaseName(uri) {
   try {
@@ -118,15 +128,37 @@ async function connectDB() {
     }
   }
 
-  await mongoose.connect(mongoUri, {
-    // Avoid unexpected query behavior; prefer explicit update operators everywhere.
-    sanitizeFilter: true,
-    serverSelectionTimeoutMS: 10000,
-    socketTimeoutMS: 45000,
-    maxPoolSize: 10,
-  });
-  console.log(`MongoDB connected (${dbName || 'default database'})`);
-  return true;
+  const maxAttempts = 4;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      if (mongoose.connection.readyState !== 0) {
+        try {
+          await mongoose.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+      await mongoose.connect(mongoUri, {
+        sanitizeFilter: true,
+        serverSelectionTimeoutMS: 15000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 10,
+      });
+      console.log(`MongoDB connected (${dbName || 'default database'})`);
+      return true;
+    } catch (error) {
+      lastError = error;
+      const retryable = isTransientDbError(error) || /querySrv\s+ECONNREFUSED/i.test(String(error.message));
+      if (!retryable || attempt === maxAttempts) break;
+      const waitMs = attempt * 2000;
+      console.warn(
+        `MongoDB connect attempt ${attempt}/${maxAttempts} failed (${error.message}). Retrying in ${waitMs / 1000}s…`,
+      );
+      await sleep(waitMs);
+    }
+  }
+  throw lastError;
 }
 
 function looksLikeTestDb(dbName) {

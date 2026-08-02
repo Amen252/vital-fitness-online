@@ -179,7 +179,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'You are registering as a client. After signup you can browse coaches and send a request — same as the web member flow.',
+                        'You are registering as a member. Your account role stays Member. After signup you can browse coaches and send a coaching request.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, color: muted, height: 1.35),
                       ),

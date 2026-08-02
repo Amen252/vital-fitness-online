@@ -25,6 +25,7 @@ Map<String, dynamic> _asJsonMap(dynamic value) {
 class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTickerProviderStateMixin {
   final ApiService _api = ApiService();
   final _searchCtrl = TextEditingController();
+  final _completionSearchCtrl = TextEditingController();
   late TabController _mainTabs;
 
   bool _loading = true;
@@ -39,9 +40,119 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
   bool _completionLoading = false;
   String _completionError = '';
   String _completionFilter = 'all';
+  String _completionQuery = '';
   List<DietPlanCompletion> _completions = [];
   int _completedCount = 0;
   int _notCompletedCount = 0;
+  /// Expanded User Completion cards: "${userId}|${planId}".
+  final Set<String> _expandedCompletionKeys = <String>{};
+
+  /// Nested "This week" details inside an expanded completion card.
+  final Set<String> _expandedWeekDetailKeys = <String>{};
+
+  /// Collapsed user-group sections (group name or [_individualGroupKey]).
+  final Set<String> _collapsedUserGroups = <String>{};
+
+  /// Groups already seen — new groups start collapsed.
+  final Set<String> _knownUserGroupKeys = <String>{};
+
+  static const String _individualGroupKey = '__individual__';
+
+  String _completionKey(DietPlanCompletion item) => '${item.userId}|${item.planId}';
+
+  String _userGroupKey(DietPlanCompletion item) {
+    final name = item.groupName?.trim();
+    if (name == null || name.isEmpty) return _individualGroupKey;
+    return name;
+  }
+
+  String _userGroupTitle(String key) =>
+      key == _individualGroupKey ? 'Users · Individual' : 'Users · $key';
+
+  List<MapEntry<String, List<DietPlanCompletion>>> _groupedCompletions(
+    List<DietPlanCompletion> list,
+  ) {
+    final map = <String, List<DietPlanCompletion>>{};
+    for (final item in list) {
+      map.putIfAbsent(_userGroupKey(item), () => []).add(item);
+    }
+    final entries = map.entries.toList()
+      ..sort((a, b) {
+        if (a.key == _individualGroupKey) return 1;
+        if (b.key == _individualGroupKey) return -1;
+        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
+      });
+    for (final entry in entries) {
+      entry.value.sort(
+        (a, b) => a.userName.toLowerCase().compareTo(b.userName.toLowerCase()),
+      );
+    }
+    return entries;
+  }
+
+  void _toggleCompletionExpanded(DietPlanCompletion item) {
+    final key = _completionKey(item);
+    setState(() {
+      if (_expandedCompletionKeys.contains(key)) {
+        _expandedCompletionKeys.remove(key);
+        _expandedWeekDetailKeys.remove(key);
+      } else {
+        _expandedCompletionKeys.add(key);
+      }
+    });
+  }
+
+  void _toggleWeekDetailExpanded(DietPlanCompletion item) {
+    final key = _completionKey(item);
+    setState(() {
+      if (_expandedWeekDetailKeys.contains(key)) {
+        _expandedWeekDetailKeys.remove(key);
+      } else {
+        _expandedWeekDetailKeys.add(key);
+      }
+    });
+  }
+
+  void _toggleUserGroup(String groupKey) {
+    setState(() {
+      if (_collapsedUserGroups.contains(groupKey)) {
+        _collapsedUserGroups.remove(groupKey);
+      } else {
+        _collapsedUserGroups.add(groupKey);
+      }
+    });
+  }
+
+  void _expandAllCompletions(List<DietPlanCompletion> items) {
+    setState(() {
+      _collapsedUserGroups.clear();
+      for (final item in items) {
+        _expandedCompletionKeys.add(_completionKey(item));
+      }
+    });
+  }
+
+  void _collapseAllCompletions([List<DietPlanCompletion>? items]) {
+    final list = items ?? _filteredCompletions;
+    setState(() {
+      _collapsedUserGroups
+        ..clear()
+        ..addAll(_groupedCompletions(list).map((e) => e.key));
+      _expandedCompletionKeys.clear();
+      _expandedWeekDetailKeys.clear();
+    });
+  }
+
+  /// Keep new groups collapsed by default so the Users list stays compact.
+  void _ensureNewGroupsCollapsed(Iterable<DietPlanCompletion> items) {
+    for (final key in _groupedCompletions(items.toList()).map((e) => e.key)) {
+      // Only seed keys we have never toggled: track known keys separately.
+      if (!_knownUserGroupKeys.contains(key)) {
+        _knownUserGroupKeys.add(key);
+        _collapsedUserGroups.add(key);
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -63,6 +174,7 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     _mainTabs.removeListener(_onMainTabChanged);
     _mainTabs.dispose();
     _searchCtrl.dispose();
+    _completionSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -81,6 +193,7 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
         _completedCount = (data['completedCount'] as num?)?.toInt() ?? 0;
         _notCompletedCount = (data['notCompletedCount'] as num?)?.toInt() ?? 0;
         _completionLoading = false;
+        _ensureNewGroupsCollapsed(_completions);
       });
     } catch (e) {
       if (mounted) {
@@ -329,7 +442,31 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     );
   }
 
+  List<DietPlanCompletion> get _filteredCompletions {
+    final q = _completionQuery.trim().toLowerCase();
+    if (q.isEmpty) return _completions;
+    return _completions.where((item) {
+      final haystack = [
+        item.userName,
+        item.planName,
+        item.groupName ?? '',
+        item.statusLabel,
+      ].join(' ').toLowerCase();
+      return haystack.contains(q);
+    }).toList();
+  }
+
+  void _onCompletionSearchChanged(String value) {
+    setState(() => _completionQuery = value);
+  }
+
+  void _clearCompletionSearch() {
+    _completionSearchCtrl.clear();
+    setState(() => _completionQuery = '');
+  }
+
   Widget _buildCompletionTab(bool isDark) {
+    final filtered = _filteredCompletions;
     return Column(
       children: [
         Padding(
@@ -337,8 +474,29 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              TextField(
+                controller: _completionSearchCtrl,
+                textInputAction: TextInputAction.search,
+                onChanged: _onCompletionSearchChanged,
+                decoration: CoachDashboardTheme.fieldDecoration(
+                  isDark: isDark,
+                  label: 'Search users by name, plan, or group',
+                ).copyWith(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _completionQuery.isNotEmpty
+                      ? IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: _clearCompletionSearch,
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 10),
               Text(
-                '$_completedCount completed · $_notCompletedCount pending',
+                _completionQuery.trim().isEmpty
+                    ? '$_completedCount completed · $_notCompletedCount pending'
+                    : '${filtered.length} result${filtered.length == 1 ? '' : 's'} · $_completedCount completed · $_notCompletedCount pending',
                 style: CoachDashboardTheme.bodyMuted(isDark),
               ),
               const SizedBox(height: 10),
@@ -352,10 +510,38 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
                   ],
                 ),
               ),
+              if (filtered.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Builder(
+                  builder: (context) {
+                    final groups = _groupedCompletions(filtered);
+                    final anyGroupExpanded =
+                        groups.any((g) => !_collapsedUserGroups.contains(g.key));
+                    final canCollapse =
+                        anyGroupExpanded || _expandedCompletionKeys.isNotEmpty;
+                    return Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _expandAllCompletions(filtered),
+                          icon: const Icon(Icons.unfold_more_rounded, size: 18),
+                          label: const Text('Expand all'),
+                        ),
+                        TextButton.icon(
+                          onPressed: canCollapse
+                              ? () => _collapseAllCompletions(filtered)
+                              : null,
+                          icon: const Icon(Icons.unfold_less_rounded, size: 18),
+                          label: const Text('Collapse all'),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ],
           ),
         ),
-        Expanded(child: _buildCompletionBody(isDark)),
+        Expanded(child: _buildCompletionBody(isDark, filtered)),
       ],
     );
   }
@@ -377,7 +563,8 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     );
   }
 
-  Widget _buildCompletionBody(bool isDark) {
+  Widget _buildCompletionBody(bool isDark, [List<DietPlanCompletion>? items]) {
+    final list = items ?? _filteredCompletions;
     if (_completionLoading) {
       return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
     }
@@ -396,71 +583,431 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
         ),
       );
     }
+    if (list.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded, size: 48, color: isDark ? Colors.white24 : Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              'No users match “${_completionQuery.trim()}”',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _clearCompletionSearch,
+              child: const Text('Clear search'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final groups = _groupedCompletions(list);
 
     return ListView.builder(
       physics: dashboardScrollPhysics,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      itemCount: _completions.length,
-      itemBuilder: (context, i) => _completionCard(_completions[i], isDark),
+      itemCount: groups.length,
+      itemBuilder: (context, i) {
+        final entry = groups[i];
+        return _userGroupSection(
+          groupKey: entry.key,
+          users: entry.value,
+          isDark: isDark,
+        );
+      },
     );
   }
 
+  Widget _userGroupSection({
+    required String groupKey,
+    required List<DietPlanCompletion> users,
+    required bool isDark,
+  }) {
+    final expanded = !_collapsedUserGroups.contains(groupKey);
+    final completedInGroup = users.where((u) => u.completed).length;
+    final title = _userGroupTitle(groupKey);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: isDark ? Colors.white10 : Colors.grey.shade100,
+            borderRadius: BorderRadius.vertical(
+              top: const Radius.circular(11),
+              bottom: Radius.circular(expanded ? 0 : 11),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.vertical(
+                top: const Radius.circular(11),
+                bottom: Radius.circular(expanded ? 0 : 11),
+              ),
+              onTap: () => _toggleUserGroup(groupKey),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      groupKey == _individualGroupKey
+                          ? Icons.person_outline_rounded
+                          : Icons.groups_rounded,
+                      color: CoachDashboardTheme.primary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            expanded
+                                ? '$completedInGroup of ${users.length} completed · tap header to hide users'
+                                : '${users.length} user${users.length == 1 ? '' : 's'} · '
+                                    '$completedInGroup completed · tap to show users',
+                            style: CoachDashboardTheme.bodyMuted(isDark),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+              child: Column(
+                children: [
+                  for (final user in users) _completionCard(user, isDark),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _completionStatusRow({
+    required DietProgressUiStatus status,
+    required String label,
+    required bool isDark,
+    double fontSize = 13,
+  }) {
+    final color = _progressStatusColor(status);
+    final icon = _progressStatusIcon(status);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: fontSize + 4,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _progressStatusColor(DietProgressUiStatus status) {
+    switch (status) {
+      case DietProgressUiStatus.completed:
+        return CoachDashboardTheme.success;
+      case DietProgressUiStatus.inProgress:
+        return CoachDashboardTheme.warning;
+      case DietProgressUiStatus.notStarted:
+        return CoachDashboardTheme.textSecondary;
+    }
+  }
+
+  IconData _progressStatusIcon(DietProgressUiStatus status) {
+    switch (status) {
+      case DietProgressUiStatus.completed:
+        return Icons.check_circle;
+      case DietProgressUiStatus.inProgress:
+        return Icons.timelapse_rounded;
+      case DietProgressUiStatus.notStarted:
+        return Icons.radio_button_unchecked;
+    }
+  }
+
   Widget _completionCard(DietPlanCompletion item, bool isDark) {
-    final statusColor = item.completed ? CoachDashboardTheme.success : CoachDashboardTheme.warning;
+    final progressStatus = item.displayProgressStatus;
+    final statusColor = _progressStatusColor(progressStatus);
+    final key = _completionKey(item);
+    final expanded = _expandedCompletionKeys.contains(key);
+    final weekExpanded = _expandedWeekDetailKeys.contains(key);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: CoachDashboardTheme.cardDecoration(isDark),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: statusColor.withValues(alpha: 0.12),
-                  child: Text(item.statusIcon, style: const TextStyle(fontSize: 18)),
+      child: Material(
+        color: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _toggleCompletionExpanded(item),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: statusColor.withValues(alpha: 0.12),
+                      child: Icon(
+                        _progressStatusIcon(progressStatus),
+                        color: statusColor,
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          Text(item.planName, style: CoachDashboardTheme.bodyMuted(isDark)),
+                          if (item.groupName != null)
+                            Text('Group: ${item.groupName}', style: CoachDashboardTheme.bodyMuted(isDark)),
+                          const SizedBox(height: 2),
+                          Text(
+                            item.statusLabel,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                      Text(item.planName, style: CoachDashboardTheme.bodyMuted(isDark)),
-                      if (item.groupName != null) Text('Group: ${item.groupName}', style: CoachDashboardTheme.bodyMuted(isDark)),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                item.dailyProgressLabel,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: item.completed
+                      ? CoachDashboardTheme.success
+                      : (isDark ? Colors.white : CoachDashboardTheme.textPrimary),
+                ),
+              ),
+              if (item.isWeekly) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Today: ${item.todayMealProgressLabel}',
+                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87),
+                ),
+              ],
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (item.progressPercent / 100).clamp(0.0, 1.0),
+                  minHeight: 6,
+                  backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                  color: statusColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => _toggleCompletionExpanded(item),
+                child: Text(
+                  expanded ? 'Hide details' : 'View meal & day details',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: CoachDashboardTheme.primary.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+              if (expanded) ...[
+                const SizedBox(height: 12),
+                Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
+                const SizedBox(height: 12),
+                if (item.isWeekly) ...[
+                  Text(
+                    'Today’s meals',
+                    style: CoachDashboardTheme.sectionTitle(isDark),
+                  ),
+                  const SizedBox(height: 8),
+                  if (item.meals.isNotEmpty)
+                    ...item.meals.map(
+                      (meal) => _completionStatusRow(
+                        status: meal.completed
+                            ? DietProgressUiStatus.completed
+                            : DietProgressUiStatus.notStarted,
+                        label: meal.statusText,
+                        isDark: isDark,
+                      ),
+                    )
+                  else
+                    Text('No meals planned for today.', style: CoachDashboardTheme.bodyMuted(isDark)),
+                  const SizedBox(height: 8),
+                  _completionStatusRow(
+                    status: item.completed
+                        ? DietProgressUiStatus.completed
+                        : ((item.completedDays ?? 0) > 0
+                            ? DietProgressUiStatus.inProgress
+                            : DietProgressUiStatus.notStarted),
+                    label: item.completed
+                        ? 'All 7 days completed'
+                        : '${item.completedDays ?? 0} of ${item.daysPlanned ?? 7} days completed',
+                    isDark: isDark,
+                  ),
+                  if (item.weekDays.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Material(
+                      color: isDark ? Colors.white10 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => _toggleWeekDetailExpanded(item),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'This week (meals per day)',
+                                      style: CoachDashboardTheme.sectionTitle(isDark),
+                                    ),
+                                    Text(
+                                      weekExpanded
+                                          ? 'Tap to hide day-by-day check-offs'
+                                          : 'Tap to open day-by-day check-offs',
+                                      style: CoachDashboardTheme.bodyMuted(isDark),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                weekExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                                color: isDark ? Colors.white54 : Colors.black45,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (weekExpanded) ...[
+                      const SizedBox(height: 8),
+                      ...item.weekDays.map((day) {
+                        final planned = day.mealsPlanned;
+                        final done = day.mealsCompleted;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _completionStatusRow(
+                                status: day.dayProgressStatus,
+                                label: day.dayStatusLabel(done: done, planned: planned),
+                                isDark: isDark,
+                              ),
+                              if (day.meals.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 28, bottom: 2),
+                                  child: Text(
+                                    'No meals checked yet',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                                    ),
+                                  ),
+                                )
+                              else
+                                ...day.meals.map(
+                                  (meal) => Padding(
+                                    padding: const EdgeInsets.only(left: 28),
+                                    child: _completionStatusRow(
+                                      status: meal.completed
+                                          ? DietProgressUiStatus.completed
+                                          : DietProgressUiStatus.notStarted,
+                                      label: meal.statusText,
+                                      isDark: isDark,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      }),
                     ],
+                  ],
+                ] else
+                  ...item.meals.map(
+                    (meal) => _completionStatusRow(
+                      status: meal.completed
+                          ? DietProgressUiStatus.completed
+                          : DietProgressUiStatus.notStarted,
+                      label: meal.statusText,
+                      isDark: isDark,
+                    ),
+                  ),
+                const SizedBox(height: 6),
+                Text(
+                  item.isWeekly
+                      ? 'Week progress: ${item.weeklyAveragePercent}%'
+                      : 'Weekly average: ${item.weeklyAveragePercent}%',
+                  style: CoachDashboardTheme.bodyMuted(isDark),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => _toggleCompletionExpanded(item),
+                    icon: const Icon(Icons.expand_less_rounded, size: 18),
+                    label: const Text('Collapse'),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            Text(item.dailyProgressLabel, style: TextStyle(fontWeight: FontWeight.w600, color: statusColor)),
-            const SizedBox(height: 6),
-            Text('Weekly average: ${item.weeklyAveragePercent}%', style: CoachDashboardTheme.bodyMuted(isDark)),
-            const SizedBox(height: 10),
-            ...item.meals.map((meal) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '${meal.statusIcon} ${meal.statusText}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: meal.completed ? CoachDashboardTheme.success : CoachDashboardTheme.danger,
-                    ),
-                  ),
-                )),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: (item.progressPercent / 100).clamp(0.0, 1.0),
-                minHeight: 6,
-                backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                color: statusColor,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -709,6 +1256,10 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
   List<Map<String, dynamic>> _groupMembers = [];
   List<String> _progressMealTypes = [];
   final Map<String, bool> _progressMealFollowed = {};
+  List<Map<String, dynamic>> _clientWeekDays = [];
+  int _coachProgressBrowseDay = 0;
+  bool _groupMembersExpanded = false;
+  final Set<String> _expandedMemberKeys = <String>{};
 
   String? _selectedClientId;
   String? _selectedClassId;
@@ -726,13 +1277,12 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
   final _notesCtrl = TextEditingController();
   String _goal = 'maintenance';
   String _planType = 'single_day'; // single_day | weekly
-  int _selectedDay = 0; // Monday-based — day being edited (weekly)
-  final Set<int> _enabledDays = <int>{}; // weekly days included via checkboxes
   int? _singleDayIndex; // single_day: which weekday is checked
+  /// Weekly: one meal template in bucket 0; which weekdays receive that template.
+  final Set<int> _weeklySelectedDays = <int>{};
 
   final List<_DayMealsBucket> _dayBuckets = List.generate(7, (_) => _DayMealsBucket());
-  _DayMealsBucket get _activeBucket =>
-      _planType == 'weekly' ? _dayBuckets[_selectedDay.clamp(0, 6)] : _dayBuckets[0];
+  _DayMealsBucket get _activeBucket => _dayBuckets[0];
 
   @override
   void initState() {
@@ -812,6 +1362,17 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         .map((m) => Map<String, dynamic>.from(m))
         .toList();
 
+    _clientWeekDays = [];
+    final weekCompletion = data['weekCompletion'] as Map<String, dynamic>? ??
+        (todayJson?['weekCompletion'] as Map<String, dynamic>?);
+    if (weekCompletion != null) {
+      for (final day in (weekCompletion['days'] as List<dynamic>? ?? [])) {
+        if (day is Map) {
+          _clientWeekDays.add(Map<String, dynamic>.from(day));
+        }
+      }
+    }
+
     if (_plan != null && _todayProgress.targetCalories == 0) {
       final plannedMeals = _progressMealTypes.isNotEmpty
           ? _progressMealTypes.length
@@ -880,8 +1441,7 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     _notesCtrl.clear();
     _goal = 'maintenance';
     _planType = 'single_day';
-    _selectedDay = 0;
-    _enabledDays.clear();
+    _weeklySelectedDays.clear();
     _singleDayIndex = DietDay.mondayBasedDayOfWeek();
     for (final bucket in _dayBuckets) {
       bucket.clear();
@@ -951,23 +1511,26 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     _notesCtrl.text = plan.notes;
     _goal = plan.goal;
     _planType = plan.isWeekly ? 'weekly' : 'single_day';
-    _selectedDay = plan.todayDayOfWeek ?? DietDay.mondayBasedDayOfWeek();
-    _enabledDays.clear();
+    _weeklySelectedDays.clear();
     _singleDayIndex = plan.targetDayOfWeek ?? DietDay.mondayBasedDayOfWeek();
     for (final bucket in _dayBuckets) {
       bucket.clear();
     }
-    if (plan.isWeekly && plan.days.isNotEmpty) {
+    if (plan.isWeekly) {
+      DietDay? templateDay;
       for (final day in plan.days) {
-        if (day.dayOfWeek >= 0 && day.dayOfWeek <= 6) {
-          _dayBuckets[day.dayOfWeek].loadFromMeals(day.meals);
-          if (day.meals.any((m) => m.hasContent)) {
-            _enabledDays.add(day.dayOfWeek);
-          }
+        if (day.meals.any((m) => m.hasContent)) {
+          templateDay ??= day;
+          _weeklySelectedDays.add(day.dayOfWeek.clamp(0, 6));
         }
       }
-      if (_enabledDays.isNotEmpty && !_enabledDays.contains(_selectedDay)) {
-        _selectedDay = _enabledDays.first;
+      if (templateDay != null) {
+        _dayBuckets[0].loadFromMeals(templateDay.meals);
+      } else if (plan.meals.any((m) => m.hasContent)) {
+        _dayBuckets[0].loadFromMeals(plan.meals);
+      }
+      if (_weeklySelectedDays.isEmpty) {
+        _weeklySelectedDays.addAll(List.generate(7, (i) => i));
       }
     } else {
       _dayBuckets[0].loadFromMeals(plan.meals);
@@ -980,10 +1543,9 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
       _planType = type;
       final today = DietDay.mondayBasedDayOfWeek();
       if (type == 'weekly') {
-        if (_enabledDays.isEmpty) {
-          _enabledDays.add(today);
+        if (_weeklySelectedDays.isEmpty) {
+          _weeklySelectedDays.addAll(List.generate(7, (i) => i));
         }
-        _selectedDay = _enabledDays.contains(today) ? today : _enabledDays.first;
       } else {
         _singleDayIndex ??= today;
       }
@@ -994,19 +1556,52 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     setState(() => _singleDayIndex = dayIndex);
   }
 
-  void _toggleDayEnabled(int dayIndex, bool enabled) {
+  bool get _allWeeklyDaysSelected => _weeklySelectedDays.length == 7;
+
+  void _selectAllWeeklyDays() {
+    setState(() => _weeklySelectedDays.addAll(List.generate(7, (i) => i)));
+  }
+
+  void _clearAllWeeklyDays() {
+    setState(() => _weeklySelectedDays.clear());
+  }
+
+  void _toggleWeeklyDay(int dayIndex, bool selected) {
     setState(() {
-      if (enabled) {
-        _enabledDays.add(dayIndex);
-        _selectedDay = dayIndex;
+      if (selected) {
+        _weeklySelectedDays.add(dayIndex);
       } else {
-        _enabledDays.remove(dayIndex);
-        _dayBuckets[dayIndex].clear();
-        if (_selectedDay == dayIndex) {
-          _selectedDay = _enabledDays.isEmpty ? 0 : _enabledDays.first;
-        }
+        _weeklySelectedDays.remove(dayIndex);
       }
     });
+  }
+
+  bool get _weeklyTemplateComplete => _dayBuckets[0].isCompleteForWeeklyPlan;
+
+  List<String> get _weeklyTemplateMissing => _dayBuckets[0].missingWeeklySections();
+
+  Future<bool> _confirmWeeklyValidationIssues() async {
+    if (!mounted) return false;
+    final issues = <String>[];
+    if (!_weeklyTemplateComplete) {
+      issues.add('Meals: add ${_weeklyTemplateMissing.join(', ')}.');
+    }
+    if (_weeklySelectedDays.isEmpty) {
+      issues.add('Select at least one day (or use Select All Days).');
+    }
+    if (issues.isEmpty) return true;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Weekly plan incomplete'),
+        content: Text(issues.join('\n\n')),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+    return false;
   }
 
   bool _isPresetSnackSelected(String name) {
@@ -1056,7 +1651,11 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
 
   bool get _hasAssignee => _clientId != null || _fitnessClassId != null;
 
-  Future<void> _save({required String status}) async {
+  void _onWeeklyMealFieldEdited() {
+    if (_planType == 'weekly') setState(() {});
+  }
+
+  Future<void> _save({required String status, bool confirmSupersede = false}) async {
     if (!_hasAssignee) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select a user or group first.'), backgroundColor: CoachDashboardTheme.warning),
@@ -1076,24 +1675,24 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         'dailyCalories': int.tryParse(_caloriesCtrl.text) ?? 2000,
         'notes': _notesCtrl.text.trim(),
         'status': status,
+        if (confirmSupersede) 'confirmSupersede': true,
       };
       if (_planType == 'weekly') {
-        if (_enabledDays.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Check at least one day for the weekly plan.'),
-              backgroundColor: CoachDashboardTheme.warning,
-            ),
-          );
+        if (!await _confirmWeeklyValidationIssues()) {
           setState(() => _saving = false);
           return;
         }
-        payload['days'] = List.generate(7, (i) => {
-              'dayOfWeek': i,
-              'meals': _enabledDays.contains(i)
-                  ? _dayBuckets[i].buildMeals().map((m) => m.toJson()).toList()
-                  : <Map<String, dynamic>>[],
-            });
+        final templateMeals = _dayBuckets[0].buildMeals().map((m) => m.toJson()).toList();
+        final daysPayload = <Map<String, dynamic>>[];
+        for (var i = 0; i < 7; i++) {
+          daysPayload.add({
+            'dayOfWeek': i,
+            'meals': _weeklySelectedDays.contains(i) ? templateMeals : <Map<String, dynamic>>[],
+          });
+        }
+        payload['days'] = daysPayload;
+        payload['meals'] = templateMeals;
+        payload['planType'] = 'weekly';
       } else {
         if (_singleDayIndex == null) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1126,6 +1725,29 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         ),
       );
       await _load();
+    } on ApiConflictException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final existingTitle = e.body?['existingPlan'] is Map
+          ? (e.body!['existingPlan']['title']?.toString() ?? 'current plan')
+          : 'current plan';
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Replace active plan?'),
+          content: Text(
+            'This assignee already has an active diet plan (“$existingTitle”). '
+            'Move it to history and activate this new plan?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Replace')),
+          ],
+        ),
+      );
+      if (ok == true) {
+        await _save(status: status, confirmSupersede: true);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1283,6 +1905,12 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
       physics: dashboardScrollPhysics,
       padding: const EdgeInsets.all(18),
       children: [
+        _coachFormSectionHeader(
+          isDark,
+          step: '1',
+          title: 'Basics',
+          subtitle: 'Who this plan is for and daily targets',
+        ),
         _buildAssigneePicker(isDark, readOnly: readOnly),
         if (_isGroup && widget.memberCount != null)
           Container(
@@ -1317,9 +1945,13 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           keyboardType: TextInputType.number,
           decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Daily Calories'),
         ),
-        const SizedBox(height: 16),
-        Text('Plan type', style: CoachDashboardTheme.sectionTitle(isDark)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 20),
+        _coachFormSectionHeader(
+          isDark,
+          step: '2',
+          title: 'Plan type',
+          subtitle: 'Single day or one weekly meal set',
+        ),
         Container(
           decoration: BoxDecoration(
             border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
@@ -1349,7 +1981,7 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
                 activeColor: CoachDashboardTheme.primary,
                 value: _planType == 'weekly',
                 title: const Text('Weekly Diet Plan', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: const Text('Check days below and set meals for each', style: TextStyle(fontSize: 12)),
+                subtitle: const Text('Create meals once, then choose which days (Mon–Sun) get this plan', style: TextStyle(fontSize: 12)),
                 onChanged: readOnly
                     ? null
                     : (v) {
@@ -1413,13 +2045,104 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           ],
         ],
         if (_planType == 'weekly') ...[
-          Text('Days of the week', style: CoachDashboardTheme.sectionTitle(isDark)),
-          const SizedBox(height: 4),
-          Text(
-            'Check each day to include it, then set Breakfast, Lunch, Dinner & Snacks.',
-            style: CoachDashboardTheme.bodyMuted(isDark),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: CoachDashboardTheme.primary.withValues(alpha: isDark ? 0.12 : 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CoachDashboardTheme.primary.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'One weekly meal set',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: CoachDashboardTheme.primary),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Add Breakfast, Lunch, Dinner, and Snacks once. Then choose which days get this same plan. '
+                  'One save creates a single Weekly Diet Plan (not separate daily plans).',
+                  style: TextStyle(fontSize: 12, height: 1.35, color: isDark ? Colors.white70 : Colors.black87),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
+        ],
+        if ((_planType == 'single_day' && _singleDayIndex != null) || _planType == 'weekly') ...[
+          const SizedBox(height: 16),
+          _coachFormSectionHeader(
+            isDark,
+            step: '3',
+            title: 'Meals',
+            subtitle: 'Expand Breakfast, Lunch, Dinner & Snacks to fill details',
+          ),
+          if (_planType == 'weekly') ...[
+            Text(
+              _weeklyTemplateComplete
+                  ? 'Meals complete — assign to days below.'
+                  : 'Missing: ${_weeklyTemplateMissing.join(', ')}',
+              style: TextStyle(
+                fontSize: 12,
+                color: _weeklyTemplateComplete ? CoachDashboardTheme.success : CoachDashboardTheme.warning,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          ..._activeBucket.mealForms.entries.map((e) => _MealSection(
+                label: e.key,
+                form: e.value,
+                isDark: isDark,
+                readOnly: readOnly,
+                onEdited: _planType == 'weekly' && !readOnly ? _onWeeklyMealFieldEdited : null,
+              )),
+          _SnacksListSection(
+            snackForms: _activeBucket.snackForms,
+            customSnackForms: _customSnackForms,
+            isDark: isDark,
+            readOnly: readOnly,
+            isPresetSelected: _isPresetSnackSelected,
+            onTogglePreset: _togglePresetSnack,
+            onAdd: _addSnack,
+            onRemove: _removeSnack,
+          ),
+        ],
+        if (_planType == 'weekly') ...[
+          const SizedBox(height: 16),
+          _coachFormSectionHeader(
+            isDark,
+            step: '4',
+            title: 'Assign to days',
+            subtitle: 'Same meals apply to every day you check',
+          ),
+          if (!readOnly)
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _allWeeklyDaysSelected ? null : _selectAllWeeklyDays,
+                  icon: const Icon(Icons.done_all_rounded, size: 18),
+                  label: const Text('Select All Days'),
+                ),
+                TextButton(
+                  onPressed: _weeklySelectedDays.isEmpty ? null : _clearAllWeeklyDays,
+                  child: const Text('Clear all'),
+                ),
+                const Spacer(),
+                Text(
+                  '${_weeklySelectedDays.length} / 7 selected',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _weeklySelectedDays.isEmpty
+                        ? CoachDashboardTheme.warning
+                        : CoachDashboardTheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: 4),
           Container(
             decoration: BoxDecoration(
               border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
@@ -1434,78 +2157,36 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                     controlAffinity: ListTileControlAffinity.leading,
                     activeColor: CoachDashboardTheme.primary,
-                    value: _enabledDays.contains(i),
-                    selected: _enabledDays.contains(i) && _selectedDay == i,
+                    value: _weeklySelectedDays.contains(i),
                     title: Text(
                       DietDay.dayNames[i],
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: (_enabledDays.contains(i) && _selectedDay == i)
-                            ? FontWeight.w700
-                            : FontWeight.w500,
+                        fontWeight: _weeklySelectedDays.contains(i) ? FontWeight.w700 : FontWeight.w500,
                       ),
                     ),
                     subtitle: Text(
-                      _enabledDays.contains(i)
-                          ? (_dayBuckets[i].buildMeals().isEmpty
-                              ? 'Checked · add meals below'
-                              : '${_dayBuckets[i].buildMeals().length} meal(s) · tap to edit')
-                          : 'Not included',
+                      _weeklySelectedDays.contains(i)
+                          ? 'Same meals as weekly template'
+                          : 'Not assigned',
                       style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey),
                     ),
-                    secondary: _enabledDays.contains(i)
-                        ? IconButton(
-                            tooltip: 'Edit meals',
-                            icon: Icon(
-                              Icons.restaurant_menu_rounded,
-                              color: _selectedDay == i ? CoachDashboardTheme.primary : null,
-                            ),
-                            onPressed: readOnly ? null : () => setState(() => _selectedDay = i),
-                          )
-                        : null,
                     onChanged: readOnly
                         ? null
-                        : (v) => _toggleDayEnabled(i, v ?? false),
+                        : (v) => _toggleWeeklyDay(i, v ?? false),
                   ),
                 ],
               ],
             ),
           ),
-          if (_enabledDays.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Meals for ${DietDay.dayNames[_selectedDay]}',
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: CoachDashboardTheme.primary),
-            ),
-          ] else ...[
-            const SizedBox(height: 8),
-            Text(
-              'Check at least one day above to add meals.',
-              style: TextStyle(fontSize: 12, color: CoachDashboardTheme.warning),
-            ),
-          ],
         ],
-        if ((_planType == 'single_day' && _singleDayIndex != null) ||
-            (_planType == 'weekly' && _enabledDays.contains(_selectedDay))) ...[
-          const SizedBox(height: 8),
-          ..._activeBucket.mealForms.entries.map((e) => _MealSection(
-                label: e.key,
-                form: e.value,
-                isDark: isDark,
-                readOnly: readOnly,
-              )),
-          _SnacksListSection(
-            snackForms: _activeBucket.snackForms,
-            customSnackForms: _customSnackForms,
-            isDark: isDark,
-            readOnly: readOnly,
-            isPresetSelected: _isPresetSnackSelected,
-            onTogglePreset: _togglePresetSnack,
-            onAdd: _addSnack,
-            onRemove: _removeSnack,
-          ),
-        ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        _coachFormSectionHeader(
+          isDark,
+          step: null,
+          title: 'Notes & send',
+          subtitle: 'Optional coach notes, then save or draft',
+        ),
         TextField(
           controller: _notesCtrl,
           readOnly: readOnly,
@@ -1514,6 +2195,17 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         ),
         if (!readOnly) ...[
           const SizedBox(height: 20),
+          if (_planType == 'weekly' && (!_weeklyTemplateComplete || _weeklySelectedDays.isEmpty)) ...[
+            Text(
+              'Complete Breakfast, Lunch, Dinner & Snacks once, then select at least one day (or Select All Days).',
+              style: TextStyle(
+                fontSize: 12,
+                color: CoachDashboardTheme.warning.withValues(alpha: 0.95),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -1542,6 +2234,59 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     );
   }
 
+  Widget _coachFormSectionHeader(
+    bool isDark, {
+    required String? step,
+    required String title,
+    String? subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (step != null) ...[
+            Container(
+              width: 24,
+              height: 24,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: CoachDashboardTheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                step,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: CoachDashboardTheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                if (subtitle != null && subtitle.isNotEmpty)
+                  Text(subtitle, style: CoachDashboardTheme.bodyMuted(isDark)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildProgressTab(bool isDark) {
     if (_progressLoading) {
       return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
@@ -1555,69 +2300,347 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
       }
     }
 
+    var progressMealTypes = List<String>.from(_progressMealTypes);
+
+    if (_plan?.isWeekly == true && _clientWeekDays.isNotEmpty) {
+      final dayRow = _clientWeekDays.cast<Map<String, dynamic>?>().firstWhere(
+            (d) => (d?['dayOfWeek'] as num?)?.toInt() == _coachProgressBrowseDay,
+            orElse: () => _clientWeekDays.isNotEmpty ? _clientWeekDays.first : null,
+          );
+      final adherence = (dayRow?['mealAdherence'] as List<dynamic>? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      mealFollowed.clear();
+      for (final row in adherence) {
+        final type = row['type']?.toString();
+        if (type != null && type.isNotEmpty) {
+          mealFollowed[type] = row['followed'] == true;
+        }
+      }
+      const order = ['breakfast', 'lunch', 'dinner', 'snacks'];
+      final plannedFromDay = _plan!.mealsForDay(_coachProgressBrowseDay)
+          .where((m) => m.hasContent)
+          .map((m) => m.type)
+          .toSet();
+      if (plannedFromDay.isNotEmpty) {
+        progressMealTypes = order.where(plannedFromDay.contains).toList();
+      }
+    }
+
+    final planned = progressMealTypes.isNotEmpty
+        ? progressMealTypes.length
+        : _todayProgress.mealsPlanned;
+    final completed = mealFollowed.values.where((v) => v).length;
+    final progressToday = DietTodayProgress(
+      caloriesConsumed: _todayProgress.caloriesConsumed,
+      targetCalories: _todayProgress.targetCalories,
+      waterMl: _todayProgress.waterMl,
+      targetWaterMl: _todayProgress.targetWaterMl,
+      mealsCompleted: completed,
+      mealsPlanned: planned,
+      workoutsCompleted: _todayProgress.workoutsCompleted,
+      workoutsPlanned: _todayProgress.workoutsPlanned,
+      dailyGoalPercent: planned > 0 ? ((completed / planned) * 100).round() : 0,
+      adherencePercent: planned > 0 ? ((completed / planned) * 100).round() : 0,
+      followedPlan: planned > 0 && completed == planned,
+      hasActivity: _todayProgress.hasActivity || completed > 0,
+      mealAdherence: _todayProgress.mealAdherence,
+      weeklyAveragePercent: _todayProgress.weeklyAveragePercent,
+    );
+
     return DietProgressPanel(
-      today: _todayProgress,
+      today: progressToday,
       avgAdherence: _avgAdherence,
-      mealTypes: _groupMembers.isEmpty ? _progressMealTypes : const [],
+      mealTypes: _groupMembers.isEmpty ? progressMealTypes : const [],
       mealFollowed: mealFollowed,
       isDark: isDark,
       onRefresh: _refreshProgress,
+      progressTitle: _plan?.isWeekly == true
+          ? 'Client meals · ${DietDay.dayNames[_coachProgressBrowseDay.clamp(0, 6)]}'
+          : 'Client meal progress · today',
       footer: [
-        if (_groupMembers.isNotEmpty) ...[
+        if (_plan?.isWeekly == true && _clientWeekDays.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text('Member meal completion today', style: CoachDashboardTheme.sectionTitle(isDark)),
+          Text('This week (live)', style: CoachDashboardTheme.sectionTitle(isDark)),
           const SizedBox(height: 8),
-          ..._groupMembers.map((member) {
-            final name = member['name']?.toString() ?? 'Member';
-            final meals = (member['mealAdherence'] as List<dynamic>? ?? const [])
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < 7; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  FilterChip(
+                    selected: _coachProgressBrowseDay == i,
+                    label: Text(DietDay.dayNames[i].substring(0, 3)),
+                    onSelected: (_) => setState(() => _coachProgressBrowseDay = i),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...List.generate(7, (i) {
+            final day = _clientWeekDays.cast<Map<String, dynamic>?>().firstWhere(
+                  (d) => (d?['dayOfWeek'] as num?)?.toInt() == i,
+                  orElse: () => null,
+                );
+            final meals = (day?['mealAdherence'] as List<dynamic>? ?? [])
                 .whereType<Map>()
-                .map((m) => Map<String, dynamic>.from(m))
+                .map((e) => Map<String, dynamic>.from(e))
                 .toList();
-            final planned = _progressMealTypes.isNotEmpty
-                ? _progressMealTypes
-                : meals.map((m) => m['type']?.toString() ?? '').where((t) => t.isNotEmpty).toList();
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: CoachDashboardTheme.cardDecoration(isDark),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                  if (planned.isEmpty)
+            final plannedTypes = _plan?.mealsForDay(i).where((m) => m.hasContent).map((m) => m.type).toSet() ?? {};
+            if (plannedTypes.isEmpty) return const SizedBox.shrink();
+            final done = meals.where((m) => m['followed'] == true).length;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: CoachDashboardTheme.cardDecoration(isDark),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'No meals planned for today.',
-                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey),
-                    )
-                  else
-                    ...planned.map((type) {
+                      '${DietDay.dayNames[i]} · $done/${plannedTypes.length} meals',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...plannedTypes.map((type) {
                       final match = meals.cast<Map<String, dynamic>?>().firstWhere(
                             (m) => m?['type']?.toString() == type,
                             orElse: () => null,
                           );
-                      final done = match?['followed'] == true;
                       final label = switch (type) {
                         'breakfast' => 'Breakfast',
                         'lunch' => 'Lunch',
                         'dinner' => 'Dinner',
                         _ => 'Snacks',
                       };
+                      final followed = match?['followed'] == true;
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          '${done ? '✅' : '❌'} $label',
-                          style: TextStyle(
-                            color: done ? CoachDashboardTheme.success : CoachDashboardTheme.danger,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              followed ? Icons.check_circle : Icons.cancel,
+                              size: 16,
+                              color: followed
+                                  ? CoachDashboardTheme.success
+                                  : CoachDashboardTheme.danger,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              followed ? '$label Completed' : '$label Not Completed',
+                              style: TextStyle(
+                                color: followed
+                                    ? CoachDashboardTheme.success
+                                    : CoachDashboardTheme.danger,
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     }),
-                ],
+                  ],
+                ),
               ),
             );
           }),
+        ],
+        if (_groupMembers.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Material(
+                  color: isDark ? Colors.white10 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.vertical(
+                    top: const Radius.circular(11),
+                    bottom: Radius.circular(_groupMembersExpanded ? 0 : 11),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.vertical(
+                      top: const Radius.circular(11),
+                      bottom: Radius.circular(_groupMembersExpanded ? 0 : 11),
+                    ),
+                    onTap: () => setState(() => _groupMembersExpanded = !_groupMembersExpanded),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.groups_rounded, color: CoachDashboardTheme.primary, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Users · ${widget.assigneeName ?? _selectedAssigneeName ?? 'Group'}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _groupMembersExpanded
+                                      ? '${_groupMembers.length} members · tap to hide'
+                                      : '${_groupMembers.length} members · tap to show meal completion',
+                                  style: CoachDashboardTheme.bodyMuted(isDark),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            _groupMembersExpanded
+                                ? Icons.expand_less_rounded
+                                : Icons.expand_more_rounded,
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (_groupMembersExpanded)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+                    child: Column(
+                      children: [
+                        ..._groupMembers.map((member) {
+                          final name = member['name']?.toString() ?? 'Member';
+                          final memberKey = member['userId']?.toString() ?? name;
+                          final memberExpanded = _expandedMemberKeys.contains(memberKey);
+                          final meals = (member['mealAdherence'] as List<dynamic>? ?? const [])
+                              .whereType<Map>()
+                              .map((m) => Map<String, dynamic>.from(m))
+                              .toList();
+                          final planned = _progressMealTypes.isNotEmpty
+                              ? _progressMealTypes
+                              : meals
+                                  .map((m) => m['type']?.toString() ?? '')
+                                  .where((t) => t.isNotEmpty)
+                                  .toList();
+                          final doneCount = planned.where((type) {
+                            final match = meals.cast<Map<String, dynamic>?>().firstWhere(
+                                  (m) => m?['type']?.toString() == type,
+                                  orElse: () => null,
+                                );
+                            return match?['followed'] == true;
+                          }).length;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            decoration: CoachDashboardTheme.cardDecoration(isDark),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  setState(() {
+                                    if (memberExpanded) {
+                                      _expandedMemberKeys.remove(memberKey);
+                                    } else {
+                                      _expandedMemberKeys.add(memberKey);
+                                    }
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              name,
+                                              style: const TextStyle(fontWeight: FontWeight.w700),
+                                            ),
+                                          ),
+                                          Text(
+                                            planned.isEmpty
+                                                ? 'No meals'
+                                                : '$doneCount/${planned.length} meals',
+                                            style: CoachDashboardTheme.bodyMuted(isDark),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Icon(
+                                            memberExpanded
+                                                ? Icons.expand_less_rounded
+                                                : Icons.expand_more_rounded,
+                                            size: 20,
+                                            color: isDark ? Colors.white54 : Colors.black45,
+                                          ),
+                                        ],
+                                      ),
+                                      if (memberExpanded) ...[
+                                        const SizedBox(height: 8),
+                                        if (planned.isEmpty)
+                                          Text(
+                                            'No meals planned for today.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark ? Colors.white54 : Colors.grey,
+                                            ),
+                                          )
+                                        else
+                                          ...planned.map((type) {
+                                            final match = meals.cast<Map<String, dynamic>?>().firstWhere(
+                                                  (m) => m?['type']?.toString() == type,
+                                                  orElse: () => null,
+                                                );
+                                            final done = match?['followed'] == true;
+                                            final label = switch (type) {
+                                              'breakfast' => 'Breakfast',
+                                              'lunch' => 'Lunch',
+                                              'dinner' => 'Dinner',
+                                              _ => 'Snacks',
+                                            };
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 4),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    done ? Icons.check_circle : Icons.cancel,
+                                                    size: 16,
+                                                    color: done
+                                                        ? CoachDashboardTheme.success
+                                                        : CoachDashboardTheme.danger,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    done ? '$label Completed' : '$label Not Completed',
+                                                    style: TextStyle(
+                                                      color: done
+                                                          ? CoachDashboardTheme.success
+                                                          : CoachDashboardTheme.danger,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ],
     );
@@ -1664,6 +2687,23 @@ class _DayMealsBucket {
     return meals;
   }
 
+  bool get isCompleteForWeeklyPlan {
+    if (!mealForms['breakfast']!.hasContent) return false;
+    if (!mealForms['lunch']!.hasContent) return false;
+    if (!mealForms['dinner']!.hasContent) return false;
+    if (!snackForms.any((f) => f.hasContent)) return false;
+    return true;
+  }
+
+  List<String> missingWeeklySections() {
+    final missing = <String>[];
+    if (!mealForms['breakfast']!.hasContent) missing.add('Breakfast');
+    if (!mealForms['lunch']!.hasContent) missing.add('Lunch');
+    if (!mealForms['dinner']!.hasContent) missing.add('Dinner');
+    if (!snackForms.any((f) => f.hasContent)) missing.add('Snacks');
+    return missing;
+  }
+
   void dispose() {
     for (final form in mealForms.values) {
       form.dispose();
@@ -1678,14 +2718,35 @@ class _DayMealsBucket {
 class _MealForm {
   final name = TextEditingController();
   final description = TextEditingController();
+  final foodItems = TextEditingController();
+  final portion = TextEditingController();
+  final calories = TextEditingController();
+  final protein = TextEditingController();
+  final carbs = TextEditingController();
+  final fats = TextEditingController();
   final reminder = TextEditingController();
+  final prep = TextEditingController();
+  final notes = TextEditingController();
 
-  bool get hasContent => name.text.isNotEmpty || description.text.isNotEmpty;
+  bool get hasContent =>
+      name.text.trim().isNotEmpty ||
+      description.text.trim().isNotEmpty ||
+      foodItems.text.trim().isNotEmpty ||
+      portion.text.trim().isNotEmpty ||
+      prep.text.trim().isNotEmpty;
 
   void load(DietMeal meal) {
     name.text = meal.name;
     description.text = meal.description;
+    foodItems.text = meal.foodItems.join('\n');
+    portion.text = meal.portionSize;
+    calories.text = meal.calories > 0 ? '${meal.calories}' : '';
+    protein.text = meal.protein > 0 ? '${meal.protein}' : '';
+    carbs.text = meal.carbs > 0 ? '${meal.carbs}' : '';
+    fats.text = meal.fats > 0 ? '${meal.fats}' : '';
     reminder.text = meal.reminderTime;
+    prep.text = meal.prepInstructions;
+    notes.text = meal.mealNotes;
   }
 
   DietMeal toMeal(String type) => DietMeal(
@@ -1694,13 +2755,33 @@ class _MealForm {
             ? (type == 'snacks' ? 'Snack' : DietMeal.empty(type).name)
             : name.text.trim(),
         description: description.text.trim(),
+        foodItems: foodItems.text
+            .split(RegExp(r'[\n,;]'))
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList(),
+        portionSize: portion.text.trim(),
+        calories: int.tryParse(calories.text.trim()) ?? 0,
+        protein: int.tryParse(protein.text.trim()) ?? 0,
+        carbs: int.tryParse(carbs.text.trim()) ?? 0,
+        fats: int.tryParse(fats.text.trim()) ?? 0,
         reminderTime: reminder.text.trim(),
+        prepInstructions: prep.text.trim(),
+        mealNotes: notes.text.trim(),
       );
 
   void dispose() {
     name.dispose();
     description.dispose();
+    foodItems.dispose();
+    portion.dispose();
+    calories.dispose();
+    protein.dispose();
+    carbs.dispose();
+    fats.dispose();
     reminder.dispose();
+    prep.dispose();
+    notes.dispose();
   }
 }
 
@@ -1728,13 +2809,17 @@ class _MealSection extends StatelessWidget {
   final _MealForm form;
   final bool isDark;
   final bool readOnly;
+  final VoidCallback? onEdited;
 
   const _MealSection({
     required this.label,
     required this.form,
     required this.isDark,
     this.readOnly = false,
+    this.onEdited,
   });
+
+  void _edited() => onEdited?.call();
 
   @override
   Widget build(BuildContext context) {
@@ -1742,6 +2827,7 @@ class _MealSection extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       decoration: CoachDashboardTheme.cardDecoration(isDark),
       child: ExpansionTile(
+        initiallyExpanded: label == 'breakfast',
         title: Text(label[0].toUpperCase() + label.substring(1), style: CoachDashboardTheme.sectionTitle(isDark)),
         children: [
           Padding(
@@ -1751,19 +2837,120 @@ class _MealSection extends StatelessWidget {
                 TextField(
                   controller: form.name,
                   readOnly: readOnly,
+                  onChanged: readOnly ? null : (_) => _edited(),
                   decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Meal Name'),
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: form.description,
                   readOnly: readOnly,
-                  decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Description'),
+                  maxLines: 2,
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Food items / description',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: form.foodItems,
+                  readOnly: readOnly,
+                  maxLines: 3,
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Food items (one per line, optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: form.portion,
+                  readOnly: readOnly,
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Portion size',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: form.calories,
+                        readOnly: readOnly,
+                        keyboardType: TextInputType.number,
+                        onChanged: readOnly ? null : (_) => _edited(),
+                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Calories'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: form.protein,
+                        readOnly: readOnly,
+                        keyboardType: TextInputType.number,
+                        onChanged: readOnly ? null : (_) => _edited(),
+                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Protein (g)'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: form.carbs,
+                        readOnly: readOnly,
+                        keyboardType: TextInputType.number,
+                        onChanged: readOnly ? null : (_) => _edited(),
+                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Carbs (g)'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: form.fats,
+                        readOnly: readOnly,
+                        keyboardType: TextInputType.number,
+                        onChanged: readOnly ? null : (_) => _edited(),
+                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Fat (g)'),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: form.reminder,
                   readOnly: readOnly,
-                  decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Reminder Time (e.g. 08:00)'),
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Meal time / reminder (e.g. 08:00)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: form.prep,
+                  readOnly: readOnly,
+                  maxLines: 2,
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Preparation instructions (optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: form.notes,
+                  readOnly: readOnly,
+                  maxLines: 2,
+                  onChanged: readOnly ? null : (_) => _edited(),
+                  decoration: CoachDashboardTheme.fieldDecoration(
+                    isDark: isDark,
+                    label: 'Meal notes (optional)',
+                  ),
                 ),
               ],
             ),

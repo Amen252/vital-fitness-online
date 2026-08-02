@@ -7,12 +7,19 @@ const mealSchema = new mongoose.Schema({
     required: true,
   },
   name: { type: String, default: '' },
+  /** Free-text food list / ingredients summary */
   description: { type: String, default: '' },
-  calories: { type: Number, default: 0 },
-  protein: { type: Number, default: 0 },
-  carbs: { type: Number, default: 0 },
-  fats: { type: Number, default: 0 },
+  /** Structured food items (optional; description still supported) */
+  foodItems: { type: [String], default: [] },
+  portionSize: { type: String, default: '' },
+  calories: { type: Number, default: 0, min: 0 },
+  protein: { type: Number, default: 0, min: 0 },
+  carbs: { type: Number, default: 0, min: 0 },
+  fats: { type: Number, default: 0, min: 0 },
+  /** Local wall-clock reminder, e.g. "08:00" */
   reminderTime: { type: String, default: '' },
+  prepInstructions: { type: String, default: '' },
+  mealNotes: { type: String, default: '' },
 }, { _id: true });
 
 const dietDaySchema = new mongoose.Schema({
@@ -41,13 +48,15 @@ const dietPlanSchema = new mongoose.Schema({
   targetDayOfWeek: { type: Number, min: 0, max: 6, default: null },
   meals: [mealSchema],
   days: [dietDaySchema],
-  dailyCalories: { type: Number, required: true },
+  dailyCalories: { type: Number, required: true, min: 1 },
   notes: { type: String, default: '' },
   status: {
     type: String,
     enum: ['draft', 'active', 'completed', 'archived'],
     default: 'active',
   },
+  /** When this plan became active / was assigned */
+  assignedAt: { type: Date },
 }, { timestamps: true, optimisticConcurrency: true });
 
 dietPlanSchema.pre('validate', function requireTarget() {
@@ -61,5 +70,6 @@ dietPlanSchema.pre('validate', function requireTarget() {
 
 dietPlanSchema.index({ coach: 1, client: 1, status: 1 });
 dietPlanSchema.index({ coach: 1, fitnessClass: 1, status: 1 });
+dietPlanSchema.index({ status: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('DietPlan', dietPlanSchema);

@@ -9,6 +9,7 @@ const {
   buildMealCompletionSummary,
   computeAverageAdherence,
 } = require('./mealAdherenceUtils');
+const { resolveCaloriesIn, computeCaloriesOut } = require('./calorieTrackingUtils');
 
 const DEFAULT_WATER_TARGET_ML = 2000;
 
@@ -80,7 +81,8 @@ async function buildTodayProgressSnapshot(userId, plan) {
     WorkoutSchedule.find(scheduleQuery).select('_id status').lean(),
   ]);
 
-  const caloriesConsumed = mealLogs.reduce((sum, log) => sum + (log.calories || 0), 0);
+  const caloriesConsumed = await resolveCaloriesIn(userId, { plan, adherence, date: today });
+  const caloriesBurned = await computeCaloriesOut(userId, today);
   const targetCalories = plan?.dailyCalories || adherence?.targetCalories || 0;
   const waterMl = waterLogs.reduce((sum, log) => sum + (log.amountMl || 0), 0);
   const targetWaterMl = DEFAULT_WATER_TARGET_ML;
@@ -127,6 +129,7 @@ async function buildTodayProgressSnapshot(userId, plan) {
 
   return {
     caloriesConsumed,
+    caloriesBurned,
     targetCalories,
     waterMl,
     targetWaterMl,

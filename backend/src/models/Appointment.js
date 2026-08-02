@@ -71,6 +71,17 @@ appointmentSchema.pre('validate', function syncMirroredFields() {
 });
 
 appointmentSchema.index({ coach: 1, dateTime: 1 });
+appointmentSchema.index(
+  { coach: 1, dateTime: 1 },
+  {
+    unique: true,
+    name: 'coach_slot_unique',
+    partialFilterExpression: {
+      status: { $in: ['pending', 'approved', 'rescheduled', 'confirmed'] },
+      dateTime: { $type: 'date' },
+    },
+  },
+);
 appointmentSchema.index({ client: 1, dateTime: 1 });
 appointmentSchema.index({ coach_id: 1, datetime: 1 });
 appointmentSchema.index({ user_id: 1, datetime: 1 });

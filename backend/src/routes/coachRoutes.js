@@ -15,6 +15,8 @@ const {
   getExerciseLibrary,
   getPendingActivities,
   updateActivityStatus,
+  getPendingWorkoutSubmissions,
+  reviewWorkoutSubmission,
   getCoachReports,
   getClasses,
   getClassDetail,
@@ -172,6 +174,8 @@ router.get('/schedules', getSchedules);
 router.get('/exercises', getExerciseLibrary);
 router.get('/activities/pending', getPendingActivities);
 router.patch('/activities/:id/status', updateActivityStatus);
+router.get('/workout-submissions/pending', getPendingWorkoutSubmissions);
+router.patch('/workout-submissions/:id/review', reviewWorkoutSubmission);
 router.get('/reports', getCoachReports);
 
 router.get('/classes', getClasses);

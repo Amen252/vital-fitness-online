@@ -133,16 +133,23 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     }
   }
 
+  bool _slotIsBooked(Map<String, dynamic> slot) {
+    final booked = slot['booked'];
+    return booked == true || booked == 1;
+  }
+
+  bool _slotIsPast(Map<String, dynamic> slot) {
+    final past = slot['past'];
+    return past == true || past == 1;
+  }
+
+  List<Map<String, dynamic>> _parseSlots(List<dynamic>? raw) {
+    return (raw ?? []).map((s) => Map<String, dynamic>.from(s as Map)).toList();
+  }
+
   bool _slotIsAvailable(Map<String, dynamic> slot) {
     final value = slot['available'];
     return value == true || value == 1;
-  }
-
-  List<Map<String, dynamic>> _parseAvailableSlots(List<dynamic>? raw) {
-    return (raw ?? [])
-        .map((s) => Map<String, dynamic>.from(s as Map))
-        .where(_slotIsAvailable)
-        .toList();
   }
 
   Future<bool> _loadSlotsForDate(DateTime date) async {
@@ -175,12 +182,12 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         _appointmentDays = (data['workingDays'] as List).map((d) => d.toString()).toSet();
       }
 
-      final availableSlots = _parseAvailableSlots(data['slots'] as List?);
+      final allSlots = _parseSlots(data['slots'] as List?);
       setState(() {
-        _slots = availableSlots;
+        _slots = allSlots;
         _slotsLoading = false;
       });
-      return availableSlots.isNotEmpty;
+      return allSlots.any(_slotIsAvailable);
     } catch (e) {
       if (mounted && requestSeq == _availabilityRequestSeq) {
         setState(() => _slotsLoading = false);
@@ -446,7 +453,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
           const SizedBox(height: 8),
           SizedBox(height: 78, child: _dateStrip(isDark)),
           const SizedBox(height: 16),
-          _sectionLabel('AVAILABLE TIMES', isDark),
+          _sectionLabel('TIME SLOTS', isDark),
           const SizedBox(height: 8),
           _slotsArea(isDark),
           const SizedBox(height: 16),
@@ -574,7 +581,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     }
     if (_slots.isEmpty) {
       return Text(
-        'No available times for this day.',
+        'No time slots for this day.',
         style: TextStyle(fontSize: 13, color: isDark ? Colors.white38 : CoachDashboardTheme.textSecondary),
       );
     }
@@ -583,13 +590,20 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       runSpacing: 8,
       children: _slots.map((slot) {
         final time = slot['time']?.toString() ?? '';
+        final available = _slotIsAvailable(slot);
+        final booked = _slotIsBooked(slot);
         final selected = _selectedTime == time;
+        final label = booked
+            ? '${_formatSlot(time)} · Reserved'
+            : _slotIsPast(slot)
+                ? '${_formatSlot(time)} · Past'
+                : _formatSlot(time);
         return _SlotChip(
-          label: _formatSlot(time),
-          available: true,
+          label: label,
+          available: available,
           selected: selected,
           isDark: isDark,
-          onTap: () => setState(() => _selectedTime = time),
+          onTap: available ? () => setState(() => _selectedTime = time) : null,
         );
       }).toList(),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
+import '../../../widgets/coach_workout_detail_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../utils/date_utils.dart';
@@ -370,8 +371,18 @@ class _WorkoutTemplatesViewState extends State<_WorkoutTemplatesView> {
                           if (exercises.length > 5)
                             Text('+ ${exercises.length - 5} more', style: TextStyle(fontSize: 11, color: widget.isDark ? Colors.white38 : Colors.grey)),
                           const SizedBox(height: 8),
-                          Row(
+                          Wrap(
+                            spacing: 4,
                             children: [
+                              TextButton.icon(
+                                onPressed: () => showCoachWorkoutDetailSheet(
+                                  context,
+                                  kind: CoachWorkoutDetailKind.template,
+                                  data: t,
+                                ),
+                                icon: const Icon(Icons.visibility_outlined, size: 16),
+                                label: const Text('View'),
+                              ),
                               TextButton.icon(onPressed: () => widget.onEdit(t), icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('Edit')),
                               TextButton.icon(
                                 onPressed: () => widget.onDelete(t['_id'].toString()),
@@ -605,12 +616,16 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                                             final name = ApiService.displayName(user, fallback: 'Member');
                                             final status = completion['status']?.toString() ?? 'pending';
                                             return Text(
-                                              '$name: ${status == 'completed' ? '✓ completed' : (status == 'missed' ? 'missed' : 'pending')}',
+                                              '$name: ${status == 'completed' ? '✓ approved' : (status == 'pending_review' ? 'pending review' : (status == 'missed' ? 'missed' : 'assigned'))}',
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 color: status == 'completed'
                                                     ? CoachDashboardTheme.success
-                                                    : (status == 'missed' ? CoachDashboardTheme.danger : Colors.orange),
+                                                    : (status == 'missed'
+                                                        ? CoachDashboardTheme.danger
+                                                        : (status == 'pending_review'
+                                                            ? CoachDashboardTheme.warning
+                                                            : Colors.orange)),
                                               ),
                                             );
                                           }).toList(),
@@ -663,8 +678,18 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                               '${planSummary['completed'] ?? 0} done · ${planSummary['pending'] ?? 0} pending · ${planSummary['missed'] ?? 0} missed',
                               style: TextStyle(fontSize: 11, color: widget.isDark ? Colors.white54 : Colors.grey),
                             ),
-                            Row(
+                            Wrap(
+                              spacing: 4,
                               children: [
+                                TextButton.icon(
+                                  onPressed: () => showCoachWorkoutDetailSheet(
+                                    context,
+                                    kind: CoachWorkoutDetailKind.weeklyPlan,
+                                    data: p,
+                                  ),
+                                  icon: const Icon(Icons.visibility_outlined, size: 16),
+                                  label: const Text('View'),
+                                ),
                                 TextButton.icon(onPressed: () => widget.onEditWeekly(p), icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('Edit')),
                                 TextButton.icon(
                                   onPressed: () => widget.onDeleteWeekly(p),
@@ -766,20 +791,34 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                                         final name = ApiService.displayName(user, fallback: 'Member');
                                         final status = completion['status']?.toString() ?? 'pending';
                                         return Text(
-                                          '$name: ${status == 'completed' ? '✓ completed' : (status == 'missed' ? 'missed' : 'pending')}',
+                                          '$name: ${status == 'completed' ? '✓ approved' : (status == 'pending_review' ? 'pending review' : (status == 'missed' ? 'missed' : 'assigned'))}',
                                           style: TextStyle(
                                             fontSize: 10,
                                             color: status == 'completed'
                                                 ? CoachDashboardTheme.success
-                                                : (status == 'missed' ? CoachDashboardTheme.danger : Colors.orange),
+                                                : (status == 'missed'
+                                                    ? CoachDashboardTheme.danger
+                                                    : (status == 'pending_review'
+                                                        ? CoachDashboardTheme.warning
+                                                        : Colors.orange)),
                                           ),
                                         );
                                       }).toList(),
                                     ),
                                   ),
                               ],
-                              Row(
+                              Wrap(
+                                spacing: 4,
                                 children: [
+                                  TextButton.icon(
+                                    onPressed: () => showCoachWorkoutDetailSheet(
+                                      context,
+                                      kind: CoachWorkoutDetailKind.schedule,
+                                      data: s,
+                                    ),
+                                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                                    label: const Text('View'),
+                                  ),
                                   TextButton.icon(onPressed: () => widget.onEdit(s), icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('Edit')),
                                   TextButton.icon(
                                     onPressed: () => _deleteSchedule(s['_id'].toString()),

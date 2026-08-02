@@ -324,6 +324,28 @@ class User {
   bool get hasRejectedCoachApplication =>
       coachApplicationStatus == 'rejected';
 
+  bool get hasApprovedCoachApplication =>
+      isCoach || coachApplicationStatus == 'approved';
+
+  /// Human-readable label for the coach application gate screens.
+  String get coachApplicationStatusLabel {
+    if (hasApprovedCoachApplication) return 'Approved';
+    if (hasRejectedCoachApplication) return 'Rejected';
+    if (hasPendingCoachApplication) return 'Pending';
+    return 'Unknown';
+  }
+
+  static String? _coachApplicationStatusFromJson(Map<String, dynamic> json) {
+    final direct = json['coachApplicationStatus']?.toString();
+    if (direct != null && direct.isNotEmpty) return direct;
+    final coachData = json['coachData'];
+    if (coachData is Map) {
+      final approval = coachData['approval_status']?.toString();
+      if (approval != null && approval.isNotEmpty) return approval;
+    }
+    return null;
+  }
+
   factory User.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
       return User(
@@ -342,7 +364,7 @@ class User {
       phone: json['phone']?.toString(),
       status: json['status']?.toString(),
       profile: Profile.fromUserPayload(json),
-      coachApplicationStatus: json['coachApplicationStatus'] as String?,
+      coachApplicationStatus: _coachApplicationStatusFromJson(json),
       coachApplicationReviewedAt: json['coachApplicationReviewedAt'] != null
           ? DateTime.tryParse(json['coachApplicationReviewedAt'].toString())
           : null,

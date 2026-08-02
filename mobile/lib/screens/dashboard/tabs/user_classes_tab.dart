@@ -7,6 +7,8 @@ import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../utils/date_utils.dart';
 import '../../../utils/workout_media_urls.dart';
+import '../../../widgets/workout_proof_sheet.dart';
+import '../../../widgets/workout_mark_complete_control.dart';
 
 class UserClassesTab extends StatefulWidget {
   final User user;
@@ -99,13 +101,21 @@ class UserClassesTabState extends State<UserClassesTab>
     );
   }
 
-  Future<void> _completeWorkoutSchedule(String scheduleId) async {
+  Future<void> _completeWorkoutSchedule(String scheduleId, {String title = 'Workout'}) async {
+    final proof = await showWorkoutProofSheet(context, workoutTitle: title);
+    if (proof == null || !mounted) return;
+
     setState(() {
       _completingSchedule = true;
       _completingId = scheduleId;
     });
     try {
-      await _apiService.completeWorkoutSchedule(scheduleId);
+      await _apiService.completeWorkoutSchedule(
+        scheduleId,
+        notes: proof['notes'] as String,
+        durationMinutes: proof['durationMinutes'] as int,
+        proofPhoto: proof['proofPhoto'] as String,
+      );
       await _fetchData(isRefresh: true);
       widget.onScheduleDataChanged?.call();
       if (widget.onParentRefresh != null) {
@@ -113,7 +123,10 @@ class UserClassesTabState extends State<UserClassesTab>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task marked as completed!'), backgroundColor: CoachDashboardTheme.success),
+          const SnackBar(
+            content: Text('Submitted for coach review · Streak updates when your coach approves'),
+            backgroundColor: CoachDashboardTheme.warning,
+          ),
         );
       }
     } catch (e) {
@@ -503,8 +516,9 @@ class UserClassesTabState extends State<UserClassesTab>
     final status = completionStatus.isNotEmpty
         ? completionStatus
         : (item['status'] as String? ?? (isUpcoming ? 'scheduled' : 'completed'));
-    final isPendingTask = isWorkoutSchedule && status == 'pending';
+    final isPendingTask = isWorkoutSchedule && (status == 'pending' || status == 'missed');
     final isCompletedTask = isWorkoutSchedule && status == 'completed';
+    final isInReviewTask = isWorkoutSchedule && status == 'pending_review';
     final scheduleId = item['_id']?.toString() ?? '';
     final notes = item['description'] as String? ?? item['notes'] as String? ?? '';
     final category = item['category'] as String? ?? '';
@@ -542,22 +556,23 @@ class UserClassesTabState extends State<UserClassesTab>
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            if (isWorkoutSchedule && (isPendingTask || isCompletedTask))
+            if (isWorkoutSchedule && (isPendingTask || isCompletedTask || isInReviewTask))
               Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: _completingSchedule && _completingId == scheduleId
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
-                      )
-                    : Checkbox(
-                        value: isCompletedTask,
-                        activeColor: CoachDashboardTheme.success,
-                        onChanged: isPendingTask && !_completingSchedule
-                            ? (_) => _completeWorkoutSchedule(scheduleId)
-                            : null,
-                      ),
+                child: WorkoutMarkCompleteControl(
+                  status: isCompletedTask
+                      ? 'completed'
+                      : (isInReviewTask ? 'pending_review' : 'pending'),
+                  isLoading: _completingSchedule && _completingId == scheduleId,
+                  onMarkComplete: isPendingTask && !_completingSchedule
+                      ? () => _completeWorkoutSchedule(
+                            scheduleId,
+                            title: item['title']?.toString() ??
+                                item['workoutTemplate']?['title']?.toString() ??
+                                'Workout',
+                          )
+                      : null,
+                ),
               ),
             Container(
               padding: const EdgeInsets.all(10),

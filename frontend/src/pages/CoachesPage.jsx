@@ -66,7 +66,9 @@ export default function CoachesPage() {
   const [tab, setTab] = useState("all");
   const [reviewingId, setReviewingId] = useState(null);
   const [allCoaches, setAllCoaches] = useState([]);
-  const [pendingApps, setPendingApps] = useState([]);
+  const [allApplications, setAllApplications] = useState([]);
+  const [applicationFilter, setApplicationFilter] = useState("all");
+  const [detailApplication, setDetailApplication] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -75,7 +77,7 @@ export default function CoachesPage() {
   function removeCoachFromLists(deletedId) {
     const id = String(deletedId);
     setAllCoaches((prev) => prev.filter((c) => String(c._id) !== id));
-    setPendingApps((prev) =>
+    setAllApplications((prev) =>
       prev.filter((a) => {
         const userId = a.user?._id ?? a.user;
         return String(userId) !== id;
@@ -109,16 +111,16 @@ export default function CoachesPage() {
     try {
       const [trainers, apps] = await Promise.all([
         getTrainersMeta(),
-        getCoachApplications("pending"),
+        getCoachApplications("all"),
       ]);
       const items = Array.isArray(trainers?.items) ? trainers.items : [];
       setAllCoaches(items);
-      setPendingApps(Array.isArray(apps) ? apps.filter((a) => a.status === "pending") : []);
+      setAllApplications(Array.isArray(apps) ? apps : []);
     } catch (err) {
       if (!silent) {
         setError(getErrorMessage(err));
         setAllCoaches([]);
-        setPendingApps([]);
+        setAllApplications([]);
       }
     } finally {
       if (!silent) setLoading(false);
@@ -148,6 +150,135 @@ export default function CoachesPage() {
   const activeCoaches = useMemo(
     () => allCoaches.filter(isApprovedCoach),
     [allCoaches],
+  );
+
+  const applicationCounts = useMemo(
+    () => ({
+      all: allApplications.length,
+      pending: allApplications.filter((a) => a.status === "pending").length,
+      approved: allApplications.filter((a) => a.status === "approved").length,
+      rejected: allApplications.filter((a) => a.status === "rejected").length,
+    }),
+    [allApplications],
+  );
+
+  const filteredApplications = useMemo(() => {
+    if (applicationFilter === "all") return allApplications;
+    return allApplications.filter((a) => a.status === applicationFilter);
+  }, [allApplications, applicationFilter]);
+
+  function applicationStatusTone(status) {
+    if (status === "approved") return "green";
+    if (status === "rejected") return "red";
+    return "amber";
+  }
+
+  function applicationDisplayName(app) {
+    return (
+      app.user?.full_name ||
+      app.user?.name ||
+      app.user?.username ||
+      "Applicant"
+    );
+  }
+
+  function applicationProfile(app) {
+    return (
+      app.profile || {
+        phone: app.phone,
+        location: app.location,
+        age: app.age,
+        yearsExperience: app.yearsExperience,
+        certifications: app.certifications,
+        specialization: app.specialization,
+        bio: app.bio,
+        experience: app.experience,
+        workingDays: app.workingDays,
+        appointmentDays: app.appointmentDays,
+        dayAvailability: app.dayAvailability,
+        appointmentDurationMinutes: app.appointmentDurationMinutes,
+      }
+    );
+  }
+
+  const applicationColumns = useMemo(
+    () => [
+      {
+        key: "applicant",
+        header: "Applicant",
+        sortable: true,
+        render: (row) => {
+          const name = applicationDisplayName(row);
+          const email = row.user?.username || row.user?.email || "";
+          return (
+            <div>
+              <p className="font-semibold text-[var(--vf-text)]">{name}</p>
+              <p className="text-xs text-[var(--vf-muted)]">{email || "—"}</p>
+            </div>
+          );
+        },
+      },
+      {
+        key: "specialization",
+        header: "Specialization",
+        render: (row) =>
+          row.specialization || formatList(applicationProfile(row).specialization) || "—",
+      },
+      {
+        key: "status",
+        header: "Status",
+        sortable: true,
+        render: (row) => (
+          <Badge tone={applicationStatusTone(row.status)}>
+            {(row.status || "pending").charAt(0).toUpperCase() +
+              (row.status || "pending").slice(1)}
+          </Badge>
+        ),
+      },
+      {
+        key: "createdAt",
+        header: "Applied",
+        sortable: true,
+        render: (row) => formatDate(row.createdAt),
+      },
+      {
+        key: "reviewedAt",
+        header: "Reviewed",
+        sortable: true,
+        render: (row) => (row.reviewedAt ? formatDate(row.reviewedAt) : "—"),
+      },
+      {
+        key: "actions",
+        header: "",
+        render: (row) => (
+          <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" variant="secondary" onClick={() => setDetailApplication(row)}>
+              View
+            </Button>
+            {row.status === "pending" ? (
+              <>
+                <Button
+                  size="sm"
+                  disabled={reviewingId === row._id || deleting}
+                  onClick={() => approve(row._id)}
+                >
+                  {reviewingId === row._id ? "Approving…" : "Approve"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={Boolean(reviewingId) || deleting}
+                  onClick={() => reject(row._id)}
+                >
+                  Reject
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    [deleting, reviewingId],
   );
 
   const columns = useMemo(
@@ -259,8 +390,10 @@ export default function CoachesPage() {
     try {
       await approveCoachApplication(id);
       toast.success("Coach approved — now listed under Active Coaches");
-      await load();
-      setTab("coaches");
+      await load({ silent: true });
+      setTab("applications");
+      setApplicationFilter("approved");
+      setDetailApplication(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -274,8 +407,10 @@ export default function CoachesPage() {
     try {
       await rejectCoachApplication(id, "Rejected by admin");
       toast.warning("Application rejected");
-      await load();
+      await load({ silent: true });
       setTab("applications");
+      setApplicationFilter("rejected");
+      setDetailApplication(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -283,43 +418,52 @@ export default function CoachesPage() {
     }
   }
 
-  function renderApplicationCard(app) {
-    const displayName =
-      app.user?.full_name ||
-      app.user?.name ||
-      app.user?.username ||
-      "Applicant";
-    const displayIdentity =
-      app.user?.username || app.user?.email || app.user?.phone || "";
-    const profile = app.profile || {
-      phone: app.phone,
-      location: app.location,
-      age: app.age,
-      yearsExperience: app.yearsExperience,
-      certifications: app.certifications,
-      specialization: app.specialization,
-      bio: app.bio,
-      experience: app.experience,
-      workingDays: app.workingDays,
-      appointmentDays: app.appointmentDays,
-      dayAvailability: app.dayAvailability,
-      appointmentDurationMinutes: app.appointmentDurationMinutes,
-    };
+  function renderApplicationDetailModal() {
+    if (!detailApplication) return null;
+    const app = detailApplication;
+    const displayName = applicationDisplayName(app);
+    const profile = applicationProfile(app);
     return (
-      <Card key={app._id} className="p-5 vf-animate-in">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="font-bold">{displayName}</h3>
-            {displayIdentity ? (
-              <p className="text-sm text-[var(--vf-muted)]">{displayIdentity}</p>
+      <Modal
+        open
+        title={displayName}
+        onClose={() => setDetailApplication(null)}
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setDetailApplication(null)}>
+              Close
+            </Button>
+            {app.status === "pending" ? (
+              <>
+                <Button
+                  disabled={reviewingId === app._id || deleting}
+                  onClick={() => approve(app._id)}
+                >
+                  {reviewingId === app._id ? "Approving…" : "Approve"}
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={Boolean(reviewingId) || deleting}
+                  onClick={() => reject(app._id)}
+                >
+                  Reject
+                </Button>
+              </>
             ) : null}
-            <p className="mt-2 text-sm font-medium">
-              {app.specialization || formatList(profile.specialization)}
-            </p>
           </div>
-          <Badge tone="amber">pending</Badge>
-        </div>
-        <div className="mt-4">
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={applicationStatusTone(app.status)}>
+              {(app.status || "pending").charAt(0).toUpperCase() +
+                (app.status || "pending").slice(1)}
+            </Badge>
+            <span className="text-sm text-[var(--vf-muted)]">
+              Applied {formatDate(app.createdAt)}
+              {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
+            </span>
+          </div>
           <ProfileDetails
             profile={profile}
             extras={
@@ -329,38 +473,7 @@ export default function CoachesPage() {
             }
           />
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            disabled={reviewingId === app._id || deleting}
-            onClick={() => approve(app._id)}
-          >
-            {reviewingId === app._id ? "Approving…" : "Approve"}
-          </Button>
-          <Button
-            variant="danger"
-            disabled={Boolean(reviewingId) || deleting}
-            onClick={() => reject(app._id)}
-          >
-            {reviewingId === app._id ? "Rejecting…" : "Reject"}
-          </Button>
-          {app.user?._id || app.user ? (
-            <Button
-              variant="secondary"
-              disabled={deleting}
-              onClick={() =>
-                setPendingDelete({
-                  _id: app.user?._id || app.user,
-                  full_name: displayName,
-                  username: app.user?.username,
-                  email: app.user?.email,
-                })
-              }
-            >
-              Delete account
-            </Button>
-          ) : null}
-        </div>
-      </Card>
+      </Modal>
     );
   }
 
@@ -386,7 +499,7 @@ export default function CoachesPage() {
               variant={tab === "applications" ? "primary" : "secondary"}
               onClick={() => setTab("applications")}
             >
-              Applications ({pendingApps.length})
+              Registrations ({applicationCounts.all})
             </Button>
             <Button
               variant={tab === "coaches" ? "primary" : "secondary"}
@@ -426,17 +539,50 @@ export default function CoachesPage() {
       ) : null}
 
       {!loading && !error && tab === "applications" ? (
-        <div className="space-y-3">
-          <p className="text-sm text-[var(--vf-muted)]">
-            Pending registration requests only. Approve adds them to Active Coaches; Reject removes the application.
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {[
+              ["all", "All", applicationCounts.all],
+              ["pending", "Pending", applicationCounts.pending],
+              ["approved", "Approved", applicationCounts.approved],
+              ["rejected", "Rejected", applicationCounts.rejected],
+            ].map(([key, label, count]) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={applicationFilter === key ? "primary" : "secondary"}
+                onClick={() => setApplicationFilter(key)}
+              >
+                {label} ({count})
+              </Button>
+            ))}
+          </div>
+          <p className="mb-4 text-sm text-[var(--vf-muted)]">
+            All coach registration requests from the database. Approve or reject pending
+            applications; approved and rejected history stays visible here. The list refreshes
+            automatically every 12 seconds.
           </p>
-          {pendingApps.map((app) => renderApplicationCard(app))}
-          {pendingApps.length === 0 ? (
-            <p className="rounded-[12px] border border-[var(--vf-border)] px-4 py-8 text-center text-[var(--vf-muted)]">
-              No pending coach applications.
-            </p>
-          ) : null}
-        </div>
+          <DataTable
+            columns={applicationColumns}
+            rows={filteredApplications}
+            searchKeys={[
+              "user.full_name",
+              "user.username",
+              "specialization",
+              "phone",
+              "location",
+            ]}
+            searchPlaceholder="Search registration requests…"
+            pageSize={10}
+            pageSizeOptions={[10, 25, 50, 0]}
+            emptyIcon={UserRound}
+            emptyTitle={
+              applicationFilter === "all"
+                ? "No coach registration requests yet"
+                : `No ${applicationFilter} registration requests`
+            }
+          />
+        </>
       ) : null}
 
       {!loading && !error && tab === "coaches" ? (
@@ -462,6 +608,8 @@ export default function CoachesPage() {
           />
         </>
       ) : null}
+
+      {renderApplicationDetailModal()}
 
       <Modal
         open={Boolean(pendingDelete)}

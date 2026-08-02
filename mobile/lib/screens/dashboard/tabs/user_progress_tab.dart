@@ -16,10 +16,10 @@ class UserProgressTab extends StatefulWidget {
   const UserProgressTab({super.key, required this.user});
 
   @override
-  State<UserProgressTab> createState() => _UserProgressTabState();
+  State<UserProgressTab> createState() => UserProgressTabState();
 }
 
-class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProviderStateMixin, TabRefreshMixin {
+class UserProgressTabState extends State<UserProgressTab> with SingleTickerProviderStateMixin, TabRefreshMixin {
   final ApiService _apiService = ApiService();
   ProgressData? _progressData;
   int _workoutCompletionPercent = 0;
@@ -34,6 +34,8 @@ class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProv
     _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000));
     _fetchProgress();
   }
+
+  Future<void> refreshFromParent() => _fetchProgress(isRefresh: true);
 
   @override
   void dispose() {
@@ -201,7 +203,7 @@ class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProv
                     padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       // Body Composition
-                      const Text('Body Composition', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)).staggerIn(0),
+                      Text('Body Composition', style: CoachDashboardTheme.sectionTitle(isDark)).staggerIn(0),
                       const SizedBox(height: 12),
                       Row(children: [
                         Expanded(child: PremiumCard(index: 1, child: _buildWeightCard(isDark))),
@@ -211,7 +213,7 @@ class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProv
                       const SizedBox(height: 24),
                       
                       // Workout Completion
-                      const Text('Activity Performance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)).staggerIn(3),
+                      Text('Activity Performance', style: CoachDashboardTheme.sectionTitle(isDark)).staggerIn(3),
                       const SizedBox(height: 12),
                       PremiumCard(index: 4, child: _buildCompletionCard(isDark)),
                       const SizedBox(height: 12),
@@ -223,13 +225,13 @@ class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProv
                       const SizedBox(height: 24),
 
                       // Weekly Chart
-                      const Text('Last 7 Days Calories', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)).staggerIn(6),
+                      Text('Last 7 Days · Calories Burned', style: CoachDashboardTheme.sectionTitle(isDark)).staggerIn(6),
                       const SizedBox(height: 12),
                       PremiumCard(index: 7, child: _buildWeeklyChart(isDark)),
                       const SizedBox(height: 24),
 
                       // Goals
-                      const Text('Fitness Goals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)).staggerIn(8),
+                      Text('Fitness Goals', style: CoachDashboardTheme.sectionTitle(isDark)).staggerIn(8),
                       const SizedBox(height: 12),
                       PremiumCard(index: 9, child: _buildGoalsCard(isDark)),
                     ]),
@@ -354,26 +356,48 @@ class _UserProgressTabState extends State<UserProgressTab> with SingleTickerProv
   }
 
   Widget _buildWeeklyChart(bool isDark) {
+    final points = _progressData?.trends.caloriesOut ?? const <ProgressTrendPoint>[];
+    final data = points.isNotEmpty
+        ? points.map((p) => p.value).toList()
+        : List<double>.filled(7, 0);
+    final labels = points.isNotEmpty
+        ? points.map((p) => p.shortWeekday).toList()
+        : const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final hasAny = data.any((v) => v > 0);
+
     return Container(
       height: 200,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF181B24) : Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.05), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: AnimatedBuilder(
-        animation: _animCtrl,
-        builder: (ctx, child) => CustomPaint(
-          painter: _BarChartPainter(
-            isDark: isDark,
-            progress: _animCtrl.value,
-            // Mock data for visual purposes (would normally aggregate from recentActivities)
-            data: [350, 420, 210, 550, 300, 600, _progressData?.summary.caloriesOut ?? 0],
-            labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
+        ],
       ),
+      child: hasAny
+          ? AnimatedBuilder(
+              animation: _animCtrl,
+              builder: (ctx, child) => CustomPaint(
+                painter: _BarChartPainter(
+                  isDark: isDark,
+                  progress: _animCtrl.value,
+                  data: data,
+                  labels: labels,
+                ),
+              ),
+            )
+          : Center(
+              child: Text(
+                'No approved workouts logged this week yet.',
+                textAlign: TextAlign.center,
+                style: CoachDashboardTheme.bodyMuted(isDark),
+              ),
+            ),
     );
   }
 

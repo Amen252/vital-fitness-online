@@ -642,6 +642,12 @@ async function getUserExercisePlans(req, res) {
               status: c.status,
               completedAt: c.completedAt,
               dueDate: c.dueDate,
+              notes: c.notes || '',
+              durationMinutes: c.durationMinutes,
+              submittedAt: c.submittedAt,
+              reviewedAt: c.reviewedAt,
+              coachFeedback: c.coachFeedback || '',
+              hasProofPhoto: Boolean(c.proofPhoto),
             }
           : { status: 'pending' },
       });
@@ -672,6 +678,10 @@ async function getUserExercisePlans(req, res) {
             ? {
                 status: dayCompletion?.status || 'pending',
                 completedAt: dayCompletion?.completedAt || null,
+                notes: dayCompletion?.notes || '',
+                durationMinutes: dayCompletion?.durationMinutes,
+                coachFeedback: dayCompletion?.coachFeedback || '',
+                hasProofPhoto: Boolean(dayCompletion?.proofPhoto),
               }
             : null,
         };
@@ -744,7 +754,13 @@ async function getUserExercisePlans(req, res) {
               _id: c._id,
               status: c.status,
               completedAt: c.completedAt,
-              completable: c.status !== 'completed',
+              notes: c.notes || '',
+              durationMinutes: c.durationMinutes,
+              submittedAt: c.submittedAt,
+              reviewedAt: c.reviewedAt,
+              coachFeedback: c.coachFeedback || '',
+              hasProofPhoto: Boolean(c.proofPhoto),
+              completable: c.status === 'pending' || c.status === 'missed',
             }
           : { status: 'pending', completable: true },
       });
@@ -765,24 +781,35 @@ async function getUserExercisePlans(req, res) {
 
 async function completeWorkout(req, res) {
   try {
+    const proof = require('../utils/workoutProofUtils').validateWorkoutProof(req.body);
+    if (!proof.ok) {
+      return res.status(400).json({ message: proof.message });
+    }
+
     const completion = await WorkoutCompletion.findOne({
       exercisePlan: req.params.planId,
       user: req.user._id,
-      status: 'pending',
+      status: { $in: ['pending', 'missed'] },
     }).populate('exercisePlan', 'title coach');
 
     if (!completion) {
       return res.status(404).json({ message: 'No pending workout found' });
     }
 
-    completion.status = 'completed';
-    completion.completedAt = new Date();
+    completion.status = 'pending_review';
+    completion.notes = proof.notes;
+    completion.durationMinutes = proof.durationMinutes;
+    completion.proofPhoto = proof.proofPhoto;
+    completion.submittedAt = new Date();
+    completion.completedAt = undefined;
+    completion.reviewedAt = undefined;
+    completion.coachFeedback = '';
     await completion.save();
 
     if (completion.coach) {
       await Notification.create({
         user: completion.coach,
-        message: `${req.user.name} completed workout "${completion.exercisePlan?.title || 'Workout'}"`,
+        message: `${req.user.name} submitted workout "${completion.exercisePlan?.title || 'Workout'}" for review`,
         type: 'update',
       });
     }
@@ -796,6 +823,7 @@ async function completeWorkout(req, res) {
 
 async function getUserWorkoutProgress(req, res) {
   try {
+    const { computeWorkoutStreak } = require('../utils/workoutProofUtils');
     const days = Math.min(parseInt(req.query.days, 10) || 30, 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -834,15 +862,36 @@ async function getUserWorkoutProgress(req, res) {
 
     const completed = history.filter((c) => c.status === 'completed').length;
     const pending = history.filter((c) => c.status === 'pending').length;
+    const pendingReview = history.filter((c) => c.status === 'pending_review').length;
     const missed = history.filter((c) => c.status === 'missed').length;
     const total = history.length;
+
+    const streakDates = history
+      .filter((c) => c.status === 'completed')
+      .map((c) => c.completedAt || c.reviewedAt || c.submittedAt || c.updatedAt || c.createdAt);
+
+    // Streak uses all-time completed days in a wider window for accuracy
+    const [allExerciseDone, allScheduleDone] = await Promise.all([
+      WorkoutCompletion.find({ user: req.user._id, status: 'completed' })
+        .select('completedAt reviewedAt submittedAt updatedAt createdAt')
+        .lean(),
+      ScheduleCompletion.find({ user: req.user._id, status: 'completed' })
+        .select('completedAt reviewedAt submittedAt updatedAt createdAt')
+        .lean(),
+    ]);
+    const allStreakDates = [
+      ...allExerciseDone,
+      ...allScheduleDone,
+    ].map((c) => c.completedAt || c.reviewedAt || c.submittedAt || c.updatedAt || c.createdAt);
 
     return res.json({
       summary: {
         completed,
         pending,
+        pendingReview,
         missed,
         completionPercent: total ? Math.round((completed / total) * 100) : 0,
+        streak: computeWorkoutStreak(allStreakDates.length ? allStreakDates : streakDates),
       },
       history,
     });
