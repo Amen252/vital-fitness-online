@@ -21,3 +21,4 @@ cd mobile && flutter run
 ```
 
 Open this folder (`Vital fitness app`) as the project root in Cursor/VS Code.
+# vital-fitness-online
