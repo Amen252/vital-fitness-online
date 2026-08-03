@@ -116,6 +116,10 @@ class DietProgressPanel extends StatelessWidget {
           progress: today.caloriesProgress,
           color: CoachDashboardTheme.warning,
         ),
+        if (today.hasNutrition || today.mealsCompleted > 0) ...[
+          const SizedBox(height: 2),
+          _nutritionRow(isDark),
+        ],
         _metricBar(
           icon: Icons.water_drop_rounded,
           label: 'Water',
@@ -284,6 +288,31 @@ class DietProgressPanel extends StatelessWidget {
               minHeight: 8,
               backgroundColor: isDark ? Colors.white12 : Colors.black12,
               color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _nutritionRow(bool isDark) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: CoachDashboardTheme.cardDecoration(isDark),
+      child: Row(
+        children: [
+          Icon(Icons.pie_chart_outline_rounded, size: 18, color: CoachDashboardTheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Nutrition', style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          Text(
+            'P ${today.proteinConsumed}g · C ${today.carbsConsumed}g · F ${today.fatsConsumed}g',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white70 : Colors.black87,
+              fontSize: 13,
             ),
           ),
         ],

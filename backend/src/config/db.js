@@ -6,6 +6,14 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
+// Local ISP DNS often times out on Atlas SRV/TXT (queryTxt ETIMEOUT).
+// Prefer public resolvers so mongodb+srv:// can resolve.
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+} catch {
+  // Ignore if the runtime disallows changing resolvers.
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

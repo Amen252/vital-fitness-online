@@ -1377,21 +1377,9 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
       final plannedMeals = _progressMealTypes.isNotEmpty
           ? _progressMealTypes.length
           : _plan!.meals.where((m) => m.name.isNotEmpty || m.description.isNotEmpty).length;
-      _todayProgress = DietTodayProgress(
-        caloriesConsumed: _todayProgress.caloriesConsumed,
+      _todayProgress = _todayProgress.copyWith(
         targetCalories: _plan!.dailyCalories,
-        waterMl: _todayProgress.waterMl,
-        targetWaterMl: _todayProgress.targetWaterMl,
-        mealsCompleted: _todayProgress.mealsCompleted,
         mealsPlanned: _todayProgress.mealsPlanned > 0 ? _todayProgress.mealsPlanned : plannedMeals,
-        workoutsCompleted: _todayProgress.workoutsCompleted,
-        workoutsPlanned: _todayProgress.workoutsPlanned,
-        dailyGoalPercent: _todayProgress.dailyGoalPercent,
-        adherencePercent: _todayProgress.adherencePercent,
-        followedPlan: _todayProgress.followedPlan,
-        hasActivity: _todayProgress.hasActivity,
-        mealAdherence: _todayProgress.mealAdherence,
-        weeklyAveragePercent: _todayProgress.weeklyAveragePercent,
       );
     }
   }
@@ -2332,21 +2320,14 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         ? progressMealTypes.length
         : _todayProgress.mealsPlanned;
     final completed = mealFollowed.values.where((v) => v).length;
-    final progressToday = DietTodayProgress(
-      caloriesConsumed: _todayProgress.caloriesConsumed,
-      targetCalories: _todayProgress.targetCalories,
-      waterMl: _todayProgress.waterMl,
-      targetWaterMl: _todayProgress.targetWaterMl,
+    final pct = planned > 0 ? ((completed / planned) * 100).round() : 0;
+    final progressToday = _todayProgress.copyWith(
       mealsCompleted: completed,
       mealsPlanned: planned,
-      workoutsCompleted: _todayProgress.workoutsCompleted,
-      workoutsPlanned: _todayProgress.workoutsPlanned,
-      dailyGoalPercent: planned > 0 ? ((completed / planned) * 100).round() : 0,
-      adherencePercent: planned > 0 ? ((completed / planned) * 100).round() : 0,
+      dailyGoalPercent: pct,
+      adherencePercent: pct,
       followedPlan: planned > 0 && completed == planned,
       hasActivity: _todayProgress.hasActivity || completed > 0,
-      mealAdherence: _todayProgress.mealAdherence,
-      weeklyAveragePercent: _todayProgress.weeklyAveragePercent,
     );
 
     return DietProgressPanel(

@@ -2,12 +2,16 @@
 node_modules/
 **/node_modules/
 
-# Environment / secrets — never commit
+# Environment / secrets — never commit real secrets
 .env
 .env.*
 !.env.example
-**/.env
+!.env.production
+!.env.development
 !**/.env.example
+!**/.env.production
+!**/.env.development
+**/.env
 
 # Logs & OS
 *.log

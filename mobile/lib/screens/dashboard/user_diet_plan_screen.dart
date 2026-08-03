@@ -103,22 +103,10 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           if (_plan != null && _today.targetCalories == 0) {
             final planned =
                 _plan!.mealsForDay().where((m) => m.hasContent).length;
-            _today = DietTodayProgress(
-              caloriesConsumed: _today.caloriesConsumed,
+            _today = _today.copyWith(
               targetCalories: _plan!.dailyCalories,
-              waterMl: _today.waterMl,
-              targetWaterMl: _today.targetWaterMl,
-              mealsCompleted: _today.mealsCompleted,
               mealsPlanned:
                   _today.mealsPlanned > 0 ? _today.mealsPlanned : planned,
-              workoutsCompleted: _today.workoutsCompleted,
-              workoutsPlanned: _today.workoutsPlanned,
-              dailyGoalPercent: _today.dailyGoalPercent,
-              adherencePercent: _today.adherencePercent,
-              followedPlan: _today.followedPlan,
-              hasActivity: _today.hasActivity,
-              mealAdherence: _today.mealAdherence,
-              weeklyAveragePercent: _today.weeklyAveragePercent,
             );
           }
           _avgAdherence = (progressMap['avgAdherence'] as num?)?.toInt() ?? 0;
@@ -314,8 +302,11 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
 
       final summary = result['mealSummary'] as Map<String, dynamic>?;
       final meals = summary?['meals'] as List<dynamic>?;
-      if (meals != null) {
-        setState(() {
+      final todayPayload = result['today'] as Map<String, dynamic>?;
+      final nutrition = result['nutrition'] as Map<String, dynamic>?;
+
+      setState(() {
+        if (meals != null) {
           for (final entry in meals) {
             if (entry is! Map) continue;
             final t = entry['type']?.toString();
@@ -325,33 +316,42 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
             _mealCompletedAt[t] =
                 DateTime.tryParse(entry['completedAt']?.toString() ?? '');
           }
-          final completed =
-              (summary?['completedMeals'] as num?)?.toInt() ?? _completedMealCount;
-          final planned =
-              (summary?['mealsPlanned'] as num?)?.toInt() ?? _plannedMealCount;
-          final pct = (summary?['dailyProgressPercent'] as num?)?.toInt() ??
-              (planned > 0 ? ((completed / planned) * 100).round() : 0);
-          _weeklyAverage =
-              (result['weeklyAveragePercent'] as num?)?.toInt() ?? _weeklyAverage;
-          final week = result['weekCompletion'] as Map<String, dynamic>?;
-          if (week != null) {
-            _completedDays =
-                (week['completedDays'] as num?)?.toInt() ?? _completedDays;
-            _daysPlanned = (week['daysPlanned'] as num?)?.toInt() ?? 7;
-            for (final day in (week['days'] as List<dynamic>? ?? [])) {
-              if (day is! Map) continue;
-              final dow = (day['dayOfWeek'] as num?)?.toInt();
-              if (dow == null) continue;
-              _dayCompleted[dow] = day['completed'] == true;
-              _dayCompletedAt[dow] =
-                  DateTime.tryParse(day['completedAt']?.toString() ?? '');
-              _dayMealAdherence[dow] = (day['mealAdherence'] as List<dynamic>? ?? [])
-                  .whereType<Map>()
-                  .map((e) => Map<String, dynamic>.from(e))
-                  .toList();
-            }
-            _hydrateMealsForBrowseDay();
+        }
+        final completed =
+            (summary?['completedMeals'] as num?)?.toInt() ?? _completedMealCount;
+        final planned =
+            (summary?['mealsPlanned'] as num?)?.toInt() ?? _plannedMealCount;
+        final pct = (summary?['dailyProgressPercent'] as num?)?.toInt() ??
+            (planned > 0 ? ((completed / planned) * 100).round() : 0);
+        _weeklyAverage =
+            (result['weeklyAveragePercent'] as num?)?.toInt() ?? _weeklyAverage;
+        final week = result['weekCompletion'] as Map<String, dynamic>?;
+        if (week != null) {
+          _completedDays =
+              (week['completedDays'] as num?)?.toInt() ?? _completedDays;
+          _daysPlanned = (week['daysPlanned'] as num?)?.toInt() ?? 7;
+          for (final day in (week['days'] as List<dynamic>? ?? [])) {
+            if (day is! Map) continue;
+            final dow = (day['dayOfWeek'] as num?)?.toInt();
+            if (dow == null) continue;
+            _dayCompleted[dow] = day['completed'] == true;
+            _dayCompletedAt[dow] =
+                DateTime.tryParse(day['completedAt']?.toString() ?? '');
+            _dayMealAdherence[dow] = (day['mealAdherence'] as List<dynamic>? ?? [])
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
           }
+          _hydrateMealsForBrowseDay();
+        }
+
+        if (todayPayload != null) {
+          _today = DietTodayProgress.fromJson(todayPayload).copyWith(
+            weeklyAveragePercent: _weeklyAverage > 0
+                ? _weeklyAverage
+                : (todayPayload['weeklyAveragePercent'] as num?)?.toInt(),
+          );
+        } else {
           _today = _todayWithMealProgress(
             caloriesConsumed: (result['caloriesConsumed'] as num?)?.toInt(),
             mealsCompleted: completed,
@@ -359,13 +359,19 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
             dailyGoalPercent: pct,
             adherencePercent: pct,
             followedPlan: summary?['allCompleted'] == true,
+            proteinConsumed: (nutrition?['protein'] as num?)?.toInt(),
+            carbsConsumed: (nutrition?['carbs'] as num?)?.toInt(),
+            fatsConsumed: (nutrition?['fats'] as num?)?.toInt(),
           );
-          _savingMeal = false;
-        });
-      } else {
-        setState(() => _savingMeal = false);
-      }
+        }
+        _savingMeal = false;
+      });
 
+      // Full silent reload keeps water/workouts/daily goal in sync with DB.
+      await _load(silent: true);
+      if (_tabs.index == 2) {
+        await _loadHistory();
+      }
       widget.onDietDataChanged?.call();
 
       if (mounted && value) {
@@ -407,20 +413,17 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
     final planned = _plannedMealCount;
     final completed = _completedMealCount;
     final pct = _dailyMealPercent;
-    return DietTodayProgress(
-      caloriesConsumed: _today.caloriesConsumed,
-      targetCalories: _today.targetCalories,
-      waterMl: _today.waterMl,
-      targetWaterMl: _today.targetWaterMl,
+    return _today.copyWith(
+      caloriesConsumed: _consumedCaloriesFromPlan,
       mealsCompleted: completed,
       mealsPlanned: planned,
-      workoutsCompleted: _today.workoutsCompleted,
-      workoutsPlanned: _today.workoutsPlanned,
       dailyGoalPercent: pct,
       adherencePercent: pct,
       followedPlan: planned > 0 && completed == planned,
       hasActivity: completed > 0 || _today.hasActivity,
-      mealAdherence: _today.mealAdherence,
+      proteinConsumed: _consumedProteinFromPlan,
+      carbsConsumed: _consumedCarbsFromPlan,
+      fatsConsumed: _consumedFatsFromPlan,
       weeklyAveragePercent: _weeklyAverage,
     );
   }
@@ -1515,12 +1518,49 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   }
 
   int get _consumedCaloriesFromPlan {
+    final types = _plannedMealTypes();
+    if (types.isEmpty) return 0;
+
+    final meals = _checkInMeals.where((m) => m.hasContent).toList();
+    final anyExplicit = meals.any((m) => m.calories > 0);
+    final daily = _plan?.dailyCalories ?? _today.targetCalories;
+    final fallbackPerType =
+        !anyExplicit && daily > 0 ? (daily / types.length).round() : 0;
+
+    var total = 0;
+    for (final type in types) {
+      if (_mealFollowed[type] != true) continue;
+      final typeCals = meals
+          .where((m) => m.type == type)
+          .fold<int>(0, (sum, m) => sum + m.calories);
+      total += typeCals > 0 ? typeCals : fallbackPerType;
+    }
+    return total;
+  }
+
+  int get _consumedProteinFromPlan {
     var total = 0;
     for (final meal in _checkInMeals) {
       if (!meal.hasContent) continue;
-      if (_mealFollowed[meal.type] == true) {
-        total += meal.calories;
-      }
+      if (_mealFollowed[meal.type] == true) total += meal.protein;
+    }
+    return total;
+  }
+
+  int get _consumedCarbsFromPlan {
+    var total = 0;
+    for (final meal in _checkInMeals) {
+      if (!meal.hasContent) continue;
+      if (_mealFollowed[meal.type] == true) total += meal.carbs;
+    }
+    return total;
+  }
+
+  int get _consumedFatsFromPlan {
+    var total = 0;
+    for (final meal in _checkInMeals) {
+      if (!meal.hasContent) continue;
+      if (_mealFollowed[meal.type] == true) total += meal.fats;
     }
     return total;
   }
@@ -1532,27 +1572,26 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
     int? dailyGoalPercent,
     int? adherencePercent,
     bool? followedPlan,
+    int? proteinConsumed,
+    int? carbsConsumed,
+    int? fatsConsumed,
   }) {
     final planned = mealsPlanned ?? _plannedMealCount;
     final completed = mealsCompleted ?? _completedMealCount;
     final pct = dailyGoalPercent ??
         adherencePercent ??
         (planned > 0 ? ((completed / planned) * 100).round() : 0);
-    return DietTodayProgress(
+    return _today.copyWith(
       caloriesConsumed: caloriesConsumed ?? _consumedCaloriesFromPlan,
-      targetCalories: _today.targetCalories,
-      waterMl: _today.waterMl,
-      targetWaterMl: _today.targetWaterMl,
       mealsCompleted: completed,
       mealsPlanned: planned,
-      workoutsCompleted: _today.workoutsCompleted,
-      workoutsPlanned: _today.workoutsPlanned,
       dailyGoalPercent: pct,
       adherencePercent: adherencePercent ?? pct,
       followedPlan: followedPlan ?? (planned > 0 && completed == planned),
       hasActivity: true,
-      mealAdherence: _today.mealAdherence,
-      weeklyAveragePercent: _today.weeklyAveragePercent,
+      proteinConsumed: proteinConsumed ?? _consumedProteinFromPlan,
+      carbsConsumed: carbsConsumed ?? _consumedCarbsFromPlan,
+      fatsConsumed: fatsConsumed ?? _consumedFatsFromPlan,
     );
   }
 

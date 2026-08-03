@@ -3,9 +3,10 @@ const MealLog = require('../models/MealLog');
 const WaterLog = require('../models/WaterLog');
 const DietAdherence = require('../models/DietAdherence');
 const User = require('../models/User');
-const { buildSeries, sum } = require('../utils/progressMetrics');
+const { buildSeries, sum, formatDay } = require('../utils/progressMetrics');
 const {
   resolveCaloriesIn,
+  resolveCaloriesInByDay,
   computeCaloriesOut,
   computeCaloriesOutByDay,
   dayKey,
@@ -27,96 +28,120 @@ function endOfDay(date = new Date()) {
 }
 
 async function getProgress(req, res) {
-  const today = startOfDay();
-  const tomorrow = endOfDay();
-  const weekStart = startOfDay();
-  weekStart.setDate(weekStart.getDate() - 6);
+  try {
+    const today = startOfDay();
+    const tomorrow = endOfDay();
+    const weekStart = startOfDay();
+    weekStart.setDate(weekStart.getDate() - 6);
 
-  const [
-    todayMeals,
-    todayActivities,
-    todayWater,
-    weekMeals,
-    weekActivities,
-    weekWater,
-    plan,
-    todayAdherence,
-    caloriesOutByDay,
-  ] = await Promise.all([
-    MealLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
-    ActivityLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
-    WaterLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
-    MealLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
-    ActivityLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
-    WaterLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
-    resolveUserDietPlan(req.user._id),
-    DietAdherence.findOne({ user: req.user._id, date: today }).lean(),
-    computeCaloriesOutByDay(req.user._id, weekStart, tomorrow),
-  ]);
+    const [
+      todayMeals,
+      todayActivities,
+      todayWater,
+      weekMeals,
+      weekActivities,
+      weekWater,
+      plan,
+      todayAdherence,
+      weekAdherence,
+      caloriesOutByDay,
+    ] = await Promise.all([
+      MealLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+      ActivityLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+      WaterLog.find({ user: req.user._id, date: { $gte: today, $lt: tomorrow } }),
+      MealLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+      ActivityLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+      WaterLog.find({ user: req.user._id, date: { $gte: weekStart } }).sort({ date: -1 }).limit(100),
+      resolveUserDietPlan(req.user._id),
+      DietAdherence.findOne({ user: req.user._id, date: today }).lean(),
+      DietAdherence.find({
+        user: req.user._id,
+        date: { $gte: weekStart, $lt: tomorrow },
+      }).lean(),
+      computeCaloriesOutByDay(req.user._id, weekStart, tomorrow),
+    ]);
 
-  const [caloriesIn, caloriesOut] = await Promise.all([
-    resolveCaloriesIn(req.user._id, { plan, adherence: todayAdherence, date: today }),
-    computeCaloriesOut(req.user._id, today),
-  ]);
+    const [caloriesIn, caloriesOut, caloriesInByDay] = await Promise.all([
+      resolveCaloriesIn(req.user._id, { plan, adherence: todayAdherence, date: today }),
+      computeCaloriesOut(req.user._id, today),
+      resolveCaloriesInByDay(req.user._id, plan, weekStart, tomorrow, weekAdherence),
+    ]);
 
-  const approvedToday = todayActivities.filter((a) => a.status === 'approved');
-  const approvedWeek = weekActivities.filter((a) => a.status === 'approved');
+    const approvedToday = todayActivities.filter((a) => a.status === 'approved');
+    const approvedWeek = weekActivities.filter((a) => a.status === 'approved');
 
-  const hydration = sum(todayWater, 'amountMl');
+    const hydration = sum(todayWater, 'amountMl');
 
-  const caloriesOutTrend = buildSeries(approvedWeek, 'date', 'caloriesBurned');
-  for (const point of caloriesOutTrend) {
-    const totalForDay = caloriesOutByDay.get(dayKey(point.date));
-    if (totalForDay != null) point.value = totalForDay;
+    const caloriesOutTrend = buildSeries(approvedWeek, 'date', 'caloriesBurned');
+    for (const point of caloriesOutTrend) {
+      const totalForDay = caloriesOutByDay.get(dayKey(point.date));
+      if (totalForDay != null) point.value = totalForDay;
+    }
+    for (const [key, value] of caloriesOutByDay.entries()) {
+      if (caloriesOutTrend.some((p) => dayKey(p.date) === key)) continue;
+      caloriesOutTrend.push({
+        label: formatDay(new Date(Number(key))),
+        date: new Date(Number(key)),
+        value,
+      });
+    }
+    caloriesOutTrend.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Calories-in trend prefers diet-plan adherence when a plan has meals;
+    // falls back to MealLog for days without planned meals.
+    const caloriesInTrend = buildSeries(weekMeals, 'date', 'calories');
+    for (const point of caloriesInTrend) {
+      const fromPlan = caloriesInByDay.get(dayKey(point.date));
+      if (fromPlan != null) point.value = fromPlan;
+    }
+
+    const analysis = dataScientistAgent.processLogsForCharts({
+      meals: weekMeals,
+      activities: approvedWeek,
+      water: weekWater,
+    });
+    const habitCompliance = habitAgent.generateComplianceReport({
+      activities: approvedWeek,
+      water: weekWater,
+      profile: req.user.profile,
+    });
+
+    const height = req.user.clientData?.height;
+    const weight = req.user.clientData?.weight;
+    let bmi = null;
+    if (height && weight) {
+      const m = height / 100;
+      bmi = Math.round((weight / (m * m)) * 10) / 10;
+    }
+
+    return res.json({
+      summary: {
+        caloriesIn: Number(caloriesIn) || 0,
+        caloriesOut: Number(caloriesOut) || 0,
+        hydration: Number(hydration) || 0,
+        netCalories: (Number(caloriesIn) || 0) - (Number(caloriesOut) || 0),
+        bmi: bmi ?? req.user.profile?.bmi ?? null,
+        weightKg: weight ?? null,
+        logCount: todayMeals.length + approvedToday.length + todayWater.length
+          + (todayAdherence?.mealAdherence?.some((m) => m.followed) ? 1 : 0),
+      },
+      trends: {
+        caloriesIn: caloriesInTrend,
+        caloriesOut: caloriesOutTrend,
+        hydration: buildSeries(weekWater, 'date', 'amountMl'),
+      },
+      reports: analysis.healthReport,
+      compliance: habitCompliance,
+      recentLogs: {
+        meals: weekMeals.slice(0, 5),
+        activities: weekActivities.slice(0, 5),
+        water: weekWater.slice(0, 5),
+      },
+    });
+  } catch (error) {
+    console.error('getProgress:', error.message);
+    return res.status(500).json({ message: 'Error fetching progress' });
   }
-  for (const [key, value] of caloriesOutByDay.entries()) {
-    if (caloriesOutTrend.some((p) => dayKey(p.date) === key)) continue;
-    caloriesOutTrend.push({ date: new Date(Number(key)), value });
-  }
-  caloriesOutTrend.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  const analysis = dataScientistAgent.processLogsForCharts({
-    meals: weekMeals,
-    activities: approvedWeek,
-    water: weekWater,
-  });
-  const habitCompliance = habitAgent.generateComplianceReport({
-    activities: approvedWeek,
-    water: weekWater,
-    profile: req.user.profile,
-  });
-
-  const height = req.user.clientData?.height;
-  const weight = req.user.clientData?.weight;
-  let bmi = null;
-  if (height && weight) {
-    const m = height / 100;
-    bmi = Math.round((weight / (m * m)) * 10) / 10;
-  }
-
-  return res.json({
-    summary: {
-      caloriesIn,
-      caloriesOut,
-      hydration,
-      netCalories: caloriesIn - caloriesOut,
-      bmi: bmi ?? req.user.profile?.bmi ?? null,
-      weightKg: weight ?? null,
-      logCount: todayMeals.length + approvedToday.length + todayWater.length,
-    },
-    trends: {
-      caloriesIn: buildSeries(weekMeals, 'date', 'calories'),
-      caloriesOut: caloriesOutTrend,
-      hydration: buildSeries(weekWater, 'date', 'amountMl'),
-    },
-    reports: analysis.healthReport,
-    compliance: habitCompliance,
-    recentLogs: {
-      meals: weekMeals.slice(0, 5),
-      activities: weekActivities.slice(0, 5),
-      water: weekWater.slice(0, 5),
-    },
-  });
 }
 
 async function logWeight(req, res) {

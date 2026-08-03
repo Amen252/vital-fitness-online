@@ -23,7 +23,39 @@ const { hasActiveAssignment } = require('../utils/coachVisibility');
 const {
   computeCaloriesInFromDietPlan,
   computeCaloriesInFromMealLogs,
+  computeNutritionFromDietPlan,
+  computeNutritionFromMealLogs,
 } = require('../utils/calorieTrackingUtils');
+
+/** Upsert DietAdherence; retry once on duplicate-key race (unique user+date). */
+async function upsertDietAdherence(filter, update, options = {}) {
+  try {
+    return await DietAdherence.findOneAndUpdate(filter, update, {
+      upsert: true,
+      new: true,
+      runValidators: true,
+      ...options,
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return DietAdherence.findOneAndUpdate(filter, update, {
+        upsert: false,
+        new: true,
+        runValidators: true,
+        ...options,
+      });
+    }
+    throw error;
+  }
+}
+
+async function resolveDayNutrition(userId, plan, mealAdherence, targetDate) {
+  if (plan && getPlannedMealTypes(plan, targetDate).length) {
+    return computeNutritionFromDietPlan(plan, { mealAdherence }, targetDate)
+      || { protein: 0, carbs: 0, fats: 0 };
+  }
+  return computeNutritionFromMealLogs(userId, targetDate);
+}
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snacks'];
 const GOALS = ['weight_loss', 'muscle_gain', 'maintenance'];
@@ -534,6 +566,7 @@ async function getUserDietProgress(req, res) {
       weeklyAveragePercent,
       today: {
         ...todaySnapshot,
+        weeklyAveragePercent,
         weekCompletion,
       },
       weekCompletion,
@@ -545,6 +578,18 @@ async function getUserDietProgress(req, res) {
     console.error('getUserDietProgress:', error.message);
     return res.status(500).json({ message: 'Error fetching diet progress' });
   }
+}
+
+async function recomputeCaloriesForDay(userId, plan, mealAdherence, targetDate, clientCalories) {
+  const plannedTypes = getPlannedMealTypes(plan, targetDate);
+  // Always derive from the plan when meals exist so client-sent 0 cannot freeze progress.
+  if (plannedTypes.length) {
+    return computeCaloriesInFromDietPlan(plan, { mealAdherence }, targetDate) ?? 0;
+  }
+  if (clientCalories != null && Number.isFinite(Number(clientCalories))) {
+    return Math.max(0, Number(clientCalories));
+  }
+  return computeCaloriesInFromMealLogs(userId, targetDate);
 }
 
 async function logUserAdherence(req, res) {
@@ -581,16 +626,6 @@ async function logUserAdherence(req, res) {
 
     const existing = await DietAdherence.findOne({ user: req.user._id, date: targetDate }).lean();
 
-    let resolvedCalories = caloriesConsumed;
-    if (resolvedCalories == null) {
-      const planMeals = getMealsForDate(plan, targetDate);
-      if (planMeals.length) {
-        resolvedCalories = computeCaloriesInFromDietPlan(plan, existing, targetDate) ?? 0;
-      } else {
-        resolvedCalories = await computeCaloriesInFromMealLogs(req.user._id, targetDate);
-      }
-    }
-
     const clientName = withDisplayName(req.user)?.name
       || req.user.full_name
       || req.user.username
@@ -614,15 +649,16 @@ async function logUserAdherence(req, res) {
             : null,
         };
       });
-      if (caloriesConsumed == null && getMealsForDate(plan, targetDate).length) {
-        resolvedCalories = computeCaloriesInFromDietPlan(
-          plan,
-          { mealAdherence: mealRows },
-          targetDate,
-        ) ?? 0;
-      }
+      const resolvedCalories = await recomputeCaloriesForDay(
+        req.user._id,
+        plan,
+        mealRows,
+        targetDate,
+        caloriesConsumed,
+      );
+      const nutrition = await resolveDayNutrition(req.user._id, plan, mealRows, targetDate);
 
-      const record = await DietAdherence.findOneAndUpdate(
+      const record = await upsertDietAdherence(
         { user: req.user._id, date: targetDate },
         {
           $set: {
@@ -644,7 +680,6 @@ async function logUserAdherence(req, res) {
             date: targetDate,
           },
         },
-        { upsert: true, new: true, runValidators: true },
       );
 
       if (coachId && dayCompleted && !existing?.dayCompleted && !existing?.followedPlan) {
@@ -658,10 +693,13 @@ async function logUserAdherence(req, res) {
       }
 
       const weekCompletion = await loadWeekCompletion(req.user._id, targetDate, plan);
+      const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, targetDate);
       return res.json({
         ...record.toObject(),
+        nutrition,
         weekCompletion,
         weeklyAveragePercent: weekCompletion.weeklyProgressPercent,
+        today: todaySnapshot,
       });
     }
 
@@ -685,15 +723,16 @@ async function logUserAdherence(req, res) {
     const adherencePercent = summary.dailyProgressPercent;
     const isFullyCompleted = summary.allCompleted;
 
-    if (caloriesConsumed == null && getMealsForDate(plan, targetDate).length) {
-      resolvedCalories = computeCaloriesInFromDietPlan(
-        plan,
-        { mealAdherence: normalizedMeals },
-        targetDate,
-      ) ?? 0;
-    }
+    const resolvedCalories = await recomputeCaloriesForDay(
+      req.user._id,
+      plan,
+      normalizedMeals,
+      targetDate,
+      caloriesConsumed,
+    );
+    const nutrition = await resolveDayNutrition(req.user._id, plan, normalizedMeals, targetDate);
 
-    const record = await DietAdherence.findOneAndUpdate(
+    const record = await upsertDietAdherence(
       { user: req.user._id, date: targetDate },
       {
         $set: {
@@ -715,7 +754,6 @@ async function logUserAdherence(req, res) {
           date: targetDate,
         },
       },
-      { upsert: true, new: true, runValidators: true },
     );
 
     if (coachId && mealType && followed) {
@@ -740,13 +778,16 @@ async function logUserAdherence(req, res) {
     const weekCompletion = plan.planType === 'weekly'
       ? await loadWeekCompletion(req.user._id, new Date(), plan)
       : null;
+    const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, targetDate);
 
     return res.json({
       ...record.toObject(),
       mealSummary: summary,
+      nutrition,
       weekCompletion,
       weeklyAveragePercent: weekCompletion?.weeklyProgressPercent
         ?? await computeAverageAdherence(DietAdherence, req.user._id, 7),
+      today: todaySnapshot,
     });
   } catch (error) {
     console.error('logUserAdherence:', error.message);
@@ -1557,30 +1598,32 @@ async function markClientAdherence(req, res) {
         }).sort({ updatedAt: -1 });
       })();
     const recordDate = date ? startOfDay(new Date(date)) : startOfDay();
-    const { getPlannedMealTypes } = require('../utils/mealAdherenceUtils');
-    const plannedTypes = plan ? getPlannedMealTypes(plan) : [];
-    const mealAdherence = followedPlan
-      ? plannedTypes.map((type) => ({
-          type,
-          followed: true,
-          completedAt: new Date(),
-          notes: '',
-        }))
-      : plannedTypes.map((type) => ({
-          type,
-          followed: false,
-          completedAt: null,
-          notes: '',
-        }));
+    const plannedTypes = plan ? getPlannedMealTypes(plan, recordDate) : [];
+    const mealAdherence = plannedTypes.map((type) => ({
+      type,
+      followed: !!followedPlan,
+      completedAt: followedPlan ? new Date() : null,
+      notes: '',
+    }));
 
-    const record = await DietAdherence.findOneAndUpdate(
+    const caloriesConsumed = plan
+      ? (computeCaloriesInFromDietPlan(plan, { mealAdherence }, recordDate) ?? 0)
+      : 0;
+    const summary = plan
+      ? buildMealCompletionSummary(plan, { mealAdherence }, recordDate)
+      : { dailyProgressPercent: followedPlan ? 100 : 0, allCompleted: !!followedPlan };
+
+    const record = await upsertDietAdherence(
       { user: clientId, date: recordDate },
       {
         $set: {
           coach: req.user._id,
           dietPlan: plan?._id,
           followedPlan: !!followedPlan,
-          adherencePercent: adherencePercent ?? (followedPlan ? 100 : 0),
+          dayCompleted: !!followedPlan,
+          completedAt: followedPlan ? new Date() : null,
+          adherencePercent: adherencePercent ?? summary.dailyProgressPercent,
+          caloriesConsumed,
           coachMarked: true,
           weightKg,
           targetCalories: plan?.dailyCalories || 0,
@@ -1592,10 +1635,17 @@ async function markClientAdherence(req, res) {
           date: recordDate,
         },
       },
-      { upsert: true, new: true, runValidators: true },
     );
 
-    return res.json(record);
+    const todaySnapshot = plan
+      ? await buildTodayProgressSnapshot(clientId, plan, recordDate)
+      : null;
+
+    return res.json({
+      ...record.toObject(),
+      mealSummary: summary,
+      today: todaySnapshot,
+    });
   } catch (error) {
     console.error('markClientAdherence:', error.message);
     return res.status(500).json({ message: 'Error marking adherence' });

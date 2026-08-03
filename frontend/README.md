@@ -1,37 +1,35 @@
 # Vital Fitness Admin Dashboard
 
-React admin website connected to the **same** Node.js API and MongoDB as the Flutter app.
+React web app for Admin / Coach / Member. Uses the **same** Node API and MongoDB Atlas DB as the Flutter app.
 
-## Shared API (required)
+## Production
+
+| Layer | URL |
+|--------|-----|
+| API (Render) | `https://vital-online-app.onrender.com/api` |
+| Database | MongoDB Atlas `vitalguide` |
+| Web (Vercel) | set `CLIENT_URL` on Render to your Vercel URL |
+
+Production builds (`vite build` / Vercel) read `frontend/.env.production` and call the Render API.
+
+## Local development
 
 | Client | Base URL |
 |--------|----------|
-| Flutter (`ApiConfig.baseUrl`) | `http://127.0.0.1:5050/api` |
-| Admin (`VITE_API_URL`) | `http://127.0.0.1:5050/api` |
-
-Both use:
-- Same server: port **5050**
-- Same auth: `POST /auth/login` → JWT `Authorization: Bearer <token>`
-- Same database: MongoDB `vitalguide`
-
-Do **not** create a second backend or point Admin at a different URL.
-
-## Architecture
+| Flutter debug | `http://127.0.0.1:5050/api` |
+| Admin (`npm run dev`) | `http://127.0.0.1:5050/api` |
 
 ```
-Flutter App (User + Coach) ──┐
-                             ├──► Existing Backend :5050/api ──► MongoDB vitalguide
-Admin Dashboard (React) ─────┘
+Flutter App ──┐
+Web (React) ──┼──► Backend API ──► MongoDB Atlas vitalguide
+              ┘
 ```
-
-## Run
 
 1. Backend: `cd backend && npm start`
 2. Frontend: `cd frontend && npm run dev` → http://127.0.0.1:5174
-3. Login as admin (`role=admin` only)
 
 ## Auth
 
 - Login: `/api/auth/login`
 - Session: `/api/auth/me`
-- Protected admin routes require JWT + `role === "admin"`
+- JWT: `Authorization: Bearer <token>`

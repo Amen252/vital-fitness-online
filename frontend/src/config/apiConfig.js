@@ -2,15 +2,15 @@
  * Shared API config — must match Flutter's ApiConfig
  * (mobile/lib/config/api_config.dart)
  *
- * Flutter default: http://127.0.0.1:5050/api
- * Admin default:   http://127.0.0.1:5050/api
- * Backend listen:  PORT=5050
- * Database:        existing Atlas MongoDB `vitalguide` (via backend MONGO_URI)
+ * Development (`npm run dev`): local backend http://127.0.0.1:5050/api
+ * Production (`vite build` / Vercel): Render API + Atlas vitalguide
  *
- * Override with VITE_API_URL when deploying (same host/port as Flutter).
- * Do NOT point this at a different backend or database.
+ * Override anytime with VITE_API_URL / VITE_SOCKET_URL.
  */
-const DEFAULT_API_URL = "http://127.0.0.1:5050/api";
+const LOCAL_API_URL = "http://127.0.0.1:5050/api";
+const PROD_API_URL = "https://vital-online-app.onrender.com/api";
+
+const DEFAULT_API_URL = import.meta.env.PROD ? PROD_API_URL : LOCAL_API_URL;
 
 export const API_BASE_URL = (
   import.meta.env.VITE_API_URL || DEFAULT_API_URL

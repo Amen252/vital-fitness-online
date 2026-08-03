@@ -1,5 +1,11 @@
-# Render Blueprint — connect repo https://github.com/Amen252/Vital-online-app
+# Render Blueprint — https://github.com/Amen252/vital-fitness-online
 # Dashboard → New → Blueprint → select this repo
+#
+# After deploy, set in the Render dashboard (Environment):
+#   MONGO_URI          → Atlas connection string (vitalguide)
+#   JWT_SECRET         → strong random secret
+#   CLIENT_URL         → your Vercel frontend URL (e.g. https://….vercel.app)
+#   PUBLIC_WEB_URL     → same as CLIENT_URL
 services:
   - type: web
     name: vital-api

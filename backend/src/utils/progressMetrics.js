@@ -29,11 +29,17 @@ function buildSeries(logs, dateKey, valueKey, days = 7) {
     buckets.set(key, buckets.get(key) + nextValue);
   });
 
-  return Array.from(buckets.entries()).map(([label, value]) => ({ label, value }));
+  // Include both `label` (ISO date string) and `date` (Date) so consumers
+  // that key by either field continue to work.
+  return Array.from(buckets.entries()).map(([label, value]) => ({
+    label,
+    date: startOfDay(new Date(`${label}T12:00:00`)),
+    value,
+  }));
 }
 
 function sum(logs, key) {
-  return logs.reduce((total, item) => total + Number(item?.[key] || 0), 0);
+  return (logs || []).reduce((total, item) => total + Number(item?.[key] || 0), 0);
 }
 
-module.exports = { buildSeries, sum };
+module.exports = { buildSeries, sum, startOfDay, formatDay };

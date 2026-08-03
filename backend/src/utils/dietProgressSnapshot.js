@@ -7,9 +7,13 @@ const ScheduleCompletion = require('../models/ScheduleCompletion');
 const FitnessClass = require('../models/FitnessClass');
 const {
   buildMealCompletionSummary,
-  computeAverageAdherence,
+  getPlannedMealTypes,
 } = require('./mealAdherenceUtils');
-const { resolveCaloriesIn, computeCaloriesOut } = require('./calorieTrackingUtils');
+const {
+  resolveCaloriesIn,
+  resolveNutrition,
+  computeCaloriesOut,
+} = require('./calorieTrackingUtils');
 
 const DEFAULT_WATER_TARGET_ML = 2000;
 
@@ -25,14 +29,8 @@ function endOfDay(date = new Date()) {
   return d;
 }
 
-function countPlannedMeals(plan) {
-  const { getPlannedMealTypes } = require('./mealAdherenceUtils');
-  return getPlannedMealTypes(plan).length;
-}
-
-function countCompletedMeals(plan, adherence) {
-  const summary = buildMealCompletionSummary(plan, adherence);
-  return summary.completedMeals;
+function countPlannedMeals(plan, date = new Date()) {
+  return getPlannedMealTypes(plan, date).length;
 }
 
 function computeDailyGoalPercent({ caloriesPct, waterPct, mealsPct, workoutsPct, hasAnyTarget }) {
@@ -47,9 +45,14 @@ function pct(current, target) {
   return Math.min(100, Math.round((current / target) * 100));
 }
 
-async function buildTodayProgressSnapshot(userId, plan) {
-  const today = startOfDay();
-  const tomorrow = endOfDay();
+function safeInt(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : fallback;
+}
+
+async function buildTodayProgressSnapshot(userId, plan, date = new Date()) {
+  const today = startOfDay(date);
+  const tomorrow = endOfDay(date);
 
   const enrolledClasses = await FitnessClass.find({ enrolledStudents: userId }).select('_id').lean();
   const classIds = enrolledClasses.map((c) => c._id);
@@ -81,14 +84,18 @@ async function buildTodayProgressSnapshot(userId, plan) {
     WorkoutSchedule.find(scheduleQuery).select('_id status').lean(),
   ]);
 
-  const caloriesConsumed = await resolveCaloriesIn(userId, { plan, adherence, date: today });
-  const caloriesBurned = await computeCaloriesOut(userId, today);
-  const targetCalories = plan?.dailyCalories || adherence?.targetCalories || 0;
-  const waterMl = waterLogs.reduce((sum, log) => sum + (log.amountMl || 0), 0);
+  const [caloriesConsumed, nutrition, caloriesBurned] = await Promise.all([
+    resolveCaloriesIn(userId, { plan, adherence, date: today }),
+    resolveNutrition(userId, { plan, adherence, date: today }),
+    computeCaloriesOut(userId, today),
+  ]);
+
+  const targetCalories = safeInt(plan?.dailyCalories || adherence?.targetCalories || 0);
+  const waterMl = waterLogs.reduce((sum, log) => sum + safeInt(log.amountMl), 0);
   const targetWaterMl = DEFAULT_WATER_TARGET_ML;
 
-  const mealsPlanned = countPlannedMeals(plan);
-  const mealSummary = buildMealCompletionSummary(plan, adherence);
+  const mealSummary = buildMealCompletionSummary(plan, adherence, today);
+  const mealsPlanned = mealSummary.mealsPlanned;
   const mealsCompleted = mealSummary.completedMeals;
 
   const scheduleIds = schedules.map((s) => s._id);
@@ -112,24 +119,30 @@ async function buildTodayProgressSnapshot(userId, plan) {
   const mealsPct = mealsPlanned > 0 ? pct(mealsCompleted, mealsPlanned) : null;
   const workoutsPct = workoutsPlanned > 0 ? pct(workoutsCompleted, workoutsPlanned) : null;
 
+  const hasAnyTarget = targetCalories > 0 || mealsPlanned > 0 || workoutsPlanned > 0 || true;
   const dailyGoalPercent = computeDailyGoalPercent({
     caloriesPct,
     waterPct,
     mealsPct,
     workoutsPct,
-    hasAnyTarget: targetCalories > 0 || mealsPlanned > 0 || workoutsPlanned > 0 || true,
+    hasAnyTarget,
   });
 
-  const avgAdherenceToday = adherence?.adherencePercent ?? 0;
   const hasActivity = mealLogs.length > 0
     || waterLogs.length > 0
     || mealsCompleted > 0
     || workoutsCompleted > 0
-    || adherence?.followedPlan;
+    || !!adherence?.followedPlan
+    || !!adherence?.dayCompleted
+    || caloriesConsumed > 0;
+
+  const proteinConsumed = safeInt(nutrition?.protein);
+  const carbsConsumed = safeInt(nutrition?.carbs);
+  const fatsConsumed = safeInt(nutrition?.fats);
 
   return {
-    caloriesConsumed,
-    caloriesBurned,
+    caloriesConsumed: safeInt(caloriesConsumed),
+    caloriesBurned: safeInt(caloriesBurned),
     targetCalories,
     waterMl,
     targetWaterMl,
@@ -137,9 +150,17 @@ async function buildTodayProgressSnapshot(userId, plan) {
     mealsPlanned,
     workoutsCompleted,
     workoutsPlanned,
+    proteinConsumed,
+    carbsConsumed,
+    fatsConsumed,
+    nutrition: {
+      protein: proteinConsumed,
+      carbs: carbsConsumed,
+      fats: fatsConsumed,
+    },
     dailyGoalPercent: hasActivity ? dailyGoalPercent : 0,
-    adherencePercent: mealSummary.dailyProgressPercent || adherence?.adherencePercent || 0,
-    followedPlan: mealSummary.allCompleted,
+    adherencePercent: mealSummary.dailyProgressPercent || safeInt(adherence?.adherencePercent),
+    followedPlan: mealSummary.allCompleted || !!adherence?.followedPlan,
     hasActivity,
     mealAdherence: adherence?.mealAdherence || [],
     mealSummary,

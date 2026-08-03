@@ -18,7 +18,14 @@ function mondayBasedDayOfWeek(date = new Date()) {
 function mealHasContent(meal) {
   const name = String(meal?.name || '').trim();
   const description = String(meal?.description || '').trim();
-  return name.length > 0 || description.length > 0;
+  const foodItems = Array.isArray(meal?.foodItems)
+    ? meal.foodItems.filter((item) => String(item || '').trim())
+    : [];
+  const portionSize = String(meal?.portionSize || '').trim();
+  return name.length > 0
+    || description.length > 0
+    || foodItems.length > 0
+    || portionSize.length > 0;
 }
 
 /** Resolve meals for a calendar date from single-day or weekly plans. */

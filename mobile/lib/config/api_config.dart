@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 /// Override anytime with `--dart-define`:
 ///   flutter run --dart-define=API_URL=http://10.0.2.2:5050/api
 ///   flutter run --dart-define=API_HOST=192.168.1.10 --dart-define=API_PORT=5050
-///   flutter run --dart-define=API_URL=https://vital-online-app-1.onrender.com/api
+///   flutter run --dart-define=API_URL=https://vital-online-app.onrender.com/api
 class ApiConfig {
   /// Full base URL override, e.g. `https://host/api`. Wins over everything else.
   static const String _urlOverride = String.fromEnvironment('API_URL');
@@ -19,7 +19,7 @@ class ApiConfig {
   static const String _schemeOverride = String.fromEnvironment('API_SCHEME');
 
   /// Production API (Render). Default for release / profile builds.
-  static const String _prodHost = 'vital-online-app-1.onrender.com';
+  static const String _prodHost = 'vital-online-app.onrender.com';
 
   /// Local API for `flutter run` / debug (simulator, desktop, Chrome).
   static const String _localHost = '127.0.0.1';
