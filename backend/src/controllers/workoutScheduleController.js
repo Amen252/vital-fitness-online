@@ -501,6 +501,22 @@ async function completeWorkoutSchedule(req, res) {
       return res.status(400).json({ message: proof.message });
     }
 
+    const { uploadImageDataUrl } = require('../utils/imageKit');
+    let proofUrl = proof.proofPhoto;
+    try {
+      proofUrl = await uploadImageDataUrl(proof.proofPhoto, {
+        folder: '/vital/workout-proofs',
+        fileNamePrefix: `proof_${req.user._id}`,
+        tags: ['workout_proof', 'schedule'],
+      });
+    } catch (uploadError) {
+      console.error('completeWorkoutSchedule ImageKit:', uploadError.message);
+      if (uploadError.code === 'IMAGEKIT_NOT_CONFIGURED') {
+        return res.status(503).json({ message: uploadError.message, code: uploadError.code });
+      }
+      return res.status(500).json({ message: 'Unable to upload workout photo' });
+    }
+
     const completion = await ScheduleCompletion.findOne({
       workoutSchedule: req.params.scheduleId,
       user: req.user._id,
@@ -517,7 +533,7 @@ async function completeWorkoutSchedule(req, res) {
     completion.status = 'pending_review';
     completion.notes = proof.notes;
     completion.durationMinutes = proof.durationMinutes;
-    completion.proofPhoto = proof.proofPhoto;
+    completion.proofPhoto = proofUrl;
     completion.submittedAt = new Date();
     completion.completedAt = undefined;
     completion.reviewedAt = undefined;

@@ -215,14 +215,26 @@ async function updateProfilePhoto(req, res) {
       return res.status(400).json({ message: 'No photo provided' });
     }
 
+    const { uploadImageDataUrl, isDataUrl, isHttpUrl } = require('../utils/imageKit');
+    const raw = photo === null || photo === undefined ? '' : String(photo).trim();
+
     // Allow clearing the photo with an empty string.
-    if (photo !== '' && !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(String(photo))) {
-      return res.status(400).json({ message: 'Photo must be a base64 image data URL' });
+    if (raw !== '' && !isDataUrl(raw) && !isHttpUrl(raw)) {
+      return res.status(400).json({ message: 'Photo must be a base64 image data URL or https URL' });
+    }
+
+    let storedPhoto = '';
+    if (raw) {
+      storedPhoto = await uploadImageDataUrl(raw, {
+        folder: '/vital/avatars',
+        fileNamePrefix: `avatar_${req.user._id}`,
+        tags: ['avatar', String(req.user.role || 'user')],
+      });
     }
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { $set: { avatar: photo || '' } },
+      { $set: { avatar: storedPhoto } },
       { new: true },
     ).lean();
 
@@ -237,6 +249,12 @@ async function updateProfilePhoto(req, res) {
     });
   } catch (error) {
     console.error('[USER] updateProfilePhoto error:', error.message);
+    if (error.code === 'IMAGEKIT_NOT_CONFIGURED') {
+      return res.status(503).json({ message: error.message, code: error.code });
+    }
+    if (error.code === 'INVALID_IMAGE') {
+      return res.status(400).json({ message: error.message, code: error.code });
+    }
     return res.status(500).json({ message: 'Unable to update photo right now' });
   }
 }

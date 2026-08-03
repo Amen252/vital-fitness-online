@@ -1,7 +1,9 @@
-const PROOF_PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/;
+const { isDataUrl, isHttpUrl } = require('./imageKit');
 
 /**
  * Validate workout completion proof payload.
+ * proofPhoto may be a base64 data URL (uploaded to ImageKit by the controller)
+ * or an existing https ImageKit/CDN URL.
  * @returns {{ ok: true, notes: string, durationMinutes: number, proofPhoto: string } | { ok: false, message: string }}
  */
 function validateWorkoutProof(body = {}) {
@@ -21,7 +23,7 @@ function validateWorkoutProof(body = {}) {
   if (durationMinutes > 24 * 60) {
     return { ok: false, message: 'Duration looks invalid' };
   }
-  if (!proofPhoto || !PROOF_PHOTO_RE.test(proofPhoto)) {
+  if (!proofPhoto || !(isDataUrl(proofPhoto) || isHttpUrl(proofPhoto))) {
     return { ok: false, message: 'A workout photo is required (PNG, JPEG, WebP, or GIF)' };
   }
 

@@ -3,9 +3,11 @@
 ```
 Vital fitness app/
 ├── frontend/   # React admin dashboard (Vite) → :5174
-├── backend/    # Express API → :5050
+├── backend/    # Express API → :5050 / Render
 └── mobile/     # Flutter app (User + Coach)
 ```
+
+**How they connect:** see [INTEGRATION.md](./INTEGRATION.md)
 
 ## Run
 
@@ -21,4 +23,3 @@ cd mobile && flutter run
 ```
 
 Open this folder (`Vital fitness app`) as the project root in Cursor/VS Code.
-# vital-fitness-online
