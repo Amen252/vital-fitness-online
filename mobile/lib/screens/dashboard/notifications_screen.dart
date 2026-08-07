@@ -248,6 +248,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                   await _apiService.logDietAdherence({
                                     'mealType': mealType,
                                     'followed': true,
+                                    if ((data['dateKey']?.toString() ?? '').isNotEmpty)
+                                      'date': data['dateKey'].toString(),
                                   });
                                   if (!ctx.mounted) return;
                                   Navigator.pop(ctx);

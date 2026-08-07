@@ -107,17 +107,17 @@ function findMealsMissingReminderTime(meals = []) {
 
 /**
  * For active plans, every planned meal must have a meal time so the cron can fire.
- * Weekly: validate the shared template (flat meals or first assigned day).
+ * Weekly: validate flat meals and every day that has content.
  */
 function validateActivePlanMealTimes(structure) {
   if (!structure) return null;
   let meals = [];
   if (structure.planType === 'weekly') {
-    meals = (structure.meals || []).filter((m) => mealHasContent(m));
-    if (!meals.length) {
-      const assigned = (structure.days || []).find((d) => (d.meals || []).some((m) => mealHasContent(m)));
-      meals = (assigned?.meals || []).filter((m) => mealHasContent(m));
-    }
+    const flat = (structure.meals || []).filter((m) => mealHasContent(m));
+    const fromDays = (structure.days || []).flatMap((d) =>
+      (d.meals || []).filter((m) => mealHasContent(m)),
+    );
+    meals = flat.length ? [...flat, ...fromDays] : fromDays;
   } else {
     meals = (structure.meals || []).filter((m) => mealHasContent(m));
   }

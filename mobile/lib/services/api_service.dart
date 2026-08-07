@@ -2513,10 +2513,11 @@ class ApiService {
     throw Exception(_parseError(response));
   }
 
-  Future<Map<String, dynamic>> rejectCoachApplication(String id) async {
+  Future<Map<String, dynamic>> rejectCoachApplication(String id, {String reason = ''}) async {
     final response = await http.patch(
       Uri.parse('$baseUrl/admin/coach-applications/$id/reject'),
       headers: _headers(),
+      body: jsonEncode({'reason': reason}),
     );
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;

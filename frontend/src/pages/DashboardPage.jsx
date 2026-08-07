@@ -75,12 +75,14 @@ export default function DashboardPage() {
     const timer = setInterval(loadCoachApplications, 12000);
     const onFocus = () => loadCoachApplications();
     window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", () => {
+    const onVisibility = () => {
       if (document.visibilityState === "visible") onFocus();
-    });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -206,7 +208,7 @@ export default function DashboardPage() {
             {pendingApps === 1 ? "" : "s"} waiting for your approval.
           </p>
           <Link
-            to="/coaches"
+            to="/coaches?tab=applications"
             className="inline-flex items-center justify-center gap-2 rounded-[12px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--vf-text)] hover:bg-[var(--vf-border)]/40"
           >
             Review applications
@@ -284,7 +286,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <Link
-            to="/coaches"
+            to="/coaches?tab=applications"
             className="inline-flex items-center justify-center rounded-[12px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--vf-text)] hover:bg-[var(--vf-border)]/40"
           >
             Manage registrations

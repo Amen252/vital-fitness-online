@@ -133,10 +133,10 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
       if (!mounted) return;
 
       if (user == null) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (_) => false,
-        );
+        setState(() {
+          _isRefreshing = false;
+          _errorMessage = 'Could not refresh status. Check your connection and try again.';
+        });
         return;
       }
 

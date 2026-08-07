@@ -821,15 +821,27 @@ function parseSpecialization(value) {
 
 async function approveCoachApplication(req, res) {
   try {
-    const application = await CoachApplication.findById(req.params.id).populate('user');
-    if (!application) return res.status(404).json({ message: 'Application not found' });
-    if (application.status !== 'pending') {
+    // Claim pending first so concurrent approve/reject cannot diverge role vs application.
+    const claimed = await CoachApplication.findOneAndUpdate(
+      { _id: req.params.id, status: 'pending' },
+      { $set: { status: 'approved', reviewedAt: new Date() } },
+      { returnDocument: 'after' },
+    ).populate('user');
+
+    if (!claimed) {
+      const existing = await CoachApplication.findById(req.params.id).lean();
+      if (!existing) return res.status(404).json({ message: 'Application not found' });
       return res.status(400).json({ message: 'Application has already been reviewed' });
     }
-    if (!application.user) {
+    if (!claimed.user) {
+      await CoachApplication.findByIdAndUpdate(claimed._id, {
+        $set: { status: 'pending' },
+        $unset: { reviewedAt: 1 },
+      });
       return res.status(400).json({ message: 'Application is missing an applicant user' });
     }
 
+    const application = claimed;
     const { buildCoachDataFromApplication } = require('../utils/coachProfile');
     const existingCoachData = application.user.coachData?.toObject?.()
       || application.user.coachData
@@ -888,28 +900,26 @@ async function approveCoachApplication(req, res) {
         || [],
     });
 
-    // Promote the user first so a later notification/profile glitch cannot leave a
-    // pending card that is already "reviewed" on retry.
-    await User.findByIdAndUpdate(
-      application.user._id,
-      {
-        $set: {
-          role: 'coach',
-          status: 'active',
-          phone: application.phone || application.user.phone || '',
-          coachData,
+    try {
+      await User.findByIdAndUpdate(
+        application.user._id,
+        {
+          $set: {
+            role: 'coach',
+            status: 'active',
+            phone: application.phone || application.user.phone || '',
+            coachData,
+          },
         },
-      },
-      { returnDocument: 'after', runValidators: true },
-    );
-
-    const reviewed = await CoachApplication.findOneAndUpdate(
-      { _id: application._id, status: 'pending' },
-      { $set: { status: 'approved', reviewedAt: new Date() } },
-      { new: true },
-    );
-    if (!reviewed) {
-      return res.status(400).json({ message: 'Application has already been reviewed' });
+        { returnDocument: 'after', runValidators: true },
+      );
+    } catch (userError) {
+      await CoachApplication.findByIdAndUpdate(application._id, {
+        $set: { status: 'pending' },
+        $unset: { reviewedAt: 1 },
+      });
+      console.error('[ADMIN] coach approve user update:', userError.message);
+      return res.status(500).json({ message: 'Failed to approve application' });
     }
 
     try {
@@ -920,7 +930,8 @@ async function approveCoachApplication(req, res) {
           { returnDocument: 'after', runValidators: true },
         );
       } else {
-        await Profile.create({ goals: [], ...profileData });
+        const created = await Profile.create({ goals: [], ...profileData });
+        await User.findByIdAndUpdate(application.user._id, { $set: { profile: created._id } });
       }
     } catch (profileError) {
       console.error('[ADMIN] coach approve profile sync:', profileError.message);
@@ -967,7 +978,7 @@ async function rejectCoachApplication(req, res) {
           rejectionReason: reason,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     ).populate('user');
 
     if (!application) {
@@ -977,11 +988,19 @@ async function rejectCoachApplication(req, res) {
     }
 
     if (!application.user) {
+      await CoachApplication.findByIdAndUpdate(application._id, {
+        $set: { status: 'pending', rejectionReason: '' },
+        $unset: { reviewedAt: 1 },
+      });
       return res.status(400).json({ message: 'Application is missing an applicant user' });
     }
 
     const applicant = application.user;
     if (applicant.role === 'admin') {
+      await CoachApplication.findByIdAndUpdate(application._id, {
+        $set: { status: 'pending', rejectionReason: '' },
+        $unset: { reviewedAt: 1 },
+      });
       return res.status(403).json({ message: 'Admin accounts cannot be rejected' });
     }
 
@@ -990,6 +1009,10 @@ async function rejectCoachApplication(req, res) {
       applicant.role === 'coach'
       && applicant.coachData?.approval_status === 'approved'
     ) {
+      await CoachApplication.findByIdAndUpdate(application._id, {
+        $set: { status: 'approved' },
+        $unset: { rejectionReason: 1 },
+      });
       return res.status(400).json({
         message: 'This account is an approved coach. Remove them from the Coaches page instead.',
       });

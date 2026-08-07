@@ -128,8 +128,12 @@ async function login(req, res) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    if (user.status === 'suspended') {
-      return res.status(403).json({ message: 'This account has been suspended. Please contact support.' });
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return res.status(403).json({
+        message: user.status === 'deleted'
+          ? 'This account has been deleted.'
+          : 'This account has been suspended. Please contact support.',
+      });
     }
 
     // Check rate limit lock-out

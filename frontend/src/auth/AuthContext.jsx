@@ -19,15 +19,25 @@ export function AuthProvider({ children }) {
     setToken(null); setUser(null);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return null;
+    try {
+      const data = await getMe();
+      if (data?.user) {
+        setUser(data.user);
+        localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+        return data.user;
+      }
+    } catch (error) {
+      if ([401, 403].includes(error?.response?.status)) logout();
+    }
+    return null;
+  }, [token, logout]);
+
   useEffect(() => {
     if (!token) { setLoading(false); return; }
-    getMe().then((data) => {
-      setUser(data.user);
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    }).catch((error) => {
-      if ([401, 403].includes(error?.response?.status)) logout();
-    }).finally(() => setLoading(false));
-  }, [token, logout]);
+    refreshUser().finally(() => setLoading(false));
+  }, [token, refreshUser]);
 
   async function login(username, password) {
     const data = await apiLogin(username, password);
@@ -71,10 +81,11 @@ export function AuthProvider({ children }) {
       establishSession,
       logout,
       changePassword,
+      refreshUser,
       mustChangePassword: !!user?.must_change_password,
       errorMessage: getErrorMessage,
     }),
-    [user, token, loading, logout, establishSession, clearPasswordChangeFlag],
+    [user, token, loading, logout, establishSession, clearPasswordChangeFlag, refreshUser],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

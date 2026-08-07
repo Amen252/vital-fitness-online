@@ -395,6 +395,9 @@ async function rejectAppointment(req, res) {
     }
 
     const { coachNotes, rejectionReason } = req.body;
+    if (!['pending', 'rescheduled'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Only pending or rescheduled appointments can be rejected' });
+    }
     appointment.status = 'rejected';
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
     if (rejectionReason !== undefined) {

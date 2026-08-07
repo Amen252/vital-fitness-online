@@ -21,14 +21,31 @@ async function auth(req, res, next) {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    if (req.user.status === 'suspended') {
-      return res.status(403).json({ message: 'This account has been suspended. Please contact support.' });
+    if (req.user.status === 'suspended' || req.user.status === 'deleted') {
+      return res.status(403).json({
+        message: req.user.status === 'deleted'
+          ? 'This account has been deleted.'
+          : 'This account has been suspended. Please contact support.',
+      });
     }
 
-    // Force password change check
+    // Force password change check — match path segments, not substrings
+    // (avoids '/me' matching '/api/admin/meals').
     if (req.user.must_change_password) {
-      const allowedPaths = ['/change-password', '/logout', '/me', '/auth/change-password', '/auth/logout', '/auth/me'];
-      const isAllowed = allowedPaths.some(path => req.originalUrl.includes(path));
+      const pathname = String(req.originalUrl || req.url || '').split('?')[0];
+      const allowedExact = new Set([
+        '/api/auth/me',
+        '/api/auth/logout',
+        '/api/auth/change-password',
+        '/api/admin/me',
+        '/api/admin/logout',
+        '/api/admin/change-password',
+        '/api/user/profile',
+      ]);
+      const allowedSuffixes = ['/change-password', '/logout', '/auth/me', '/auth/logout', '/auth/change-password'];
+      const isAllowed =
+        allowedExact.has(pathname)
+        || allowedSuffixes.some((suffix) => pathname === suffix || pathname.endsWith(suffix));
       if (!isAllowed) {
         return res.status(403).json({
           message: 'Password change required on first login',

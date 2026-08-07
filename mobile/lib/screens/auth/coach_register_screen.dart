@@ -231,6 +231,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
                 .map((e) => Map<String, dynamic>.from(e))
                 .where((e) => (e['url']?.toString() ?? '').isNotEmpty),
           );
+        if (_existingCertificateFiles.isEmpty && user?.profile?.certificateFiles.isNotEmpty == true) {
+          _existingCertificateFiles.addAll(user!.profile!.certificateFiles);
+        }
       } else if (user?.profile != null) {
         final profile = user!.profile!;
         _phoneController.text = profile.phone ?? '';
@@ -243,6 +246,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         _specializationController.text = profile.specialization.join(', ');
         _bioController.text = profile.bio ?? '';
         _experienceController.text = profile.experience ?? '';
+        _existingCertificateFiles
+          ..clear()
+          ..addAll(profile.certificateFiles);
         _selectedWorkingDays
           ..clear()
           ..addAll(profile.workingDays.where(_weekdays.contains));
@@ -805,7 +811,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList(),
         );
-        user = (await _apiService.getMe()) ?? widget.existingUser!;
+        final latest = await _apiService.getMe();
+        user = latest ??
+            widget.existingUser!.copyWith(
+              coachApplicationStatus: 'pending',
+              coachApplicationReviewedAt: null,
+            );
       } else {
         user = await _apiService.registerCoach(
           name: _nameController.text.trim(),
@@ -983,7 +994,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               flex: 2,
               child: ElevatedButton(
                 style: CoachDashboardTheme.primaryButtonStyle(),
-                onPressed: isLastStep ? () => Navigator.of(context).maybePop() : _nextStep,
+                onPressed: _loadingSaved
+                    ? null
+                    : (isLastStep ? () => Navigator.of(context).maybePop() : _nextStep),
                 child: Text(isLastStep ? 'Back to Status' : 'Continue'),
               ),
             ),

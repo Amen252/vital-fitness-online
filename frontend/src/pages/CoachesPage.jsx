@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { UserRound } from "lucide-react";
 import {
   approveCoachApplication,
@@ -64,16 +64,29 @@ function photoUrl(coach) {
 
 export default function CoachesPage() {
   const toast = useToast();
-  const [tab, setTab] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = ["all", "applications", "coaches"].includes(searchParams.get("tab"))
+    ? searchParams.get("tab")
+    : "all";
+  const [tab, setTabState] = useState(initialTab);
   const [reviewingId, setReviewingId] = useState(null);
   const [allCoaches, setAllCoaches] = useState([]);
   const [allApplications, setAllApplications] = useState([]);
-  const [applicationFilter, setApplicationFilter] = useState("all");
+  const [applicationFilter, setApplicationFilter] = useState(
+    searchParams.get("status") || "all",
+  );
   const [detailApplication, setDetailApplication] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  function setTab(next) {
+    setTabState(next);
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    setSearchParams(params, { replace: true });
+  }
 
   function removeCoachFromLists(deletedId) {
     const id = String(deletedId);
@@ -110,13 +123,19 @@ export default function CoachesPage() {
       setError("");
     }
     try {
-      const [trainers, apps] = await Promise.all([
+      const [trainers, appsResult] = await Promise.all([
         getTrainersMeta(),
         getCoachApplications("all"),
       ]);
       const items = Array.isArray(trainers?.items) ? trainers.items : [];
       setAllCoaches(items);
-      setAllApplications(Array.isArray(apps) ? apps : []);
+      const apps = Array.isArray(appsResult) ? appsResult : [];
+      setAllApplications(apps);
+      setDetailApplication((current) => {
+        if (!current?._id) return current;
+        const next = apps.find((a) => String(a._id) === String(current._id));
+        return next || null;
+      });
     } catch (err) {
       if (!silent) {
         setError(getErrorMessage(err));
@@ -269,7 +288,7 @@ export default function CoachesPage() {
               <>
                 <Button
                   size="sm"
-                  disabled={reviewingId === row._id || deleting}
+                  disabled={Boolean(reviewingId) || deleting}
                   onClick={() => approve(row._id)}
                 >
                   {reviewingId === row._id ? "Approving…" : "Approve"}

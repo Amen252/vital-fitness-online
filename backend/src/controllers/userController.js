@@ -723,6 +723,17 @@ async function submitCoachApplication(req, res) {
       return res.status(400).json({ message: validationError });
     }
 
+    // Block pending/approved before uploads so we never mutate coachData then 400.
+    const existingEarly = await CoachApplication.findOne({ user: req.user._id });
+    if (existingEarly) {
+      if (existingEarly.status === 'pending') {
+        return res.status(400).json({ message: 'You already have a pending application' });
+      }
+      if (existingEarly.status === 'approved') {
+        return res.status(400).json({ message: 'Your application has already been approved' });
+      }
+    }
+
     const {
       phone,
       age,
@@ -856,24 +867,24 @@ async function submitCoachApplication(req, res) {
       dayAvailability: availability.value || [],
       appointmentDurationMinutes: availability.durationMinutes || 60,
       status: 'pending',
-      reviewedAt: undefined,
       rejectionReason: '',
     };
 
     const existing = await CoachApplication.findOne({ user: req.user._id });
     if (existing) {
-      if (existing.status === 'pending') {
-        return res.status(400).json({ message: 'You already have a pending application' });
-      }
-      if (existing.status === 'approved') {
-        return res.status(400).json({ message: 'Your application has already been approved' });
-      }
-      Object.assign(existing, applicationData);
-      await existing.save();
+      // Rejected → pending resubmit (pending/approved already blocked above).
+      await CoachApplication.updateOne(
+        { _id: existing._id },
+        {
+          $set: applicationData,
+          $unset: { reviewedAt: 1 },
+        },
+      );
       await User.findByIdAndUpdate(req.user._id, {
         $set: { 'coachData.approval_status': 'pending' },
       });
-      return res.json(existing);
+      const refreshed = await CoachApplication.findById(existing._id);
+      return res.json(refreshed);
     }
 
     const application = await CoachApplication.create({

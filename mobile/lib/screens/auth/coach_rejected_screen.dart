@@ -74,10 +74,10 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
       if (!mounted) return;
 
       if (user == null) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (_) => false,
-        );
+        setState(() {
+          _isRefreshing = false;
+          _errorMessage = 'Could not refresh status. Check your connection and try again.';
+        });
         return;
       }
 
@@ -123,14 +123,14 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
 
   Future<void> _continueAsMember() async {
     await CoachApplicationPrefs.dismissRejection(
-      userId: widget.user.id,
-      reviewedAt: widget.user.coachApplicationReviewedAt,
+      userId: _currentUser.id,
+      reviewedAt: _currentUser.coachApplicationReviewedAt,
     );
     if (!mounted) return;
     // Stay on the client (member) shell — same as web member experience.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => AuthHome(user: widget.user),
+        builder: (_) => AuthHome(user: _currentUser),
       ),
     );
   }

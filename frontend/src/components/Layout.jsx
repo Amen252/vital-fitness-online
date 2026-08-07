@@ -69,7 +69,7 @@ export default function Layout() {
     e.preventDefault();
     const q = search.trim().toLowerCase();
     if (!q) return;
-    if (q.includes("coach")) navigate("/coaches");
+    if (q.includes("coach")) navigate("/coaches?tab=applications");
     else if (q.includes("diet") || q.includes("meal"))
       navigate("/insights?tab=diet");
     else if (q.includes("work") || q.includes("exercise"))
@@ -236,7 +236,7 @@ export default function Layout() {
                         <button
                           type="button"
                           className="w-full rounded-[12px] bg-[var(--vf-surface-muted)] px-3 py-3 text-left text-sm hover:bg-[color-mix(in_srgb,var(--vf-primary)_8%,transparent)]"
-                          onClick={() => navigate("/coaches")}
+                          onClick={() => navigate("/coaches?tab=applications")}
                         >
                           <span className="font-semibold text-[var(--vf-text)]">
                             {pendingApps} pending coach application

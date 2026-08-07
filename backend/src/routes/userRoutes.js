@@ -82,7 +82,7 @@ router.patch('/workouts/:planId/complete', auth, roles('user'), completeWorkout)
 router.get('/notifications', auth, roles('user', 'coach'), getUserNotifications);
 router.patch('/notifications/:id/read', auth, roles('user', 'coach'), markNotificationRead);
 router.post('/coach-application', auth, roles('user'), submitCoachApplication);
-router.get('/coach-application', auth, roles('user'), getMyCoachApplication);
+router.get('/coach-application', auth, roles('user', 'coach'), getMyCoachApplication);
 router.get('/appointments', auth, roles('user'), getUserAppointments);
 router.get('/appointments/availability', auth, roles('user'), getCoachAvailability);
 router.post('/appointments/request', auth, roles('user'), requestAppointment);

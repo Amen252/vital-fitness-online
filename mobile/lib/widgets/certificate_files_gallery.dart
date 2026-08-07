@@ -46,40 +46,48 @@ class CertificateFilesGallery extends StatelessWidget {
   void _previewImage(BuildContext context, String url, String name) {
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppBar(
-              title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-              automaticallyImplyLeading: false,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.open_in_new),
-                  onPressed: () => _open(context, url),
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: size.width,
+            height: size.height * 0.75,
+            child: Column(
+              children: [
+                AppBar(
+                  title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  automaticallyImplyLeading: false,
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.open_in_new),
+                      onPressed: () => _open(context, url),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(ctx),
+                Expanded(
+                  child: InteractiveViewer(
+                    child: Center(
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('Unable to load image'),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-            Flexible(
-              child: InteractiveViewer(
-                child: Image.network(
-                  url,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text('Unable to load image'),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

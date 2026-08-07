@@ -341,7 +341,10 @@ class User {
       coachApplicationStatus == 'rejected';
 
   bool get hasApprovedCoachApplication =>
-      isCoach || coachApplicationStatus == 'approved';
+      coachApplicationStatus == 'approved'
+      || (isCoach
+          && coachApplicationStatus != 'pending'
+          && coachApplicationStatus != 'rejected');
 
   /// Human-readable label for the coach application gate screens.
   String get coachApplicationStatusLabel {

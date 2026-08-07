@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { getMe, getMyNotifications } from "../api/adminApi";
+import { getMyNotifications } from "../api/adminApi";
 import { BrandMark } from "./ui";
 
 const MEMBER_NAV = [
@@ -41,7 +41,7 @@ const COACH_NAV = [
 ];
 
 export default function RoleShell({ role }) {
-  const { user, loading, logout, token } = useAuth();
+  const { user, loading, logout, token, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profile, setProfile] = useState(null);
@@ -50,17 +50,17 @@ export default function RoleShell({ role }) {
   const refreshChrome = useCallback(async () => {
     if (!token) return;
     try {
-      const [meData, notifs] = await Promise.all([
-        getMe().catch(() => null),
+      const [meUser, notifs] = await Promise.all([
+        refreshUser().catch(() => null),
         getMyNotifications().catch(() => []),
       ]);
-      if (meData?.user) setProfile(meData.user);
+      if (meUser) setProfile(meUser);
       const list = Array.isArray(notifs) ? notifs : [];
       setUnreadCount(list.filter((n) => !n.read).length);
     } catch {
       /* ignore chrome refresh errors */
     }
-  }, [token]);
+  }, [token, refreshUser]);
 
   useEffect(() => {
     refreshChrome();

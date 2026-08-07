@@ -110,12 +110,28 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
 
   Future<void> _reject(String id) async {
     if (id.isEmpty) return;
+    final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Reject Application'),
-        content: const Text(
-          'Reject this coach application? The applicant will be notified and can continue as a member or reapply later.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Reject this coach application? The applicant will be notified and can continue as a member or reapply later.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Rejection reason (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -126,10 +142,12 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
         ],
       ),
     );
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
     if (confirmed != true) return;
 
     try {
-      await _apiService.rejectCoachApplication(id);
+      await _apiService.rejectCoachApplication(id, reason: reason);
       if (mounted) {
         setState(() {
           _applications = _applications.where((app) => app['_id']?.toString() != id).toList();
