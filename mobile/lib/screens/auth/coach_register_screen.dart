@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../utils/password_utils.dart';
@@ -7,6 +11,28 @@ import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
 import 'login_screen.dart';
 import '../../services/coach_application_prefs.dart';
+
+class _PendingCertificate {
+  final String fileName;
+  final String mimeType;
+  final String dataUrl;
+  final Uint8List bytes;
+
+  const _PendingCertificate({
+    required this.fileName,
+    required this.mimeType,
+    required this.dataUrl,
+    required this.bytes,
+  });
+
+  bool get isImage => mimeType.startsWith('image/');
+
+  Map<String, dynamic> toPayload() => {
+        'fileName': fileName,
+        'mimeType': mimeType,
+        'dataUrl': dataUrl,
+      };
+}
 
 class _DayHours {
   TimeOfDay start;
@@ -20,8 +46,14 @@ class _DayHours {
 
 class CoachRegisterScreen extends StatefulWidget {
   final User? existingUser;
+  /// When true, show saved registration details without editing/submitting.
+  final bool viewOnly;
 
-  const CoachRegisterScreen({super.key, this.existingUser});
+  const CoachRegisterScreen({
+    super.key,
+    this.existingUser,
+    this.viewOnly = false,
+  });
 
   @override
   State<CoachRegisterScreen> createState() => _CoachRegisterScreenState();
@@ -47,6 +79,13 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   final _bioController = TextEditingController();
   final _experienceController = TextEditingController();
   final _messageController = TextEditingController();
+  final _picker = ImagePicker();
+  final List<_PendingCertificate> _certificates = [];
+  final List<Map<String, dynamic>> _existingCertificateFiles = [];
+  static const int _maxCertificates = 5;
+  static const int _maxCertBytes = 2 * 1024 * 1024;
+  bool _loadingSaved = false;
+  String? _rejectionReason;
 
   late final List<String> _stepTitles;
   late final bool _isReapply;
@@ -68,18 +107,169 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   int _appointmentDuration = 60;
   static const List<int> _durationOptions = [30, 45, 60];
 
+  bool get _isViewOnly => widget.viewOnly;
+  bool get _isReturningApplicant => widget.existingUser != null;
+  bool get _canEdit => !_isViewOnly;
+
   @override
   void initState() {
     super.initState();
-    _isReapply = widget.existingUser != null;
+    // Returning applicants (view or reapply) skip the account creation step.
+    _isReapply = _isReturningApplicant;
     _stepTitles = _isReapply
         ? ['Personal Info', 'Professional', 'Appointment Days', 'About You', 'Review']
         : ['Account', 'Personal Info', 'Professional', 'Appointment Days', 'About You', 'Review'];
 
-    if (_isReapply) {
+    if (_isReturningApplicant) {
       final user = widget.existingUser!;
       _nameController.text = user.name;
       _emailController.text = user.email;
+      _loadSavedApplication();
+    }
+  }
+
+  TimeOfDay _parseHm(String? raw, {int hour = 9, int minute = 0}) {
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch((raw ?? '').trim());
+    if (match == null) return TimeOfDay(hour: hour, minute: minute);
+    return TimeOfDay(
+      hour: int.parse(match.group(1)!).clamp(0, 23),
+      minute: int.parse(match.group(2)!).clamp(0, 59),
+    );
+  }
+
+  Future<void> _loadSavedApplication() async {
+    setState(() => _loadingSaved = true);
+    try {
+      final application = await _apiService.getMyCoachApplication();
+      final user = widget.existingUser;
+      if (!mounted) return;
+
+      if (application != null) {
+        final reason = application['rejectionReason']?.toString().trim() ?? '';
+        _rejectionReason = reason.isEmpty ? null : reason;
+        _phoneController.text = (application['phone'] ?? user?.profile?.phone ?? '').toString();
+        final age = application['age'] ?? user?.profile?.age;
+        if (age != null) _ageController.text = age.toString();
+        _locationController.text = (application['location'] ?? user?.profile?.location ?? '').toString();
+        final years = application['yearsExperience'] ?? user?.profile?.yearsExperience;
+        if (years != null) _yearsExperienceController.text = years.toString();
+        _certificationsController.text = (application['certifications'] ?? '').toString();
+        if (_certificationsController.text.trim().isEmpty &&
+            user?.profile?.certifications.isNotEmpty == true) {
+          _certificationsController.text = user!.profile!.certifications.join(', ');
+        }
+        _specializationController.text = (application['specialization'] ?? '').toString();
+        if (_specializationController.text.trim().isEmpty &&
+            user?.profile?.specialization.isNotEmpty == true) {
+          _specializationController.text = user!.profile!.specialization.join(', ');
+        }
+        _bioController.text = (application['bio'] ?? user?.profile?.bio ?? '').toString();
+        _experienceController.text =
+            (application['experience'] ?? user?.profile?.experience ?? '').toString();
+        _messageController.text = (application['message'] ?? '').toString();
+
+        final working = application['workingDays'];
+        _selectedWorkingDays
+          ..clear()
+          ..addAll((working is List ? working : const [])
+              .map((e) => e.toString())
+              .where((d) => _weekdays.contains(d)));
+        if (_selectedWorkingDays.isEmpty && user?.profile?.workingDays.isNotEmpty == true) {
+          _selectedWorkingDays.addAll(user!.profile!.workingDays.where(_weekdays.contains));
+        }
+
+        final appointment = application['appointmentDays'];
+        _selectedAppointmentDays
+          ..clear()
+          ..addAll((appointment is List ? appointment : const [])
+              .map((e) => e.toString())
+              .where((d) => _weekdays.contains(d)));
+        if (_selectedAppointmentDays.isEmpty &&
+            user?.profile?.appointmentDays.isNotEmpty == true) {
+          _selectedAppointmentDays
+              .addAll(user!.profile!.appointmentDays.where(_weekdays.contains));
+        }
+
+        final duration =
+            application['appointmentDurationMinutes'] ?? user?.profile?.appointmentDurationMinutes;
+        if (duration is num) {
+          final d = duration.toInt();
+          if (_durationOptions.contains(d)) _appointmentDuration = d;
+        }
+
+        _dayAvailability.clear();
+        final dayAvail =
+            application['dayAvailability'] ?? user?.profile?.dayAvailability ?? const [];
+        if (dayAvail is List) {
+          for (final entry in dayAvail) {
+            if (entry is! Map) continue;
+            final day = entry['day']?.toString() ?? '';
+            if (!_weekdays.contains(day)) continue;
+            _dayAvailability[day] = _DayHours(
+              start: _parseHm(entry['start']?.toString()),
+              end: _parseHm(entry['end']?.toString(), hour: 17),
+            );
+            _selectedAppointmentDays.add(day);
+          }
+        }
+        for (final day in _selectedAppointmentDays) {
+          _dayAvailability.putIfAbsent(
+            day,
+            () => _DayHours(
+              start: const TimeOfDay(hour: 9, minute: 0),
+              end: const TimeOfDay(hour: 17, minute: 0),
+            ),
+          );
+        }
+
+        final files = application['certificateFiles'];
+        _existingCertificateFiles
+          ..clear()
+          ..addAll(
+            (files is List ? files : const [])
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .where((e) => (e['url']?.toString() ?? '').isNotEmpty),
+          );
+      } else if (user?.profile != null) {
+        final profile = user!.profile!;
+        _phoneController.text = profile.phone ?? '';
+        if (profile.age != null) _ageController.text = profile.age.toString();
+        _locationController.text = profile.location ?? '';
+        if (profile.yearsExperience != null) {
+          _yearsExperienceController.text = profile.yearsExperience.toString();
+        }
+        _certificationsController.text = profile.certifications.join(', ');
+        _specializationController.text = profile.specialization.join(', ');
+        _bioController.text = profile.bio ?? '';
+        _experienceController.text = profile.experience ?? '';
+        _selectedWorkingDays
+          ..clear()
+          ..addAll(profile.workingDays.where(_weekdays.contains));
+        _selectedAppointmentDays
+          ..clear()
+          ..addAll(profile.appointmentDays.where(_weekdays.contains));
+        if (profile.appointmentDurationMinutes != null &&
+            _durationOptions.contains(profile.appointmentDurationMinutes)) {
+          _appointmentDuration = profile.appointmentDurationMinutes!;
+        }
+        for (final entry in profile.dayAvailability) {
+          if (entry is! Map) continue;
+          final day = entry['day']?.toString() ?? '';
+          if (!_weekdays.contains(day)) continue;
+          _dayAvailability[day] = _DayHours(
+            start: _parseHm(entry['start']?.toString()),
+            end: _parseHm(entry['end']?.toString(), hour: 17),
+          );
+          _selectedAppointmentDays.add(day);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = ApiService.friendlyError(e));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingSaved = false);
     }
   }
 
@@ -130,6 +320,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       if (_certificationsController.text.trim().isEmpty) {
         return _showError('List your certifications');
       }
+      if (_certificates.isEmpty && _existingCertificateFiles.isEmpty) {
+        return _showError('Upload at least one certificate image (JPG or PNG)');
+      }
       if (_specializationController.text.trim().isEmpty) {
         return _showError('Enter at least one specialization');
       }
@@ -177,6 +370,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       _weekdays.where((day) => _selectedAppointmentDays.contains(day)).toList();
 
   void _toggleWorkingDay(String day) {
+    if (!_canEdit) return;
     setState(() {
       if (_selectedWorkingDays.contains(day)) {
         _selectedWorkingDays.remove(day);
@@ -187,6 +381,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   }
 
   void _toggleAppointmentDay(String day) {
+    if (!_canEdit) return;
     setState(() {
       if (_selectedAppointmentDays.contains(day)) {
         _selectedAppointmentDays.remove(day);
@@ -523,7 +718,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
 
   void _nextStep() {
     setState(() => _errorMessage = null);
-    if (!_validateCurrentStep()) return;
+    if (!_isViewOnly && !_validateCurrentStep()) return;
 
     if (_currentStep < _stepTitles.length - 1) {
       setState(() => _currentStep++);
@@ -552,6 +747,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isViewOnly) {
+      if (mounted) Navigator.of(context).maybePop();
+      return;
+    }
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
@@ -572,6 +771,15 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         'appointmentDays': _orderedAppointmentDays,
         'dayAvailability': _dayAvailabilityPayload,
         'appointmentDurationMinutes': _appointmentDuration,
+        'certificateFiles': [
+          ..._existingCertificateFiles.map((e) => {
+                'url': e['url'],
+                'fileName': e['fileName'] ?? '',
+                'mimeType': e['mimeType'] ?? '',
+                'uploadedAt': e['uploadedAt'],
+              }),
+          ..._certificates.map((c) => c.toPayload()),
+        ],
       };
 
       final User user;
@@ -593,6 +801,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               .map((e) => Map<String, String>.from(e as Map))
               .toList(),
           appointmentDurationMinutes: payload['appointmentDurationMinutes'] as int,
+          certificateFiles: (payload['certificateFiles'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
         );
         user = (await _apiService.getMe()) ?? widget.existingUser!;
       } else {
@@ -615,6 +826,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               .map((e) => Map<String, String>.from(e as Map))
               .toList(),
           appointmentDurationMinutes: payload['appointmentDurationMinutes'] as int,
+          certificateFiles: (payload['certificateFiles'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
         );
       }
 
@@ -639,7 +853,11 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     return Scaffold(
       backgroundColor: CoachDashboardTheme.homeBackground(isDark),
       appBar: AppBar(
-        title: Text(_isReapply ? 'Coach Application' : 'Coach Registration'),
+        title: Text(
+          _isViewOnly
+              ? 'Your Registration'
+              : (_isReapply ? 'Update Application' : 'Coach Registration'),
+        ),
         backgroundColor: CoachDashboardTheme.primary,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -687,6 +905,8 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
                 ],
               ),
             ),
+          if (_loadingSaved)
+            const LinearProgressIndicator(minHeight: 2, color: CoachDashboardTheme.primary),
           Expanded(
             child: PageView(
               controller: _pageController,
@@ -742,6 +962,35 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
 
   Widget _buildNavigationBar(bool isDark) {
     final isLastStep = _currentStep == _stepTitles.length - 1;
+    if (_isViewOnly) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF181B24) : Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
+        ),
+        child: Row(
+          children: [
+            if (_currentStep > 0)
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _previousStep,
+                  child: const Text('Back'),
+                ),
+              ),
+            if (_currentStep > 0) const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                style: CoachDashboardTheme.primaryButtonStyle(),
+                onPressed: isLastStep ? () => Navigator.of(context).maybePop() : _nextStep,
+                child: Text(isLastStep ? 'Back to Status' : 'Continue'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -761,14 +1010,14 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             flex: 2,
             child: ElevatedButton(
               style: CoachDashboardTheme.primaryButtonStyle(),
-              onPressed: _isSubmitting ? null : _nextStep,
+              onPressed: _isSubmitting || _loadingSaved ? null : _nextStep,
               child: _isSubmitting
                   ? const SizedBox(
                       height: 20,
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : Text(isLastStep ? 'Submit Application' : 'Continue'),
+                  : Text(isLastStep ? (_isReapply ? 'Resubmit Application' : 'Submit Application') : 'Continue'),
             ),
           ),
         ],
@@ -846,22 +1095,223 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _phoneController,
+            readOnly: !_canEdit,
             keyboardType: TextInputType.phone,
             decoration: _fieldDecoration('Phone Number *', icon: Icons.phone_outlined),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _ageController,
+            readOnly: !_canEdit,
             keyboardType: TextInputType.number,
             decoration: _fieldDecoration('Age *', hint: 'Must be 18+', icon: Icons.cake_outlined),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _locationController,
+            readOnly: !_canEdit,
             decoration: _fieldDecoration('City / Location *', icon: Icons.location_on_outlined),
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _pickCertificates() async {
+    final already = _certificates.length + _existingCertificateFiles.length;
+    if (already >= _maxCertificates) {
+      _showError('You can upload at most $_maxCertificates certificates');
+      return;
+    }
+    try {
+      final remaining = _maxCertificates - already;
+      final files = await _picker.pickMultiImage(
+        imageQuality: 85,
+        maxWidth: 2000,
+      );
+      if (files.isEmpty) return;
+
+      final additions = <_PendingCertificate>[];
+      for (final file in files.take(remaining)) {
+        final bytes = await file.readAsBytes();
+        if (bytes.length > _maxCertBytes) {
+          if (mounted) {
+            _showError('${file.name} exceeds the 2 MB limit');
+          }
+          continue;
+        }
+        final lower = file.name.toLowerCase();
+        String mime = 'image/jpeg';
+        if (lower.endsWith('.png')) {
+          mime = 'image/png';
+        } else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+          mime = 'image/jpeg';
+        } else if (lower.endsWith('.webp')) {
+          mime = 'image/webp';
+        } else {
+          // image_picker returns images; default jpeg
+          mime = 'image/jpeg';
+        }
+        final b64 = base64Encode(bytes);
+        additions.add(
+          _PendingCertificate(
+            fileName: file.name.isNotEmpty ? file.name : 'certificate.jpg',
+            mimeType: mime,
+            dataUrl: 'data:$mime;base64,$b64',
+            bytes: bytes,
+          ),
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _certificates.addAll(additions);
+        _errorMessage = null;
+      });
+    } catch (e) {
+      if (mounted) _showError('Could not pick certificates. Try again.');
+    }
+  }
+
+  void _removeCertificate(int index) {
+    setState(() {
+      _certificates.removeAt(index);
+      _errorMessage = null;
+    });
+  }
+
+  Widget _buildCertificateUploadSection(bool isDark) {
+    final totalCount = _certificates.length + _existingCertificateFiles.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _isViewOnly ? 'Certificate files' : 'Certificate Upload *',
+          style: CoachDashboardTheme.sectionTitle(isDark),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _isViewOnly
+              ? 'Certificates submitted with your application.'
+              : 'Upload clear photos of your professional certificates (JPG or PNG, max 2 MB each, up to $_maxCertificates).',
+          style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 12),
+        if (totalCount > 0)
+          SizedBox(
+            height: 110,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: totalCount,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (ctx, i) {
+                final isExisting = i < _existingCertificateFiles.length;
+                if (isExisting) {
+                  final file = _existingCertificateFiles[i];
+                  final url = file['url']?.toString() ?? '';
+                  final mime = file['mimeType']?.toString() ?? '';
+                  final isPdf = mime.contains('pdf') || url.toLowerCase().endsWith('.pdf');
+                  return Stack(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 110,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                          color: isDark ? Colors.white10 : Colors.grey.shade100,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: isPdf
+                            ? const Center(child: Icon(Icons.picture_as_pdf_rounded, size: 36))
+                            : Image.network(
+                                url,
+                                fit: BoxFit.cover,
+                                width: 100,
+                                height: 110,
+                                errorBuilder: (_, __, ___) =>
+                                    const Center(child: Icon(Icons.broken_image_outlined)),
+                              ),
+                      ),
+                      if (_canEdit)
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: Material(
+                            color: Colors.black54,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () => setState(() => _existingCertificateFiles.removeAt(i)),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4),
+                                child: Icon(Icons.close, size: 16, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                }
+                final cert = _certificates[i - _existingCertificateFiles.length];
+                final newIndex = i - _existingCertificateFiles.length;
+                return Stack(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                        color: isDark ? Colors.white10 : Colors.grey.shade100,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: cert.isImage
+                          ? Image.memory(cert.bytes, fit: BoxFit.cover, width: 100, height: 110)
+                          : const Center(child: Icon(Icons.picture_as_pdf_rounded, size: 36)),
+                    ),
+                    if (_canEdit)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Material(
+                          color: Colors.black54,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => _removeCertificate(newIndex),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(Icons.close, size: 16, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        if (totalCount > 0) const SizedBox(height: 12),
+        if (_canEdit) ...[
+          OutlinedButton.icon(
+            onPressed: totalCount >= _maxCertificates ? null : _pickCertificates,
+            icon: const Icon(Icons.upload_file_rounded),
+            label: Text(totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
+          ),
+          if (totalCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '$totalCount / $_maxCertificates uploaded',
+                style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey),
+              ),
+            ),
+        ] else if (totalCount == 0)
+          Text(
+            'No certificate files on file.',
+            style: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+          ),
+      ],
     );
   }
 
@@ -879,12 +1329,14 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _yearsExperienceController,
+            readOnly: !_canEdit,
             keyboardType: TextInputType.number,
             decoration: _fieldDecoration('Years of Experience *', icon: Icons.timeline),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _certificationsController,
+            readOnly: !_canEdit,
             maxLines: 3,
             decoration: _fieldDecoration(
               'Certifications *',
@@ -892,9 +1344,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               icon: Icons.verified_outlined,
             ),
           ),
+          const SizedBox(height: 20),
+          _buildCertificateUploadSection(isDark),
           const SizedBox(height: 16),
           TextField(
             controller: _specializationController,
+            readOnly: !_canEdit,
             decoration: _fieldDecoration(
               'Specializations *',
               hint: 'Strength, Yoga, Nutrition (comma-separated)',
@@ -914,6 +1369,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   Future<void> _pickTimeForDay(String day, {required bool isStart}) async {
+    if (!_canEdit) return;
     final hours = _dayAvailability[day];
     if (hours == null) return;
     final picked = await showTimePicker(
@@ -1072,7 +1528,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => setState(() => _appointmentDuration = minutes),
+        onTap: _canEdit ? () => setState(() => _appointmentDuration = minutes) : null,
         borderRadius: BorderRadius.circular(12),
         child: Ink(
           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1258,6 +1714,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _bioController,
+            readOnly: !_canEdit,
             maxLines: null,
             minLines: 3,
             keyboardType: TextInputType.multiline,
@@ -1270,6 +1727,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _experienceController,
+            readOnly: !_canEdit,
             maxLines: null,
             minLines: 3,
             keyboardType: TextInputType.multiline,
@@ -1282,6 +1740,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _messageController,
+            readOnly: !_canEdit,
             maxLines: null,
             minLines: 2,
             keyboardType: TextInputType.multiline,
@@ -1301,12 +1760,33 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Review your application', style: CoachDashboardTheme.sectionTitle(isDark)),
+          Text(
+            _isViewOnly ? 'Submitted registration' : 'Review your application',
+            style: CoachDashboardTheme.sectionTitle(isDark),
+          ),
           const SizedBox(height: 8),
           Text(
-            'Confirm everything is correct before submitting for admin approval.',
+            _isViewOnly
+                ? 'These are the details currently on file for your coach application.'
+                : 'Confirm everything is correct before submitting for admin approval.',
             style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary),
           ),
+          if ((_rejectionReason ?? '').isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: CoachDashboardTheme.danger.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: CoachDashboardTheme.danger.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                'Rejection reason: $_rejectionReason',
+                style: const TextStyle(color: CoachDashboardTheme.danger, height: 1.4),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           _reviewCard(isDark, 'Account', [
             _reviewRow('Name', _nameController.text),
@@ -1320,6 +1800,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           _reviewCard(isDark, 'Professional', [
             _reviewRow('Experience', '${_yearsExperienceController.text} years'),
             _reviewRow('Certifications', _certificationsController.text),
+            _reviewRow(
+              'Certificate files',
+              '${_certificates.length + _existingCertificateFiles.length} uploaded',
+            ),
             _reviewRow('Specializations', _specializationController.text),
             _reviewRow('Working Days', _orderedWorkingDays.join(', ')),
           ]),

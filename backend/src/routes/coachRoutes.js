@@ -73,6 +73,10 @@ const {
   rescheduleAppointment,
   completeAppointment,
   updateAppointmentNotes,
+  startAppointment,
+  updateMeetingLink,
+  addAppointmentAttachment,
+  createFollowUpAppointment,
   cancelAppointmentByCoach,
 } = require('../controllers/appointmentController');
 const {
@@ -104,9 +108,13 @@ router.post('/appointments', createCoachAppointment);
 router.patch('/appointments/:id/approve', approveAppointment);
 router.patch('/appointments/:id/reject', rejectAppointment);
 router.patch('/appointments/:id/reschedule', rescheduleAppointment);
+router.patch('/appointments/:id/start', startAppointment);
+router.patch('/appointments/:id/meeting-link', updateMeetingLink);
 router.patch('/appointments/:id/complete', completeAppointment);
 router.patch('/appointments/:id/cancel', cancelAppointmentByCoach);
 router.patch('/appointments/:id/notes', updateAppointmentNotes);
+router.post('/appointments/:id/attachments', addAppointmentAttachment);
+router.post('/appointments/:id/follow-up', createFollowUpAppointment);
 
 router.get('/requests', getCoachRequests);
 router.patch('/requests/:id/approve', approveCoachRequest);

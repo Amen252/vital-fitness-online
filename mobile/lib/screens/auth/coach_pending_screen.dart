@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
+import 'coach_register_screen.dart';
 import 'coach_rejected_screen.dart';
 import 'login_screen.dart';
 
@@ -28,6 +30,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
   late User _currentUser;
   Timer? _pollTimer;
   DateTime? _lastCheckedAt;
+  List<Map<String, dynamic>> _certificateFiles = [];
 
   bool get _isApproved => _approvedUser?.hasApprovedCoachApplication == true;
 
@@ -56,24 +59,53 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
     );
   }
 
-  Future<User?> _fetchLatestUser() async {
+  Future<void> _openRegistration({required bool viewOnly}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CoachRegisterScreen(
+          existingUser: _currentUser,
+          viewOnly: viewOnly,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _refreshStatus(silent: true);
+  }
+
+  Future<({User? user, List<Map<String, dynamic>> certificates})> _fetchLatest() async {
     final user = await _apiService.getMe();
-    if (user == null) return null;
+    if (user == null) {
+      return (user: null, certificates: const <Map<String, dynamic>>[]);
+    }
 
     try {
       final application = await _apiService.getMyCoachApplication();
-      if (application == null) return user;
+      if (application == null) {
+        return (user: user, certificates: _certificateFiles);
+      }
 
       final appStatus = application['status']?.toString();
       final reviewedRaw = application['reviewedAt']?.toString();
       final reviewedAt = reviewedRaw != null ? DateTime.tryParse(reviewedRaw) : null;
 
-      return user.copyWith(
-        coachApplicationStatus: appStatus ?? user.coachApplicationStatus,
-        coachApplicationReviewedAt: reviewedAt ?? user.coachApplicationReviewedAt,
+      final files = application['certificateFiles'];
+      final certificates = files is List
+          ? files
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .where((e) => (e['url']?.toString() ?? '').isNotEmpty)
+              .toList()
+          : <Map<String, dynamic>>[];
+
+      return (
+        user: user.copyWith(
+          coachApplicationStatus: appStatus ?? user.coachApplicationStatus,
+          coachApplicationReviewedAt: reviewedAt ?? user.coachApplicationReviewedAt,
+        ),
+        certificates: certificates,
       );
     } catch (_) {
-      return user;
+      return (user: user, certificates: _certificateFiles);
     }
   }
 
@@ -96,7 +128,8 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
     });
 
     try {
-      final user = await _fetchLatestUser();
+      final latest = await _fetchLatest();
+      final user = latest.user;
       if (!mounted) return;
 
       if (user == null) {
@@ -113,6 +146,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         setState(() {
           _approvedUser = user;
           _currentUser = user;
+          _certificateFiles = latest.certificates;
           _isRefreshing = false;
           _errorMessage = null;
           _lastCheckedAt = checkedAt;
@@ -140,6 +174,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
       setState(() {
         _currentUser = user;
         _approvedUser = null;
+        _certificateFiles = latest.certificates;
         _isRefreshing = false;
         _lastCheckedAt = checkedAt;
         _statusFeedback = 'Your application is still pending admin review.';
@@ -289,6 +324,62 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
           ),
           _profileRow('Experience', profile?.experience),
           _profileRow('Bio', profile?.bio),
+          if (_certificateFiles.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'Certificate files',
+              style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 88,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _certificateFiles.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (ctx, i) {
+                  final file = _certificateFiles[i];
+                  final url = file['url']?.toString() ?? '';
+                  final mime = file['mimeType']?.toString() ?? '';
+                  final name = file['fileName']?.toString() ?? 'Certificate ${i + 1}';
+                  final isPdf = mime.contains('pdf') || url.toLowerCase().endsWith('.pdf');
+                  return InkWell(
+                    onTap: () async {
+                      final uri = Uri.tryParse(url);
+                      if (uri == null) return;
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                        color: isDark ? Colors.white10 : Colors.grey.shade100,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: isPdf
+                          ? Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.picture_as_pdf_rounded, color: CoachDashboardTheme.danger),
+                                const SizedBox(height: 4),
+                                Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 9)),
+                              ],
+                            )
+                          : Image.network(
+                              url,
+                              fit: BoxFit.cover,
+                              width: 80,
+                              height: 88,
+                              errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined)),
+                            ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -396,6 +487,15 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
                         label: const Text('Open Coach Dashboard'),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openRegistration(viewOnly: true),
+                        icon: const Icon(Icons.description_outlined),
+                        label: const Text('View Registration'),
+                      ),
+                    ),
                   ] else ...[
                     SizedBox(
                       width: double.infinity,
@@ -409,6 +509,15 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                             : const Text('Check Status'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openRegistration(viewOnly: true),
+                        icon: const Icon(Icons.description_outlined),
+                        label: const Text('View Registration'),
                       ),
                     ),
                   ],

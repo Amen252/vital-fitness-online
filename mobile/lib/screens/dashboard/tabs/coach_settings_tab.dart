@@ -5,6 +5,7 @@ import '../../../services/api_service.dart';
 import '../../../widgets/language_picker_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/profile_avatar.dart';
+import '../../../widgets/certificate_files_gallery.dart';
 import '../../../widgets/account/change_password_dialog.dart';
 import '../../support/help_support_screen.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
@@ -287,6 +288,12 @@ class _CoachSettingsTabState extends State<CoachSettingsTab> {
                   hint: 'ACE, NASM, ...',
                   prefixIcon: Icons.verified_outlined,
                 ),
+              ),
+              const SizedBox(height: 16),
+              CertificateFilesGallery(
+                files: _coach.profile?.certificateFiles ?? const [],
+                title: 'Uploaded certificates',
+                emptyLabel: 'No certificate files on your profile yet.',
               ),
               const SizedBox(height: 16),
               _readOnlyInfoGrid(isDark),

@@ -57,10 +57,10 @@ async function markNotificationRead(req, res) {
 
 function _titleForType(type) {
   switch (type) {
-    case 'diet':
-      return 'Diet Plan';
     case 'reminder':
       return 'Meal Reminder';
+    case 'diet':
+      return 'Diet Plan';
     case 'workout':
       return 'Coach Schedule';
     case 'coach_assigned':

@@ -13,6 +13,18 @@ const coachDataSchema = new mongoose.Schema(
     approval_status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     specialties: { type: [String], default: [] },
     certifications: { type: [String], default: [] },
+    /** Uploaded certificate images/PDFs (CDN URLs) for admin review */
+    certificateFiles: {
+      type: [
+        {
+          url: { type: String, required: true },
+          fileName: { type: String, default: '' },
+          mimeType: { type: String, default: '' },
+          uploadedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     bio: { type: String, default: '' },
     experience: { type: String, default: '' },
     location: { type: String, default: '' },

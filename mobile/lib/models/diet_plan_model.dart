@@ -68,7 +68,8 @@ class DietMeal {
       description.trim().isNotEmpty ||
       foodItems.isNotEmpty ||
       portionSize.trim().isNotEmpty ||
-      prepInstructions.trim().isNotEmpty;
+      calories > 0 ||
+      reminderTime.trim().isNotEmpty;
 
   String get macrosLabel {
     final parts = <String>[];

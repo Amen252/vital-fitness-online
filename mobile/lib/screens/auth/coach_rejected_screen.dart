@@ -24,11 +24,22 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
   String? _errorMessage;
   late User _currentUser;
   DateTime? _lastCheckedAt;
+  String? _rejectionReason;
 
   @override
   void initState() {
     super.initState();
     _currentUser = widget.user;
+    _loadRejectionReason();
+  }
+
+  Future<void> _loadRejectionReason() async {
+    try {
+      final application = await _apiService.getMyCoachApplication();
+      final reason = application?['rejectionReason']?.toString().trim() ?? '';
+      if (!mounted) return;
+      setState(() => _rejectionReason = reason.isEmpty ? null : reason);
+    } catch (_) {}
   }
 
   Future<User?> _fetchLatestUser() async {
@@ -90,6 +101,7 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
         _currentUser = user;
         _isRefreshing = false;
       });
+      await _loadRejectionReason();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -128,11 +140,22 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CoachRegisterScreen(existingUser: widget.user),
+        builder: (_) => CoachRegisterScreen(existingUser: _currentUser),
       ),
     );
     if (!mounted) return;
     await _refreshStatus();
+  }
+
+  Future<void> _viewRegistration() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CoachRegisterScreen(
+          existingUser: _currentUser,
+          viewOnly: true,
+        ),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -240,6 +263,32 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
                       color: isDark ? Colors.white54 : Colors.grey,
                     ),
                   ),
+                  if ((_rejectionReason ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: CoachDashboardTheme.danger.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: CoachDashboardTheme.danger.withValues(alpha: 0.25)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Rejection reason',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: CoachDashboardTheme.danger,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(_rejectionReason!, style: const TextStyle(height: 1.4)),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   Container(
                     width: double.infinity,
@@ -285,6 +334,15 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
                       style: CoachDashboardTheme.primaryButtonStyle(),
                       onPressed: _isRefreshing ? null : _reapply,
                       child: const Text('Update & Reapply'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isRefreshing ? null : _viewRegistration,
+                      icon: const Icon(Icons.description_outlined),
+                      label: const Text('View Registration'),
                     ),
                   ),
                   const SizedBox(height: 12),

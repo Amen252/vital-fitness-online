@@ -8,7 +8,9 @@ import {
   getMyCoachRequest,
   submitCoachRequest,
 } from "../../api/memberApi";
-import { Badge, Button, Card, Spinner } from "../../components/ui";
+import CertificateFilesGallery, { pickCertificateFiles } from "../../components/CertificateFilesGallery";
+import ProfileDetails from "../../components/ProfileDetails";
+import { Badge, Button, Card, Modal, Spinner } from "../../components/ui";
 import { coachDisplayName, coachProfileFromUser } from "../../utils/coachDisplay";
 import { isSelectableCoach } from "../../utils/coachVisibility";
 
@@ -26,6 +28,7 @@ export default function MemberCoachesPage() {
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [detailCoach, setDetailCoach] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,6 +133,11 @@ export default function MemberCoachesPage() {
               <p className="mt-3 text-sm text-[var(--vf-muted)]">
                 Coach-related features are now available for your account.
               </p>
+              <div className="mt-4">
+                <Button size="sm" variant="secondary" onClick={() => setDetailCoach(assignedCoach)}>
+                  View profile &amp; certificates
+                </Button>
+              </div>
             </Card>
           ) : null}
 
@@ -194,13 +202,22 @@ export default function MemberCoachesPage() {
                             </p>
                           ) : null}
                         </div>
-                        <Button
-                          size="sm"
-                          disabled={Boolean(busyId)}
-                          onClick={() => requestCoach(id)}
-                        >
-                          {busyId === id ? "Sending…" : "Request coach"}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setDetailCoach(coach)}
+                          >
+                            View profile
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={Boolean(busyId)}
+                            onClick={() => requestCoach(id)}
+                          >
+                            {busyId === id ? "Sending…" : "Request coach"}
+                          </Button>
+                        </div>
                       </li>
                     );
                   })
@@ -209,6 +226,44 @@ export default function MemberCoachesPage() {
             </Card>
           ) : null}
         </div>
+      ) : null}
+
+      {detailCoach ? (
+        <Modal
+          open
+          title={coachDisplayName(detailCoach)}
+          onClose={() => setDetailCoach(null)}
+          footer={
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDetailCoach(null)}>
+                Close
+              </Button>
+              {canBrowse ? (
+                <Button
+                  disabled={Boolean(busyId)}
+                  onClick={() => {
+                    const id = detailCoach.id || detailCoach._id;
+                    setDetailCoach(null);
+                    requestCoach(id);
+                  }}
+                >
+                  Request coach
+                </Button>
+              ) : null}
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <ProfileDetails profile={coachProfileFromUser(detailCoach)} />
+            <CertificateFilesGallery
+              files={pickCertificateFiles(
+                detailCoach.profile?.certificateFiles,
+                detailCoach.coachData?.certificateFiles,
+              )}
+              emptyLabel="This coach has not uploaded certificate files yet."
+            />
+          </div>
+        </Modal>
       ) : null}
     </>
   );

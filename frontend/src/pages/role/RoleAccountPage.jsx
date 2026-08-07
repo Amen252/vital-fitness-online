@@ -2,6 +2,7 @@ import { ShieldCheck, UserRound } from "lucide-react";
 import { useCallback, useEffect } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { getMe } from "../../api/adminApi";
+import CertificateFilesGallery, { pickCertificateFiles } from "../../components/CertificateFilesGallery";
 import { Button, Card } from "../../components/ui";
 import ProfileDetails from "../../components/ProfileDetails";
 import { coachProfileFromUser } from "../../utils/coachDisplay";
@@ -89,6 +90,22 @@ export default function RoleAccountPage({ role }) {
               {isPendingCoach ? "Submitted coach profile" : "Coach profile"}
             </h2>
             <ProfileDetails profile={coachProfile} />
+            {(!isMember || isPendingCoach || isRejectedCoach || role === "coach") ? (
+              <div className="mt-4">
+                <CertificateFilesGallery
+                  files={pickCertificateFiles(
+                    coachProfile.certificateFiles,
+                    displayUser.coachData?.certificateFiles,
+                    displayUser.profile?.certificateFiles,
+                  )}
+                  emptyLabel={
+                    isPendingCoach || isRejectedCoach || role === "coach"
+                      ? "No certificate files on file yet."
+                      : null
+                  }
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Card>

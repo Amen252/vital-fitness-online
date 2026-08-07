@@ -78,6 +78,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         || msg.contains('workout scheduled');
   }
 
+  bool _isMealReminder(Map<String, dynamic> n) {
+    final data = n['data'];
+    if (data is Map && data['kind']?.toString() == 'meal_reminder') return true;
+    final type = n['type']?.toString() ?? '';
+    final msg = n['message']?.toString().toLowerCase() ?? '';
+    return type == 'reminder' && msg.contains('meal reminder');
+  }
+
+  Map<String, dynamic>? _mealReminderData(Map<String, dynamic> n) {
+    final data = n['data'];
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return null;
+  }
+
   DateTime? _weekStartFromNotification(Map<String, dynamic> n) {
     final data = n['data'] as Map<String, dynamic>?;
     if (data != null) {
@@ -110,6 +124,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await _fetchNotifications(isRefresh: true);
     }
 
+    if (_isMealReminder(n)) {
+      if (!mounted) return;
+      await _showMealReminderSheet(n);
+      return;
+    }
+
     if (!_isScheduleNotification(n)) return;
 
     final weekStart = _weekStartFromNotification(n);
@@ -123,6 +143,153 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Open Schedule from the menu to view your coach\'s plan')),
+    );
+  }
+
+  Future<void> _showMealReminderSheet(Map<String, dynamic> n) async {
+    final data = _mealReminderData(n) ?? <String, dynamic>{};
+    final mealName = (data['mealName'] ?? data['mealLabel'] ?? 'Meal').toString();
+    final mealType = data['mealType']?.toString();
+    final time = data['reminderTime']?.toString() ?? '';
+    final foodItems = (data['foodItems'] as List<dynamic>? ?? [])
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    final description = data['description']?.toString().trim() ?? '';
+    final food = foodItems.isNotEmpty
+        ? foodItems.join(', ')
+        : description;
+    final calories = (data['calories'] as num?)?.toInt() ?? 0;
+    final protein = (data['protein'] as num?)?.toInt() ?? 0;
+    final carbs = (data['carbs'] as num?)?.toInt() ?? 0;
+    final fats = (data['fats'] as num?)?.toInt() ?? 0;
+    final portion = data['portionSize']?.toString().trim() ?? '';
+    final notes = [
+      data['prepInstructions']?.toString().trim() ?? '',
+      data['mealNotes']?.toString().trim() ?? '',
+    ].where((s) => s.isNotEmpty).join('\n');
+    final nutrition = <String>[
+      if (calories > 0) '$calories kcal',
+      if (protein > 0) 'P ${protein}g',
+      if (carbs > 0) 'C ${carbs}g',
+      if (fats > 0) 'F ${fats}g',
+    ].join(' · ');
+
+    var completing = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + MediaQuery.viewInsetsOf(ctx).bottom),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white24 : Colors.black26,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Meal Reminder', style: CoachDashboardTheme.sectionTitle(isDark)),
+                    const SizedBox(height: 12),
+                    Text(mealName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                    if (time.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('Scheduled at $time', style: CoachDashboardTheme.bodyMuted(isDark)),
+                    ],
+                    if (food.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text('Food items', style: TextStyle(fontWeight: FontWeight.w700, color: isDark ? Colors.white70 : Colors.black87)),
+                      const SizedBox(height: 4),
+                      Text(food),
+                    ],
+                    if (portion.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Portion: $portion'),
+                    ],
+                    if (nutrition.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Nutrition: $nutrition'),
+                    ],
+                    if (notes.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Coach notes', style: TextStyle(fontWeight: FontWeight.w700, color: isDark ? Colors.white70 : Colors.black87)),
+                      const SizedBox(height: 4),
+                      Text(notes),
+                    ],
+                    if (food.isEmpty && nutrition.isEmpty && n['message'] != null) ...[
+                      const SizedBox(height: 12),
+                      Text(n['message'].toString()),
+                    ],
+                    const SizedBox(height: 20),
+                    if (mealType != null && mealType.isNotEmpty)
+                      ElevatedButton.icon(
+                        style: CoachDashboardTheme.primaryButtonStyle(),
+                        onPressed: completing
+                            ? null
+                            : () async {
+                                setSheetState(() => completing = true);
+                                try {
+                                  await _apiService.logDietAdherence({
+                                    'mealType': mealType,
+                                    'followed': true,
+                                  });
+                                  if (!ctx.mounted) return;
+                                  Navigator.pop(ctx);
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Meal marked complete. Progress updated.'),
+                                      backgroundColor: CoachDashboardTheme.success,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  setSheetState(() => completing = false);
+                                  if (!ctx.mounted) return;
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(
+                                      content: Text(ApiService.friendlyError(e)),
+                                      backgroundColor: CoachDashboardTheme.danger,
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: completing
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.check_circle_outline_rounded),
+                        label: Text(completing ? 'Saving…' : 'Mark meal completed'),
+                      ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -277,6 +444,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     final n = Map<String, dynamic>.from(_notifications[i] as Map);
                     final color = _getColorForType(n['type'] as String? ?? '');
                     final isSchedule = _isScheduleNotification(n);
+                    final isMealReminder = _isMealReminder(n);
                     return Container(
                       key: ValueKey(n['_id']),
                       margin: const EdgeInsets.only(bottom: 12),
@@ -305,8 +473,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(_notificationBody(n), style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                              if (isSchedule) ...[
+                              Text(_notificationBody(n), style: const TextStyle(color: Colors.grey, fontSize: 13), maxLines: 4, overflow: TextOverflow.ellipsis),
+                              if (isMealReminder) ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Tap to view meal details',
+                                  style: TextStyle(fontSize: 12, color: CoachDashboardTheme.primary, fontWeight: FontWeight.w600),
+                                ),
+                              ] else if (isSchedule) ...[
                                 const SizedBox(height: 6),
                                 const Text(
                                   'Tap to view coach schedule',
@@ -316,7 +490,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ],
                           ),
                         ),
-                        trailing: isSchedule ? const Icon(Icons.chevron_right, color: CoachDashboardTheme.primary) : null,
+                        trailing: (isSchedule || isMealReminder)
+                            ? const Icon(Icons.chevron_right, color: CoachDashboardTheme.primary)
+                            : null,
                       ),
                     )
                         .staggerIn(i);

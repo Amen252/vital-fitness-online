@@ -3,6 +3,9 @@ import api from "./client";
 export const getCoachClients = () =>
   api.get("/coach/clients").then((r) => r.data);
 
+export const getCoachClientDetail = (clientId) =>
+  api.get(`/coach/clients/${clientId}`).then((r) => r.data);
+
 export const getCoachAppointments = () =>
   api.get("/coach/appointments").then((r) => r.data);
 

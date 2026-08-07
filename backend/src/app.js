@@ -33,7 +33,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '6mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 

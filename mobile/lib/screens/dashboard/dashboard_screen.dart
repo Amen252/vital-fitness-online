@@ -10,6 +10,7 @@ import 'tabs/home_tab.dart';
 import 'assignments_screen.dart';
 import 'notifications_screen.dart';
 import 'user_appointments_screen.dart';
+import 'user_sessions_screen.dart';
 import 'tabs/user_schedule_tab.dart';
 import 'user_diet_plan_screen.dart';
 import 'tabs/user_progress_tab.dart';
@@ -182,6 +183,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         user: _currentUser,
         onOpenSchedule: () => _openSection(_scheduleScreen()),
         onOpenAppointments: () => _openSection(const UserAppointmentsScreen()),
+        onOpenSessions: () => _openSection(const UserSessionsScreen()),
         onOpenWorkouts: _openWorkouts,
         onOpenNotifications: () => _openSection(NotificationsScreen(onOpenCoachSchedule: _openCoachSchedule)),
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
@@ -555,6 +556,7 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
               _detailRow('Working Days', (app['workingDays'] as List?)?.map((d) => d.toString()).join(', ')),
               _detailRow('Appointment Days', (app['appointmentDays'] as List?)?.map((d) => d.toString()).join(', ')),
             ]),
+            _buildCertificateFilesSection(isDark, _certificateFilesFromApp(app)),
             _detailSection(isDark, 'Profile', [
               _detailRow('Bio', app['bio']),
               _detailRow('Work Experience', app['experience']),
@@ -618,6 +620,108 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
           Icon(icon, size: 14, color: CoachDashboardTheme.primary),
           const SizedBox(width: 4),
           Text(label, style: const TextStyle(fontSize: 12, color: CoachDashboardTheme.primary, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _certificateFilesFromApp(Map<String, dynamic> app) {
+    final sources = [
+      app['certificateFiles'],
+      if (app['profile'] is Map) (app['profile'] as Map)['certificateFiles'],
+      if (app['user'] is Map) ...[
+        if ((app['user'] as Map)['coachData'] is Map)
+          ((app['user'] as Map)['coachData'] as Map)['certificateFiles'],
+        if ((app['user'] as Map)['profile'] is Map)
+          ((app['user'] as Map)['profile'] as Map)['certificateFiles'],
+      ],
+    ];
+    for (final source in sources) {
+      if (source is! List) continue;
+      final files = source
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => (e['url']?.toString() ?? '').isNotEmpty)
+          .toList();
+      if (files.isNotEmpty) return files;
+    }
+    return [];
+  }
+
+  Widget _buildCertificateFilesSection(bool isDark, List<Map<String, dynamic>> files) {
+    if (files.isEmpty) {
+      return _detailSection(isDark, 'Certificate files', [
+        _detailRow('Uploads', 'No certificate files uploaded'),
+      ]);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Certificate files', style: CoachDashboardTheme.sectionLabel(isDark)),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: files.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (ctx, i) {
+                final file = files[i];
+                final url = file['url']?.toString() ?? '';
+                final mime = file['mimeType']?.toString() ?? '';
+                final name = file['fileName']?.toString() ?? 'Certificate ${i + 1}';
+                final isPdf = mime.contains('pdf') || url.toLowerCase().endsWith('.pdf');
+                return InkWell(
+                  onTap: () async {
+                    final uri = Uri.tryParse(url);
+                    if (uri == null) return;
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 88,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                      color: isDark ? Colors.white10 : Colors.grey.shade100,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: isPdf
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.picture_as_pdf_rounded, color: CoachDashboardTheme.danger),
+                              const SizedBox(height: 4),
+                              Text(
+                                name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 10),
+                              ),
+                            ],
+                          )
+                        : Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            width: 88,
+                            height: 96,
+                            errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap a file to open the full certificate',
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey),
+          ),
         ],
       ),
     );

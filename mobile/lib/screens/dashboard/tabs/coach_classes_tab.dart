@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
+import '../../../widgets/profile_avatar.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import 'coach_class_detail_screen.dart';
+import 'coach_session_detail_sheet.dart';
 
 class CoachClassesTab extends StatefulWidget {
   const CoachClassesTab({super.key});
@@ -215,7 +217,9 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
     DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
     TimeOfDay selectedTime = const TimeOfDay(hour: 10, minute: 0);
     int duration = 60;
+    String sessionMode = 'in_person';
     final notesController = TextEditingController();
+    final linkController = TextEditingController();
 
     showModalBottomSheet(
       context: context,
@@ -234,89 +238,129 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Schedule 1-on-1 Session', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Client', border: OutlineInputBorder()),
-                      items: _clients.map((c) {
-                        final id = c['user']?['_id']?.toString() ?? '';
-                        final userMap = c['user'] is Map ? Map<dynamic, dynamic>.from(c['user'] as Map) : null;
-                        final name = ApiService.displayName(userMap, fallback: 'Client');
-                        return DropdownMenuItem(value: id, child: Text(name));
-                      }).toList(),
-                      onChanged: (val) => setModalState(() => selectedClientId = val),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.calendar_today),
-                            label: Text('${selectedDate.month}/${selectedDate.day}'),
-                            onPressed: () async {
-                              final date = await showDatePicker(
-                                context: context,
-                                initialDate: selectedDate,
-                                firstDate: DateTime.now(),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
-                              );
-                              if (date != null) setModalState(() => selectedDate = date);
-                            },
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Schedule 1-on-1 Session', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(labelText: 'Client', border: OutlineInputBorder()),
+                        items: _clients.map((c) {
+                          final id = c['user']?['_id']?.toString() ?? '';
+                          final userMap = c['user'] is Map ? Map<dynamic, dynamic>.from(c['user'] as Map) : null;
+                          final name = ApiService.displayName(userMap, fallback: 'Client');
+                          return DropdownMenuItem(value: id, child: Text(name));
+                        }).toList(),
+                        onChanged: (val) => setModalState(() => selectedClientId = val),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.calendar_today),
+                              label: Text('${selectedDate.month}/${selectedDate.day}'),
+                              onPressed: () async {
+                                final date = await showDatePicker(
+                                  context: context,
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime.now(),
+                                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                                );
+                                if (date != null) setModalState(() => selectedDate = date);
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.access_time),
-                            label: Text(selectedTime.format(context)),
-                            onPressed: () async {
-                              final time = await showTimePicker(context: context, initialTime: selectedTime);
-                              if (time != null) setModalState(() => selectedTime = time);
-                            },
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.access_time),
+                              label: Text(selectedTime.format(context)),
+                              onPressed: () async {
+                                final time = await showTimePicker(context: context, initialTime: selectedTime);
+                                if (time != null) setModalState(() => selectedTime = time);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<int>(
+                        value: duration,
+                        decoration: const InputDecoration(labelText: 'Duration', border: OutlineInputBorder()),
+                        items: const [30, 45, 60, 90]
+                            .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
+                            .toList(),
+                        onChanged: (v) => setModalState(() => duration = v ?? 60),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: sessionMode,
+                        decoration: const InputDecoration(labelText: 'Session type', border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(value: 'in_person', child: Text('In Person')),
+                          DropdownMenuItem(value: 'online', child: Text('Online')),
+                        ],
+                        onChanged: (v) => setModalState(() => sessionMode = v ?? 'in_person'),
+                      ),
+                      if (sessionMode == 'online') ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: linkController,
+                          decoration: const InputDecoration(
+                            labelText: 'Meeting link',
+                            hintText: 'https://...',
+                            border: OutlineInputBorder(),
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: notesController,
-                      decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder()),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          if (selectedClientId == null) return;
-                          final combined = DateTime(
-                            selectedDate.year, selectedDate.month, selectedDate.day,
-                            selectedTime.hour, selectedTime.minute,
-                          );
-                          try {
-                            await _apiService.createSession({
-                              'clientId': selectedClientId,
-                              'date': combined.toIso8601String(),
-                              'durationMinutes': duration,
-                              'notes': notesController.text,
-                            });
-                            if (context.mounted) Navigator.pop(context);
-                            _fetchData();
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(ApiService.friendlyError(e))),
-                              );
-                            }
-                          }
-                        },
-                        child: const Text('Save Session'),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesController,
+                        decoration: const InputDecoration(labelText: 'Session goal / notes', border: OutlineInputBorder()),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (selectedClientId == null) return;
+                            final combined = DateTime(
+                              selectedDate.year, selectedDate.month, selectedDate.day,
+                              selectedTime.hour, selectedTime.minute,
+                            );
+                            try {
+                              await _apiService.createSession({
+                                'clientId': selectedClientId,
+                                'date': combined.toUtc().toIso8601String(),
+                                'durationMinutes': duration,
+                                'notes': notesController.text.trim(),
+                                'sessionMode': sessionMode,
+                                if (sessionMode == 'online')
+                                  'meetingLink': linkController.text.trim(),
+                              });
+                              if (context.mounted) Navigator.pop(context);
+                              if (mounted) {
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  const SnackBar(content: Text('1-on-1 session scheduled')),
+                                );
+                              }
+                              _fetchData(isRefresh: true);
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(ApiService.friendlyError(e))),
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Save Session'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -550,63 +594,148 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
       onRefresh: () => _fetchData(isRefresh: true),
       color: CoachDashboardTheme.primary,
       child: ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-      itemCount: _sessions.length,
-      itemBuilder: (context, index) {
-        final session = _sessions[index];
-        final clientName = ApiService.displayName(
-          session['client'] is Map ? Map<dynamic, dynamic>.from(session['client'] as Map) : null,
-          fallback: 'Client',
-        );
-        final duration = session['durationMinutes'] ?? 60;
-        final dateStr = session['date'] ?? '';
-        final sessionId = session['_id']?.toString();
-        final isCompleted = session['status'] == 'completed';
+        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+        itemCount: _sessions.length,
+        itemBuilder: (context, index) {
+          final session = Map<String, dynamic>.from(_sessions[index] as Map);
+          final clientMap = session['client'] is Map
+              ? Map<dynamic, dynamic>.from(session['client'] as Map)
+              : null;
+          final clientName = ApiService.displayName(clientMap, fallback: 'Client');
+          final photo = clientMap?['avatar']?.toString() ?? clientMap?['photoUrl']?.toString();
+          final duration = session['durationMinutes'] ?? 60;
+          final dateStr = (session['date'] ?? '').toString();
+          final status = session['status']?.toString() ?? 'pending';
+          final mode = session['sessionMode']?.toString() == 'online' ? 'Online' : 'In Person';
+          final notes = session['notes']?.toString().trim() ?? '';
+          final link = session['meetingLink']?.toString().trim() ?? '';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: CoachDashboardTheme.cardDecoration(isDark),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Session with $clientName', style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text('${_formatDateTime(dateStr)} · $duration min'),
-              if (sessionId != null) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: isCompleted
-                        ? null
-                        : () async {
-                            try {
-                              await _apiService.updateSessionStatus(sessionId, 'completed');
-                              _fetchData(isRefresh: true);
-                            } catch (e) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(ApiService.friendlyError(e))),
-                                );
-                              }
-                            }
-                          },
-                    icon: Icon(isCompleted ? Icons.check_circle : Icons.play_circle_fill),
-                    label: Text(isCompleted ? 'Completed' : 'Start Session'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: CoachDashboardTheme.primary,
-                      foregroundColor: Colors.white,
-                    ),
+          return InkWell(
+            onTap: () async {
+              await showCoachSessionDetailSheet(
+                context: context,
+                session: session,
+                onChanged: () => _fetchData(isRefresh: true),
+              );
+              if (mounted) await _fetchData(isRefresh: true);
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(16),
+              decoration: CoachDashboardTheme.cardDecoration(isDark),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      ProfileAvatar(name: clientName, photoUrl: photo, radius: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(
+                              '${_formatDateTime(dateStr)} · $duration min · $mode',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        status.replaceAll('_', ' '),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    ),
+                  if (notes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      notes,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                  if (link.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Link: $link',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: CoachDashboardTheme.primary),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            await showCoachSessionDetailSheet(
+                              context: context,
+                              session: session,
+                              onChanged: () => _fetchData(isRefresh: true),
+                            );
+                            if (mounted) await _fetchData(isRefresh: true);
+                          },
+                          child: const Text('Manage'),
+                        ),
+                      ),
+                      if (['confirmed', 'rescheduled'].contains(status)) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              try {
+                                await _apiService.startSession(
+                                  session['_id'].toString(),
+                                  meetingLink: link.isEmpty ? null : link,
+                                  sessionMode: session['sessionMode']?.toString(),
+                                );
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Session in progress')),
+                                  );
+                                }
+                                _fetchData(isRefresh: true);
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(ApiService.friendlyError(e))),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.play_circle_fill),
+                            label: const Text('Start'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: CoachDashboardTheme.primary,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

@@ -881,6 +881,11 @@ async function approveCoachApplication(req, res) {
         || 60,
       workingHoursStart: existingCoachData.availability?.workingHoursStart || '09:00',
       workingHoursEnd: existingCoachData.availability?.workingHoursEnd || '17:00',
+      certificateFiles:
+        (Array.isArray(application.certificateFiles) && application.certificateFiles.length
+          ? application.certificateFiles
+          : existingCoachData.certificateFiles)
+        || [],
     });
 
     // Promote the user first so a later notification/profile glitch cannot leave a
@@ -955,7 +960,13 @@ async function rejectCoachApplication(req, res) {
     // Claim the pending application so concurrent reviews cannot double-process it.
     const application = await CoachApplication.findOneAndUpdate(
       { _id: req.params.id, status: 'pending' },
-      { $set: { status: 'rejected', reviewedAt: new Date() } },
+      {
+        $set: {
+          status: 'rejected',
+          reviewedAt: new Date(),
+          rejectionReason: reason,
+        },
+      },
       { new: true },
     ).populate('user');
 

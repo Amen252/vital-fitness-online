@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../widgets/profile_avatar.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../services/api_service.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
@@ -213,139 +214,202 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
     await _changeGroup(classId: null, fromClassId: group['_id']?.toString());
   }
 
+  Map<String, dynamic> _userMap() {
+    final user = _clientData['user'];
+    if (user is Map) return Map<String, dynamic>.from(user);
+    return {};
+  }
+
+  Map<String, dynamic> _clientProfile() {
+    final user = _userMap();
+    final clientData = user['clientData'];
+    if (clientData is Map) return Map<String, dynamic>.from(clientData);
+    // Legacy fallback if older payloads nested profile fields.
+    final profile = user['profile'];
+    if (profile is Map) return Map<String, dynamic>.from(profile);
+    return {};
+  }
+
+  String _fitnessGoalLabel(String? goal) {
+    switch (goal) {
+      case 'lose_weight':
+        return 'Weight Loss';
+      case 'gain_muscle':
+        return 'Muscle Gain';
+      case 'maintain':
+        return 'Fitness / Maintain';
+      case 'other':
+        return 'Other';
+      default:
+        return (goal ?? '').trim();
+    }
+  }
+
+  String _activityLevelLabel(String? level) {
+    switch (level) {
+      case 'sedentary':
+        return 'Sedentary';
+      case 'moderate':
+        return 'Moderate';
+      case 'active':
+        return 'Active';
+      default:
+        return (level ?? '').trim();
+    }
+  }
+
+  String _displayOrFallback(dynamic value, {String suffix = ''}) {
+    if (value == null) return 'Not specified';
+    final text = value.toString().trim();
+    if (text.isEmpty) return 'Not specified';
+    return suffix.isEmpty ? text : '$text$suffix';
+  }
+
+  String? _photoUrl(Map<String, dynamic> user) {
+    final raw = user['avatar'] ?? user['photoUrl'] ?? user['profile']?['photoUrl'];
+    final url = raw?.toString().trim() ?? '';
+    return url.isEmpty ? null : url;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final user = _clientData['user'] ?? {};
-    final userMap = user is Map ? Map<dynamic, dynamic>.from(user) : null;
+    final user = _userMap();
+    final userMap = user.isEmpty ? null : Map<dynamic, dynamic>.from(user);
     final name = ApiService.displayName(userMap, fallback: 'Client');
     final email = ApiService.displayIdentity(userMap);
-    final profile = user['profile'] ?? {};
-    final goals = profile['goals'] as List<dynamic>? ?? [];
+    final phone = (user['phone'] ?? '').toString().trim();
+    final clientProfile = _clientProfile();
+    final fitnessGoal = _fitnessGoalLabel(clientProfile['fitness_goal']?.toString());
+    final activityLevel = _activityLevelLabel(clientProfile['activity_level']?.toString());
+    final medicalNotes = (clientProfile['medical_notes'] ?? '').toString().trim();
     final assignmentId = _clientData['_id']?.toString() ?? '';
 
     return CoachPage(
       title: name,
-      body: ListView(
-        physics: dashboardScrollPhysics,
-        padding: const EdgeInsets.all(20),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: CoachDashboardTheme.cardDecoration(isDark),
-            child: Column(
-              children: [
-                CoachDashboardTheme.avatarBox(
-                  initial: name.isNotEmpty ? name[0].toUpperCase() : 'C',
-                  size: 64,
-                ),
-                const SizedBox(height: 16),
-                Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(email, style: const TextStyle(color: Colors.grey, fontSize: 14)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.chat_bubble_rounded,
-                  label: 'Message',
-                  color: CoachDashboardTheme.pink,
-                  onTap: () async {
-                    final coach = await ApiService().getMe();
-                    if (!context.mounted || coach == null) return;
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => ChatScreen(
-                          assignmentId: assignmentId,
-                          coachName: name,
-                          currentUser: coach,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.show_chart_rounded,
-                  label: 'Progress',
-                  color: CoachDashboardTheme.success,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => CoachProgressTab(
-                          clientId: user['_id']?.toString(),
-                          clientName: name,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _buildGroupSection(isDark),
-          const SizedBox(height: 24),
-          const Text('Fitness Goals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: CoachDashboardTheme.cardDecoration(isDark),
-            child: goals.isEmpty
-                ? const Text('No fitness goals set by the user.', style: TextStyle(color: Colors.grey))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: goals.asMap().entries.map((entry) {
-                      final i = entry.key;
-                      final g = entry.value.toString();
-                      return Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Row(
-                              children: [
-                                Icon(Icons.flag_rounded, color: CoachDashboardTheme.accent.withValues(alpha: 0.9), size: 18),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(g, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (i < goals.length - 1) const Divider(height: 1),
-                        ],
-                      );
-                    }).toList(),
+      body: RefreshIndicator(
+        onRefresh: _loadGroupData,
+        color: CoachDashboardTheme.primary,
+        child: ListView(
+          physics: dashboardScrollPhysics,
+          padding: const EdgeInsets.all(20),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: CoachDashboardTheme.cardDecoration(isDark),
+              child: Column(
+                children: [
+                  ProfileAvatar(
+                    name: name,
+                    photoUrl: _photoUrl(user),
+                    radius: 36,
                   ),
-          ),
-          const SizedBox(height: 24),
-          const Text('Client Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: CoachDashboardTheme.cardDecoration(isDark),
-            child: Column(
+                  const SizedBox(height: 16),
+                  Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(email, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                  if (phone.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(phone, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
               children: [
-                _InfoRow(label: 'Age', value: profile['age']?.toString() ?? 'Not specified'),
-                const Divider(height: 24),
-                _InfoRow(label: 'Height', value: profile['heightCm'] != null ? '${profile['heightCm']} cm' : 'Not specified'),
-                const Divider(height: 24),
-                _InfoRow(label: 'Weight', value: profile['weightKg'] != null ? '${profile['weightKg']} kg' : 'Not specified'),
-                const Divider(height: 24),
-                _InfoRow(label: 'Experience', value: profile['experience'] ?? 'Not specified'),
+                Expanded(
+                  child: _ActionButton(
+                    icon: Icons.chat_bubble_rounded,
+                    label: 'Message',
+                    color: CoachDashboardTheme.pink,
+                    onTap: () async {
+                      final coach = await ApiService().getMe();
+                      if (!context.mounted || coach == null) return;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) => ChatScreen(
+                            assignmentId: assignmentId,
+                            coachName: name,
+                            currentUser: coach,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ActionButton(
+                    icon: Icons.show_chart_rounded,
+                    label: 'Progress',
+                    color: CoachDashboardTheme.success,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) => CoachProgressTab(
+                            clientId: user['_id']?.toString(),
+                            clientName: name,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            _buildGroupSection(isDark),
+            const SizedBox(height: 24),
+            const Text('Fitness Goals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: CoachDashboardTheme.cardDecoration(isDark),
+              child: fitnessGoal.isEmpty
+                  ? const Text('No fitness goals set by the user.', style: TextStyle(color: Colors.grey))
+                  : Row(
+                      children: [
+                        Icon(Icons.flag_rounded, color: CoachDashboardTheme.accent.withValues(alpha: 0.9), size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(fitnessGoal, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        ),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 24),
+            const Text('Client Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: CoachDashboardTheme.cardDecoration(isDark),
+              child: Column(
+                children: [
+                  _InfoRow(label: 'Phone', value: _displayOrFallback(phone.isEmpty ? null : phone)),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Age', value: _displayOrFallback(clientProfile['age'])),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Gender', value: _displayOrFallback(clientProfile['gender'])),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Height', value: _displayOrFallback(clientProfile['height'], suffix: ' cm')),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Weight', value: _displayOrFallback(clientProfile['weight'], suffix: ' kg')),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Activity level', value: _displayOrFallback(activityLevel.isEmpty ? null : activityLevel)),
+                  const Divider(height: 24),
+                  _InfoRow(
+                    label: 'Medical notes',
+                    value: _displayOrFallback(medicalNotes.isEmpty ? null : medicalNotes),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -476,10 +540,20 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.grey)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Expanded(
+          flex: 2,
+          child: Text(label, style: const TextStyle(color: Colors.grey)),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
       ],
     );
   }

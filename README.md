@@ -7,7 +7,8 @@ Vital fitness app/
 └── mobile/     # Flutter app (User + Coach)
 ```
 
-**How they connect:** see [INTEGRATION.md](./INTEGRATION.md)
+**How they connect:** see [INTEGRATION.md](./INTEGRATION.md)  
+**Database relationships:** see [DATABASE.md](./DATABASE.md)
 
 ## Run
 

@@ -12,6 +12,7 @@ import { getErrorMessage } from "../api/client";
 import { formatDate, formatList } from "../utils/profileDisplay";
 import { coachDisplayEmail, coachDisplayName, coachProfileFromUser } from "../utils/coachDisplay";
 import ProfileDetails from "../components/ProfileDetails";
+import CertificateFilesGallery, { pickCertificateFiles } from "../components/CertificateFilesGallery";
 import {
   Badge,
   Breadcrumbs,
@@ -198,6 +199,15 @@ export default function CoachesPage() {
         dayAvailability: app.dayAvailability,
         appointmentDurationMinutes: app.appointmentDurationMinutes,
       }
+    );
+  }
+
+  function applicationCertificates(app) {
+    return pickCertificateFiles(
+      app?.certificateFiles,
+      app?.profile?.certificateFiles,
+      app?.user?.coachData?.certificateFiles,
+      app?.user?.profile?.certificateFiles,
     );
   }
 
@@ -403,9 +413,15 @@ export default function CoachesPage() {
 
   async function reject(id) {
     if (reviewingId) return;
+    const reasonInput = window.prompt(
+      "Optional rejection reason (shown to the coach):",
+      "",
+    );
+    if (reasonInput === null) return;
+    const reason = String(reasonInput).trim() || "Rejected by admin";
     setReviewingId(id);
     try {
-      await rejectCoachApplication(id, "Rejected by admin");
+      await rejectCoachApplication(id, reason);
       toast.warning("Application rejected");
       await load({ silent: true });
       setTab("applications");
@@ -464,6 +480,12 @@ export default function CoachesPage() {
               {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
             </span>
           </div>
+          {app.status === "rejected" && app.rejectionReason ? (
+            <div className="rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <p className="font-semibold">Rejection reason</p>
+              <p className="mt-1 leading-6">{app.rejectionReason}</p>
+            </div>
+          ) : null}
           <ProfileDetails
             profile={profile}
             extras={
@@ -472,6 +494,7 @@ export default function CoachesPage() {
                 : []
             }
           />
+          <CertificateFilesGallery files={applicationCertificates(app)} />
         </div>
       </Modal>
     );

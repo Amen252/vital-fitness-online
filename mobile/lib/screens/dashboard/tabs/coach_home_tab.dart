@@ -551,9 +551,10 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
                           try {
                             await _apiService.createSession({
                               'clientId': selectedClientId,
-                              'date': combined.toIso8601String(),
+                              'date': combined.toUtc().toIso8601String(),
                               'durationMinutes': duration,
                               'notes': notesController.text,
+                              'sessionMode': 'in_person',
                             });
                             if (context.mounted) Navigator.pop(context);
                             _fetchDashboardData();

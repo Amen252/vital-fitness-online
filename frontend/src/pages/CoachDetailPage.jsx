@@ -16,6 +16,7 @@ import {
 } from "../components/ui";
 import { CalendarDays, MapPin, UserRound, Users } from "lucide-react";
 import ProfileDetails from "../components/ProfileDetails";
+import CertificateFilesGallery, { pickCertificateFiles } from "../components/CertificateFilesGallery";
 import { formatDate } from "../utils/profileDisplay";
 import {
   coachDisplayEmail,
@@ -187,6 +188,12 @@ export default function CoachDetailPage() {
               label="Application status"
               value={application?.status || "—"}
             />
+            {application?.status === "rejected" && application?.rejectionReason ? (
+              <Row
+                label="Rejection reason"
+                value={application.rejectionReason}
+              />
+            ) : null}
           </dl>
         </Card>
 
@@ -206,6 +213,15 @@ export default function CoachDetailPage() {
                     ]
                   : []
               }
+            />
+          </div>
+          <div className="mt-5">
+            <CertificateFilesGallery
+              files={pickCertificateFiles(
+                application?.certificateFiles,
+                profile?.certificateFiles,
+                coach?.coachData?.certificateFiles,
+              )}
             />
           </div>
         </Card>

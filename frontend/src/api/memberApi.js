@@ -16,6 +16,9 @@ export const getMemberWorkoutProgress = (days = 7) =>
 export const getMemberDietProgress = (days = 7) =>
   api.get("/diet/progress", { params: { days } }).then((r) => r.data);
 
+export const logMemberDietAdherence = (payload) =>
+  api.post("/diet/adherence", payload).then((r) => r.data);
+
 export const getUserAppointments = () =>
   api.get("/user/appointments").then((r) => r.data);
 

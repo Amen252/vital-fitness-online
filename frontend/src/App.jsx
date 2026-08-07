@@ -17,6 +17,7 @@ import MemberDashboardPage from "./pages/role/MemberDashboardPage";
 import MemberProgressPage from "./pages/role/MemberProgressPage";
 import MemberSharePage from "./pages/role/MemberSharePage";
 import MemberAppointmentsPage from "./pages/role/MemberAppointmentsPage";
+import MemberSessionsPage from "./pages/role/MemberSessionsPage";
 import MemberCoachesPage from "./pages/role/MemberCoachesPage";
 import RoleAccountPage from "./pages/role/RoleAccountPage";
 import RoleNotificationsPage from "./pages/role/RoleNotificationsPage";
@@ -24,6 +25,7 @@ import RolePasswordPage from "./pages/role/RolePasswordPage";
 import CoachDashboardPage from "./pages/role/CoachDashboardPage";
 import CoachClientsPage from "./pages/role/CoachClientsPage";
 import CoachAppointmentsPage from "./pages/role/CoachAppointmentsPage";
+import CoachSessionsPage from "./pages/role/CoachSessionsPage";
 import { Spinner } from "./components/ui";
 
 export function dashboardPath(role) {
@@ -108,6 +110,7 @@ export default function App() {
         <Route path="dashboard" element={<MemberDashboardPage />} />
         <Route path="coaches" element={<MemberCoachesPage />} />
         <Route path="appointments" element={<MemberAppointmentsPage />} />
+        <Route path="sessions" element={<MemberSessionsPage />} />
         <Route path="account" element={<RoleAccountPage role="user" />} />
         <Route path="progress" element={<MemberProgressPage />} />
         <Route path="share" element={<MemberSharePage />} />
@@ -127,6 +130,7 @@ export default function App() {
         <Route path="dashboard" element={<CoachDashboardPage />} />
         <Route path="clients" element={<CoachClientsPage />} />
         <Route path="appointments" element={<CoachAppointmentsPage />} />
+        <Route path="sessions" element={<CoachSessionsPage />} />
         <Route path="account" element={<RoleAccountPage role="coach" />} />
         <Route path="notifications" element={<RoleNotificationsPage />} />
         <Route path="password" element={<RolePasswordPage role="coach" />} />

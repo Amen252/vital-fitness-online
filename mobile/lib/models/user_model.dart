@@ -24,6 +24,7 @@ class Profile {
   final String? photoUrl;
   final String? assignedCoachName;
   final String? assignedCoachId;
+  final List<Map<String, dynamic>> certificateFiles;
 
   Profile({
     this.age,
@@ -51,6 +52,7 @@ class Profile {
     this.photoUrl,
     this.assignedCoachName,
     this.assignedCoachId,
+    this.certificateFiles = const [],
   });
 
   static String _goalLabel(String? fitnessGoal) {
@@ -140,6 +142,13 @@ class Profile {
       photoUrl: json['photoUrl']?.toString() ?? json['avatar']?.toString(),
       assignedCoachName: json['assignedCoachName']?.toString(),
       assignedCoachId: json['assignedCoachId']?.toString(),
+      certificateFiles: (json['certificateFiles'] is List)
+          ? (json['certificateFiles'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .where((e) => (e['url']?.toString() ?? '').trim().isNotEmpty)
+              .toList()
+          : const [],
     );
   }
 
@@ -193,6 +202,10 @@ class Profile {
       'photoUrl': nested['photoUrl'] ?? json['avatar'],
       'assignedCoachName': coachName,
       'assignedCoachId': coachId,
+      'certificateFiles': (nested['certificateFiles'] is List &&
+              (nested['certificateFiles'] as List).isNotEmpty)
+          ? nested['certificateFiles']
+          : coach['certificateFiles'],
     });
   }
 
@@ -222,6 +235,7 @@ class Profile {
       'photoUrl': photoUrl,
       'assignedCoachName': assignedCoachName,
       'assignedCoachId': assignedCoachId,
+      'certificateFiles': certificateFiles,
     };
   }
 
@@ -251,6 +265,7 @@ class Profile {
     String? photoUrl,
     String? assignedCoachName,
     String? assignedCoachId,
+    List<Map<String, dynamic>>? certificateFiles,
   }) {
     return Profile(
       age: age ?? this.age,
@@ -279,6 +294,7 @@ class Profile {
       photoUrl: photoUrl ?? this.photoUrl,
       assignedCoachName: assignedCoachName ?? this.assignedCoachName,
       assignedCoachId: assignedCoachId ?? this.assignedCoachId,
+      certificateFiles: certificateFiles ?? this.certificateFiles,
     );
   }
 }

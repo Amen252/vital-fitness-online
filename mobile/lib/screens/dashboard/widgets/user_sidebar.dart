@@ -8,6 +8,7 @@ class UserSidebar extends StatelessWidget {
   final User user;
   final VoidCallback onOpenSchedule;
   final VoidCallback onOpenAppointments;
+  final VoidCallback onOpenSessions;
   final VoidCallback onOpenWorkouts;
   final VoidCallback onOpenNotifications;
 
@@ -16,6 +17,7 @@ class UserSidebar extends StatelessWidget {
     required this.user,
     required this.onOpenSchedule,
     required this.onOpenAppointments,
+    required this.onOpenSessions,
     required this.onOpenWorkouts,
     required this.onOpenNotifications,
   });
@@ -105,6 +107,13 @@ class UserSidebar extends StatelessWidget {
                   'Appointments',
                   isDark,
                   () => _push(context, onOpenAppointments),
+                ),
+                _buildDrawerPush(
+                  context,
+                  Icons.people_alt_rounded,
+                  '1-on-1 Sessions',
+                  isDark,
+                  () => _push(context, onOpenSessions),
                 ),
                 _buildDrawerPush(
                   context,

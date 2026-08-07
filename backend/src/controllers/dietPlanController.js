@@ -105,6 +105,7 @@ function normalizeFoodItems(value) {
 }
 
 function normalizeMeal(meal, fallbackType) {
+  const { normalizeReminderTime } = require('../utils/mealReminderUtils');
   const type = MEAL_TYPES.includes(meal?.type)
     ? meal.type
     : (fallbackType || _inferMealType(meal?.name));
@@ -118,7 +119,7 @@ function normalizeMeal(meal, fallbackType) {
     protein: Math.max(0, Number(meal?.protein) || 0),
     carbs: Math.max(0, Number(meal?.carbs) || 0),
     fats: Math.max(0, Number(meal?.fats) || 0),
-    reminderTime: String(meal?.reminderTime || '').trim(),
+    reminderTime: normalizeReminderTime(meal?.reminderTime),
     prepInstructions: String(meal?.prepInstructions || '').trim(),
     mealNotes: String(meal?.mealNotes || meal?.notes || '').trim(),
   };
@@ -1083,6 +1084,14 @@ async function createOrUpdateDietPlan(req, res) {
     const shouldNotify = resolvedStatus === 'active';
     const resolvedCalories = caloriesCheck.value;
 
+    if (shouldNotify) {
+      const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
+      const mealTimeCheck = validateActivePlanMealTimes(structure);
+      if (mealTimeCheck?.error) {
+        return res.status(400).json({ message: mealTimeCheck.error });
+      }
+    }
+
     const existingActive = await findActivePlanForAssignee(
       req.user._id,
       { clientId, fitnessClassId },
@@ -1255,6 +1264,14 @@ async function updateDietPlanById(req, res) {
       });
       if (structure.error) {
         return res.status(400).json({ message: structure.error });
+      }
+      const nextStatus = status ? normalizeStatus(status) : plan.status;
+      if (nextStatus === 'active') {
+        const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
+        const mealTimeCheck = validateActivePlanMealTimes(structure);
+        if (mealTimeCheck?.error) {
+          return res.status(400).json({ message: mealTimeCheck.error });
+        }
       }
       plan.planType = structure.planType;
       plan.meals = structure.meals;
@@ -1667,17 +1684,23 @@ async function sendGroupMealReminders(req, res) {
     });
     if (!plan) return res.status(404).json({ message: 'No active diet plan for this group' });
 
+    const { buildMealReminderPayload, normalizeReminderTime } = require('../utils/mealReminderUtils');
+    const { mealHasContent: hasMeal } = require('../utils/mealAdherenceUtils');
     const studentIds = (fitnessClass.enrolledStudents || []).map((id) => id);
-    const dayMeals = mealsForReminders(plan);
-    const mealsWithReminders = dayMeals.filter((m) => m.reminderTime);
+    const dayMeals = mealsForReminders(plan).filter((m) => hasMeal(m));
+    const mealsWithReminders = dayMeals.filter((m) => normalizeReminderTime(m.reminderTime));
     const mealsToSend = mealsWithReminders.length ? mealsWithReminders : dayMeals;
+    const dateKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
     for (const studentId of studentIds) {
       for (const meal of mealsToSend) {
-        const msg = meal.reminderTime
-          ? `Meal reminder at ${meal.reminderTime}: ${meal.name || meal.type} — ${meal.calories || 0} kcal.`
-          : `Meal reminder: Time for ${meal.name || meal.type} (${meal.calories || 0} kcal).`;
-        await Notification.create({ user: studentId, message: msg, type: 'reminder' });
+        const payload = buildMealReminderPayload(plan, meal, { dateKey });
+        await Notification.create({
+          user: studentId,
+          message: payload.message,
+          type: payload.type,
+          data: payload.data,
+        });
       }
     }
 
@@ -1700,28 +1723,24 @@ async function sendMealReminders(req, res) {
     const plan = await DietPlan.findOne({ coach: req.user._id, client: clientId, status: 'active' });
     if (!plan) return res.status(404).json({ message: 'No active diet plan for client' });
 
-    const dayMeals = mealsForReminders(plan);
-    const mealsWithReminders = dayMeals.filter((m) => m.reminderTime);
-    if (mealsWithReminders.length === 0) {
-      for (const meal of dayMeals) {
-        await Notification.create({
-          user: clientId,
-          message: `Meal reminder: Time for ${meal.name || meal.type} (${meal.calories || 0} kcal).`,
-          type: 'reminder',
-        });
-      }
-      return res.json({ sent: dayMeals.length, message: 'Meal reminders sent' });
-    }
+    const { buildMealReminderPayload, normalizeReminderTime } = require('../utils/mealReminderUtils');
+    const { mealHasContent: hasMeal } = require('../utils/mealAdherenceUtils');
+    const dayMeals = mealsForReminders(plan).filter((m) => hasMeal(m));
+    const mealsWithReminders = dayMeals.filter((m) => normalizeReminderTime(m.reminderTime));
+    const mealsToSend = mealsWithReminders.length ? mealsWithReminders : dayMeals;
+    const dateKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
-    for (const meal of mealsWithReminders) {
+    for (const meal of mealsToSend) {
+      const payload = buildMealReminderPayload(plan, meal, { dateKey });
       await Notification.create({
         user: clientId,
-        message: `Meal reminder at ${meal.reminderTime}: ${meal.name || meal.type} — ${meal.calories || 0} kcal.`,
-        type: 'reminder',
+        message: payload.message,
+        type: payload.type,
+        data: payload.data,
       });
     }
 
-    return res.json({ sent: mealsWithReminders.length, message: 'Meal reminders sent' });
+    return res.json({ sent: mealsToSend.length, message: 'Meal reminders sent' });
   } catch (error) {
     console.error('sendMealReminders:', error.message);
     return res.status(500).json({ message: 'Error sending reminders' });

@@ -1574,6 +1574,10 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     if (!_weeklyTemplateComplete) {
       issues.add('Meals: add ${_weeklyTemplateMissing.join(', ')}.');
     }
+    final missingTimes = _dayBuckets[0].missingMealTimes();
+    if (missingTimes.isNotEmpty) {
+      issues.add('Meal times required for reminders: ${missingTimes.join(', ')}.');
+    }
     if (_weeklySelectedDays.isEmpty) {
       issues.add('Select at least one day (or use Select All Days).');
     }
@@ -1649,6 +1653,19 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         const SnackBar(content: Text('Select a user or group first.'), backgroundColor: CoachDashboardTheme.warning),
       );
       return;
+    }
+
+    if (status == 'active') {
+      final missingTimes = _activeBucket.missingMealTimes();
+      if (missingTimes.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Set a Meal Time for: ${missingTimes.join(', ')}. Reminders fire at that time.'),
+            backgroundColor: CoachDashboardTheme.warning,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _saving = true);
@@ -2168,20 +2185,14 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
             ),
           ),
         ],
-        const SizedBox(height: 20),
-        _coachFormSectionHeader(
-          isDark,
-          step: null,
-          title: 'Notes & send',
-          subtitle: 'Optional coach notes, then save or draft',
-        ),
-        TextField(
-          controller: _notesCtrl,
-          readOnly: readOnly,
-          maxLines: 3,
-          decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Coach Notes'),
-        ),
         if (!readOnly) ...[
+          const SizedBox(height: 20),
+          _coachFormSectionHeader(
+            isDark,
+            step: null,
+            title: 'Save & send',
+            subtitle: 'Save as draft or send the plan to the assignee',
+          ),
           const SizedBox(height: 20),
           if (_planType == 'weekly' && (!_weeklyTemplateComplete || _weeklySelectedDays.isEmpty)) ...[
             Text(
@@ -2638,9 +2649,7 @@ class _DayMealsBucket {
 
   void clear() {
     for (final form in mealForms.values) {
-      form.name.clear();
-      form.description.clear();
-      form.reminder.clear();
+      form.clearFields();
     }
     for (final form in snackForms) {
       form.dispose();
@@ -2685,6 +2694,20 @@ class _DayMealsBucket {
     return missing;
   }
 
+  List<String> missingMealTimes() {
+    final missing = <String>[];
+    for (final entry in mealForms.entries) {
+      if (entry.value.hasContent && !entry.value.hasValidMealTime) {
+        missing.add(entry.key[0].toUpperCase() + entry.key.substring(1));
+      }
+    }
+    final snacksNeedingTime = snackForms.where((f) => f.hasContent && !f.hasValidMealTime).toList();
+    if (snacksNeedingTime.isNotEmpty) {
+      missing.add(snacksNeedingTime.length == 1 ? 'Snacks' : 'Snacks (${snacksNeedingTime.length})');
+    }
+    return missing;
+  }
+
   void dispose() {
     for (final form in mealForms.values) {
       form.dispose();
@@ -2699,70 +2722,294 @@ class _DayMealsBucket {
 class _MealForm {
   final name = TextEditingController();
   final description = TextEditingController();
-  final foodItems = TextEditingController();
-  final portion = TextEditingController();
   final calories = TextEditingController();
   final protein = TextEditingController();
   final carbs = TextEditingController();
   final fats = TextEditingController();
   final reminder = TextEditingController();
-  final prep = TextEditingController();
-  final notes = TextEditingController();
+  /// Preserved when editing so existing plans keep prep/notes/portion after UI simplification.
+  String _preservedPrep = '';
+  String _preservedNotes = '';
+  String _preservedPortion = '';
 
   bool get hasContent =>
       name.text.trim().isNotEmpty ||
       description.text.trim().isNotEmpty ||
-      foodItems.text.trim().isNotEmpty ||
-      portion.text.trim().isNotEmpty ||
-      prep.text.trim().isNotEmpty;
+      (int.tryParse(calories.text.trim()) ?? 0) > 0 ||
+      reminder.text.trim().isNotEmpty;
+
+  bool get hasValidMealTime {
+    final raw = reminder.text.trim();
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(raw);
+    if (match == null) return false;
+    final h = int.tryParse(match.group(1)!);
+    final m = int.tryParse(match.group(2)!);
+    return h != null && m != null && h >= 0 && h <= 23 && m >= 0 && m <= 59;
+  }
+
+  void clearFields() {
+    name.clear();
+    description.clear();
+    calories.clear();
+    protein.clear();
+    carbs.clear();
+    fats.clear();
+    reminder.clear();
+    _preservedPrep = '';
+    _preservedNotes = '';
+    _preservedPortion = '';
+  }
 
   void load(DietMeal meal) {
     name.text = meal.name;
-    description.text = meal.description;
-    foodItems.text = meal.foodItems.join('\n');
-    portion.text = meal.portionSize;
+    final desc = meal.description.trim();
+    description.text = desc.isNotEmpty ? desc : meal.foodItems.join('\n');
     calories.text = meal.calories > 0 ? '${meal.calories}' : '';
     protein.text = meal.protein > 0 ? '${meal.protein}' : '';
     carbs.text = meal.carbs > 0 ? '${meal.carbs}' : '';
     fats.text = meal.fats > 0 ? '${meal.fats}' : '';
     reminder.text = meal.reminderTime;
-    prep.text = meal.prepInstructions;
-    notes.text = meal.mealNotes;
+    _preservedPrep = meal.prepInstructions;
+    _preservedNotes = meal.mealNotes;
+    _preservedPortion = meal.portionSize;
   }
 
-  DietMeal toMeal(String type) => DietMeal(
-        type: type,
-        name: name.text.trim().isEmpty
-            ? (type == 'snacks' ? 'Snack' : DietMeal.empty(type).name)
-            : name.text.trim(),
-        description: description.text.trim(),
-        foodItems: foodItems.text
-            .split(RegExp(r'[\n,;]'))
-            .map((s) => s.trim())
-            .where((s) => s.isNotEmpty)
-            .toList(),
-        portionSize: portion.text.trim(),
-        calories: int.tryParse(calories.text.trim()) ?? 0,
-        protein: int.tryParse(protein.text.trim()) ?? 0,
-        carbs: int.tryParse(carbs.text.trim()) ?? 0,
-        fats: int.tryParse(fats.text.trim()) ?? 0,
-        reminderTime: reminder.text.trim(),
-        prepInstructions: prep.text.trim(),
-        mealNotes: notes.text.trim(),
-      );
+  DietMeal toMeal(String type) {
+    final desc = description.text.trim();
+    final items = desc
+        .split(RegExp(r'[\n,;]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    var reminderTime = reminder.text.trim();
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(reminderTime);
+    if (match != null) {
+      final h = int.parse(match.group(1)!).clamp(0, 23);
+      final m = int.parse(match.group(2)!).clamp(0, 59);
+      reminderTime = '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+    return DietMeal(
+      type: type,
+      name: name.text.trim().isEmpty
+          ? (type == 'snacks' ? 'Snack' : DietMeal.empty(type).name)
+          : name.text.trim(),
+      description: desc,
+      foodItems: items,
+      portionSize: _preservedPortion,
+      calories: int.tryParse(calories.text.trim()) ?? 0,
+      protein: int.tryParse(protein.text.trim()) ?? 0,
+      carbs: int.tryParse(carbs.text.trim()) ?? 0,
+      fats: int.tryParse(fats.text.trim()) ?? 0,
+      reminderTime: reminderTime,
+      prepInstructions: _preservedPrep,
+      mealNotes: _preservedNotes,
+    );
+  }
 
   void dispose() {
     name.dispose();
     description.dispose();
-    foodItems.dispose();
-    portion.dispose();
     calories.dispose();
     protein.dispose();
     carbs.dispose();
     fats.dispose();
     reminder.dispose();
-    prep.dispose();
-    notes.dispose();
+  }
+}
+
+/// Shared essential meal fields for create/edit diet meals.
+class _MealEssentialFields extends StatelessWidget {
+  final _MealForm form;
+  final bool isDark;
+  final bool readOnly;
+  final VoidCallback? onEdited;
+  final String nameLabel;
+
+  const _MealEssentialFields({
+    required this.form,
+    required this.isDark,
+    this.readOnly = false,
+    this.onEdited,
+    this.nameLabel = 'Meal Name',
+  });
+
+  void _edited() => onEdited?.call();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          controller: form.name,
+          readOnly: readOnly,
+          onChanged: readOnly ? null : (_) => _edited(),
+          decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: nameLabel),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: form.description,
+          readOnly: readOnly,
+          maxLines: 3,
+          onChanged: readOnly ? null : (_) => _edited(),
+          decoration: CoachDashboardTheme.fieldDecoration(
+            isDark: isDark,
+            label: 'Food Items / Description',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: form.calories,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Calories'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: form.protein,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Protein (g)'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: form.carbs,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Carbs (g)'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: form.fats,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Fat (g)'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _MealTimeField(
+          controller: form.reminder,
+          isDark: isDark,
+          readOnly: readOnly,
+          onChanged: readOnly ? null : _edited,
+        ),
+      ],
+    );
+  }
+}
+
+class _MealTimeField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isDark;
+  final bool readOnly;
+  final VoidCallback? onChanged;
+
+  const _MealTimeField({
+    required this.controller,
+    required this.isDark,
+    this.readOnly = false,
+    this.onChanged,
+  });
+
+  TimeOfDay _parsedTime() {
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(controller.text.trim());
+    if (match != null) {
+      final h = int.tryParse(match.group(1)!);
+      final m = int.tryParse(match.group(2)!);
+      if (h != null && m != null) return TimeOfDay(hour: h.clamp(0, 23), minute: m.clamp(0, 59));
+    }
+    return const TimeOfDay(hour: 8, minute: 0);
+  }
+
+  Future<void> _pick(BuildContext context) async {
+    if (readOnly) return;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _parsedTime(),
+      helpText: 'Meal reminder time',
+    );
+    if (picked == null) return;
+    final hh = picked.hour.toString().padLeft(2, '0');
+    final mm = picked.minute.toString().padLeft(2, '0');
+    controller.text = '$hh:$mm';
+    onChanged?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      readOnly: true,
+      onTap: readOnly ? null : () => _pick(context),
+      decoration: CoachDashboardTheme.fieldDecoration(
+        isDark: isDark,
+        label: 'Meal Time (reminder)',
+      ).copyWith(
+        hintText: 'Tap to set reminder time',
+        suffixIcon: IconButton(
+          tooltip: 'Pick time',
+          onPressed: readOnly ? null : () => _pick(context),
+          icon: const Icon(Icons.alarm_rounded),
+        ),
+      ),
+    );
+  }
+}
+
+class _MealSection extends StatelessWidget {
+  final String label;
+  final _MealForm form;
+  final bool isDark;
+  final bool readOnly;
+  final VoidCallback? onEdited;
+
+  const _MealSection({
+    required this.label,
+    required this.form,
+    required this.isDark,
+    this.readOnly = false,
+    this.onEdited,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: CoachDashboardTheme.cardDecoration(isDark),
+      child: ExpansionTile(
+        initiallyExpanded: label == 'breakfast',
+        title: Text(label[0].toUpperCase() + label.substring(1), style: CoachDashboardTheme.sectionTitle(isDark)),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: _MealEssentialFields(
+              form: form,
+              isDark: isDark,
+              readOnly: readOnly,
+              onEdited: onEdited,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -2784,163 +3031,6 @@ const List<String> _snackOptions = [
   'Edamame',
   'Oatmeal',
 ];
-
-class _MealSection extends StatelessWidget {
-  final String label;
-  final _MealForm form;
-  final bool isDark;
-  final bool readOnly;
-  final VoidCallback? onEdited;
-
-  const _MealSection({
-    required this.label,
-    required this.form,
-    required this.isDark,
-    this.readOnly = false,
-    this.onEdited,
-  });
-
-  void _edited() => onEdited?.call();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: CoachDashboardTheme.cardDecoration(isDark),
-      child: ExpansionTile(
-        initiallyExpanded: label == 'breakfast',
-        title: Text(label[0].toUpperCase() + label.substring(1), style: CoachDashboardTheme.sectionTitle(isDark)),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              children: [
-                TextField(
-                  controller: form.name,
-                  readOnly: readOnly,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Meal Name'),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.description,
-                  readOnly: readOnly,
-                  maxLines: 2,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Food items / description',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.foodItems,
-                  readOnly: readOnly,
-                  maxLines: 3,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Food items (one per line, optional)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.portion,
-                  readOnly: readOnly,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Portion size',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: form.calories,
-                        readOnly: readOnly,
-                        keyboardType: TextInputType.number,
-                        onChanged: readOnly ? null : (_) => _edited(),
-                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Calories'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: form.protein,
-                        readOnly: readOnly,
-                        keyboardType: TextInputType.number,
-                        onChanged: readOnly ? null : (_) => _edited(),
-                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Protein (g)'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: form.carbs,
-                        readOnly: readOnly,
-                        keyboardType: TextInputType.number,
-                        onChanged: readOnly ? null : (_) => _edited(),
-                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Carbs (g)'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: form.fats,
-                        readOnly: readOnly,
-                        keyboardType: TextInputType.number,
-                        onChanged: readOnly ? null : (_) => _edited(),
-                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Fat (g)'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.reminder,
-                  readOnly: readOnly,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Meal time / reminder (e.g. 08:00)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.prep,
-                  readOnly: readOnly,
-                  maxLines: 2,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Preparation instructions (optional)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: form.notes,
-                  readOnly: readOnly,
-                  maxLines: 2,
-                  onChanged: readOnly ? null : (_) => _edited(),
-                  decoration: CoachDashboardTheme.fieldDecoration(
-                    isDark: isDark,
-                    label: 'Meal notes (optional)',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _SnacksListSection extends StatelessWidget {
   final List<_MealForm> snackForms;
@@ -3049,22 +3139,11 @@ class _SnacksListSection extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        TextField(
-                          controller: form.name,
+                        _MealEssentialFields(
+                          form: form,
+                          isDark: isDark,
                           readOnly: readOnly,
-                          decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Snack Name'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: form.description,
-                          readOnly: readOnly,
-                          decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Notes (optional)'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: form.reminder,
-                          readOnly: readOnly,
-                          decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Reminder Time (e.g. 15:00)'),
+                          nameLabel: 'Snack Name',
                         ),
                       ],
                     ),

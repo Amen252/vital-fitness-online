@@ -1,12 +1,41 @@
 const express = require('express');
-const { bookSession, getSessions, updateSessionStatus } = require('../controllers/sessionController');
+const {
+  bookSession,
+  getSessions,
+  updateSessionStatus,
+  confirmSession,
+  rescheduleSession,
+  startSession,
+  updateMeetingLink,
+  completeSession,
+  cancelSession,
+  updateSessionNotes,
+  updateSession,
+  deleteSession,
+  addSessionAttachment,
+  createFollowUpSession,
+} = require('../controllers/sessionController');
 const auth = require('../middleware/auth');
 const roles = require('../middleware/roles');
 
 const router = express.Router();
 
+// Existing endpoints (kept)
 router.post('/', auth, roles('user', 'coach'), bookSession);
 router.get('/', auth, getSessions);
 router.patch('/:id/status', auth, updateSessionStatus);
+
+// Additive 1-on-1 coach/member actions (Session collection only)
+router.patch('/:id/confirm', auth, roles('coach'), confirmSession);
+router.patch('/:id/reschedule', auth, roles('coach'), rescheduleSession);
+router.patch('/:id/start', auth, roles('coach'), startSession);
+router.patch('/:id/meeting-link', auth, roles('coach'), updateMeetingLink);
+router.patch('/:id/complete', auth, roles('coach'), completeSession);
+router.patch('/:id/cancel', auth, roles('user', 'coach'), cancelSession);
+router.patch('/:id/notes', auth, roles('coach'), updateSessionNotes);
+router.patch('/:id', auth, roles('coach'), updateSession);
+router.delete('/:id', auth, roles('coach', 'admin'), deleteSession);
+router.post('/:id/attachments', auth, roles('coach'), addSessionAttachment);
+router.post('/:id/follow-up', auth, roles('coach'), createFollowUpSession);
 
 module.exports = router;

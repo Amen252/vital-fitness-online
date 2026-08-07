@@ -8,6 +8,18 @@ const coachApplicationSchema = new mongoose.Schema(
     location: { type: String, required: true, trim: true },
     yearsExperience: { type: Number, required: true },
     certifications: { type: String, required: true, trim: true },
+    /** Uploaded certificate files (ImageKit CDN URLs) for admin review */
+    certificateFiles: {
+      type: [
+        {
+          url: { type: String, required: true },
+          fileName: { type: String, default: '' },
+          mimeType: { type: String, default: '' },
+          uploadedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     specialization: { type: String, required: true, trim: true },
     bio: { type: String, default: '', trim: true },
     experience: { type: String, default: '', trim: true },
@@ -28,6 +40,7 @@ const coachApplicationSchema = new mongoose.Schema(
       type: Number,
       default: 60,
     },
+    rejectionReason: { type: String, default: '', trim: true },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],

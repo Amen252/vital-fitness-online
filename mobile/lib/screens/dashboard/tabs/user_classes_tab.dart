@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../user_class_detail_screen.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
+import '../../../widgets/profile_avatar.dart';
 import '../../../utils/date_utils.dart';
 import '../../../utils/workout_media_urls.dart';
 import '../../../widgets/workout_proof_sheet.dart';
@@ -77,7 +79,11 @@ class UserClassesTabState extends State<UserClassesTab>
         finishTabLoad(() {
           _classes = List<dynamic>.from(results[0] as List);
           _availableClasses = List<dynamic>.from(results[1] as List);
-          _sessions = List<dynamic>.from(results[2] as List);
+          _sessions = (results[2] as List).map((raw) {
+            final map = Map<String, dynamic>.from(raw as Map);
+            map['_isOneOnOne'] = true;
+            return map;
+          }).toList();
           final scheduleData = Map<String, dynamic>.from(results[3] as Map);
           _workoutSchedules = List<dynamic>.from(scheduleData['all'] as List<dynamic>? ?? []);
         });
@@ -245,15 +251,21 @@ class UserClassesTabState extends State<UserClassesTab>
     final now = DateTime.now();
     final list = [..._classes, ..._sessions, ..._workoutSchedules];
     return list.where((item) {
-      final dateStr = item['date'] as String? ?? item['scheduledAt'] as String? ?? item['startDateTime'] as String? ?? '';
+      final dateStr = item['date'] as String? ??
+          item['dateTime'] as String? ??
+          item['datetime'] as String? ??
+          item['scheduledAt'] as String? ??
+          item['startDateTime'] as String? ??
+          '';
       final d = DateTime.tryParse(dateStr);
       final status = item['status'] as String? ?? item['completion']?['status'] as String? ?? '';
-      if (status == 'completed' || status == 'cancelled') return false;
-      return d != null && d.isAfter(now);
+      if (['completed', 'cancelled', 'rejected', 'no_show'].contains(status)) return false;
+      if (status == 'in_progress') return true;
+      return d != null && d.isAfter(now.subtract(const Duration(hours: 1)));
     }).toList()
       ..sort((a, b) {
-        final da = DateTime.tryParse((a['date'] ?? a['scheduledAt'] ?? a['startDateTime'] ?? '') as String) ?? DateTime(2100);
-        final db = DateTime.tryParse((b['date'] ?? b['scheduledAt'] ?? b['startDateTime'] ?? '') as String) ?? DateTime(2100);
+        final da = DateTime.tryParse((a['date'] ?? a['dateTime'] ?? a['datetime'] ?? a['scheduledAt'] ?? a['startDateTime'] ?? '') as String) ?? DateTime(2100);
+        final db = DateTime.tryParse((b['date'] ?? b['dateTime'] ?? b['datetime'] ?? b['scheduledAt'] ?? b['startDateTime'] ?? '') as String) ?? DateTime(2100);
         return da.compareTo(db);
       });
   }
@@ -262,15 +274,22 @@ class UserClassesTabState extends State<UserClassesTab>
     final now = DateTime.now();
     final list = [..._classes, ..._sessions, ..._workoutSchedules];
     return list.where((item) {
-      final dateStr = item['date'] as String? ?? item['scheduledAt'] as String? ?? item['startDateTime'] as String? ?? '';
+      final dateStr = item['date'] as String? ??
+          item['dateTime'] as String? ??
+          item['datetime'] as String? ??
+          item['scheduledAt'] as String? ??
+          item['startDateTime'] as String? ??
+          '';
       final d = DateTime.tryParse(dateStr);
       final completionStatus = item['completion']?['status'] as String?;
+      final status = item['status'] as String? ?? '';
       if (completionStatus == 'completed') return true;
-      return d != null && d.isBefore(now);
+      if (['completed', 'cancelled', 'rejected', 'no_show'].contains(status)) return true;
+      return d != null && d.isBefore(now.subtract(const Duration(hours: 1))) && status != 'in_progress';
     }).toList()
       ..sort((a, b) {
-        final da = DateTime.tryParse((a['date'] ?? a['scheduledAt'] ?? a['startDateTime'] ?? '') as String) ?? DateTime(0);
-        final db = DateTime.tryParse((b['date'] ?? b['scheduledAt'] ?? b['startDateTime'] ?? '') as String) ?? DateTime(0);
+        final da = DateTime.tryParse((a['date'] ?? a['dateTime'] ?? a['datetime'] ?? a['scheduledAt'] ?? a['startDateTime'] ?? '') as String) ?? DateTime(0);
+        final db = DateTime.tryParse((b['date'] ?? b['dateTime'] ?? b['datetime'] ?? b['scheduledAt'] ?? b['startDateTime'] ?? '') as String) ?? DateTime(0);
         return db.compareTo(da);
       });
   }
@@ -506,11 +525,21 @@ class UserClassesTabState extends State<UserClassesTab>
   }
 
   Widget _buildClassCard(Map<dynamic, dynamic> item, bool isDark, {required bool isUpcoming, bool isAvailable = false}) {
+    final isOneOnOne = item['_isOneOnOne'] == true ||
+        (item['sessionMode'] != null && item['title'] == null && item['category'] == null && item['type'] != 'workout_schedule');
+    if (isOneOnOne) {
+      return _buildOneOnOneCard(Map<String, dynamic>.from(item), isDark, isUpcoming: isUpcoming);
+    }
+
     final classId = item['_id']?.toString() ?? '';
     final title = item['title'] as String? ?? item['type'] as String? ?? 'Training Session';
     final isWorkoutSchedule = item['type'] == 'workout_schedule';
     final dateStr = item['date'] as String? ?? item['scheduledAt'] as String? ?? item['startDateTime'] as String? ?? '';
-    final coachName = item['coach']?['name'] as String? ?? item['trainer']?['name'] as String? ?? 'Your Coach';
+    final coachName = item['coach']?['name'] as String? ??
+        item['coach']?['full_name'] as String? ??
+        item['coach']?['username'] as String? ??
+        item['trainer']?['name'] as String? ??
+        'Your Coach';
     final duration = item['durationMinutes'] as int? ?? item['duration'] as int? ?? 60;
     final completionStatus = item['completion']?['status'] as String? ?? '';
     final status = completionStatus.isNotEmpty
@@ -743,10 +772,135 @@ class UserClassesTabState extends State<UserClassesTab>
   Color _statusColor(String status) {
     switch (status.toLowerCase()) {
       case 'completed': return Colors.green;
-      case 'confirmed': return const Color(0xFF00D4AA);
-      case 'cancelled': return const Color(0xFFFF6B6B);
-      case 'pending': return const Color(0xFFFFB74D);
+      case 'confirmed':
+      case 'approved': return const Color(0xFF00D4AA);
+      case 'in_progress': return const Color(0xFF0EA5E9);
+      case 'cancelled':
+      case 'rejected':
+      case 'no_show': return const Color(0xFFFF6B6B);
+      case 'pending':
+      case 'rescheduled': return const Color(0xFFFFB74D);
       default: return CoachDashboardTheme.primary;
     }
+  }
+
+  String _oneOnOneStatusLabel(String status) {
+    switch (status) {
+      case 'approved':
+      case 'confirmed':
+        return 'Confirmed';
+      case 'in_progress':
+        return 'In Progress';
+      case 'pending':
+        return 'Pending';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+      case 'rejected':
+        return 'Cancelled';
+      case 'rescheduled':
+        return 'Rescheduled';
+      case 'no_show':
+        return 'Missed';
+      default:
+        return status.replaceAll('_', ' ').toUpperCase();
+    }
+  }
+
+  Widget _buildOneOnOneCard(Map<String, dynamic> item, bool isDark, {required bool isUpcoming}) {
+    final status = item['status']?.toString() ?? (isUpcoming ? 'pending' : 'completed');
+    final statusColor = _statusColor(status);
+    final coachMap = item['coach'] is Map ? Map<dynamic, dynamic>.from(item['coach'] as Map) : null;
+    final coachName = ApiService.displayName(coachMap, fallback: 'Your Coach');
+    final photo = coachMap?['avatar']?.toString() ?? coachMap?['photoUrl']?.toString();
+    final dateStr = (item['dateTime'] ?? item['datetime'] ?? item['date'] ?? '').toString();
+    final duration = item['durationMinutes'] ?? item['duration'] ?? 60;
+    final mode = item['sessionMode']?.toString() == 'online' ? 'Online' : 'In Person';
+    final notes = item['notes']?.toString().trim() ?? '';
+    final coachNotes = item['coachNotes']?.toString().trim() ?? '';
+    final meetingLink = item['meetingLink']?.toString().trim() ?? '';
+    final canJoin = meetingLink.isNotEmpty &&
+        ['approved', 'confirmed', 'rescheduled', 'in_progress'].contains(status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF181B24) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isUpcoming ? CoachDashboardTheme.primary.withOpacity(0.2) : Colors.grey.withOpacity(0.15),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ProfileAvatar(name: coachName, photoUrl: photo, radius: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('1-on-1 Session', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text('with $coachName', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _oneOnOneStatusLabel(status),
+                  style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey[500]),
+              const SizedBox(width: 6),
+              Expanded(child: Text(_formatDateTime(dateStr), style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
+              Icon(Icons.timer_outlined, size: 14, color: Colors.grey[500]),
+              const SizedBox(width: 6),
+              Text('$duration min · $mode', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ],
+          ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(notes, style: TextStyle(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic)),
+          ],
+          if (status == 'completed' && coachNotes.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('Coach notes: $coachNotes', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ],
+          if (canJoin) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.tryParse(meetingLink);
+                  if (uri == null) return;
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                },
+                icon: const Icon(Icons.videocam_rounded),
+                label: const Text('Join online session'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: CoachDashboardTheme.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }

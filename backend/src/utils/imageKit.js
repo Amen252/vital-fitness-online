@@ -30,10 +30,15 @@ function getImageKit() {
 }
 
 const DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/i;
+const FILE_DATA_URL_RE = /^data:(image\/(png|jpe?g|webp|gif)|application\/pdf);base64,/i;
 const HTTP_URL_RE = /^https?:\/\//i;
 
 function isDataUrl(value) {
   return DATA_URL_RE.test(String(value || ''));
+}
+
+function isFileDataUrl(value) {
+  return FILE_DATA_URL_RE.test(String(value || ''));
 }
 
 function isHttpUrl(value) {
@@ -41,11 +46,18 @@ function isHttpUrl(value) {
 }
 
 function extensionFromDataUrl(dataUrl) {
-  const match = String(dataUrl).match(/^data:image\/(png|jpe?g|webp|gif);base64,/i);
+  const match = String(dataUrl).match(/^data:(image\/(png|jpe?g|webp|gif)|application\/pdf);base64,/i);
   if (!match) return 'jpg';
-  const type = match[1].toLowerCase();
+  const mime = match[1].toLowerCase();
+  if (mime === 'application/pdf') return 'pdf';
+  const type = mime.replace('image/', '');
   if (type === 'jpeg' || type === 'jpg') return 'jpg';
   return type;
+}
+
+function mimeFromDataUrl(dataUrl) {
+  const match = String(dataUrl).match(/^data:([^;]+);base64,/i);
+  return match ? match[1].toLowerCase() : '';
 }
 
 function base64FromDataUrl(dataUrl) {
@@ -75,15 +87,41 @@ async function uploadImageDataUrl(dataUrl, {
     throw err;
   }
 
+  return uploadFileDataUrl(value, { folder, fileNamePrefix, tags });
+}
+
+/**
+ * Upload image or PDF data URL to ImageKit. Returns CDN URL.
+ */
+async function uploadFileDataUrl(dataUrl, {
+  folder = '/vital',
+  fileNamePrefix = 'file',
+  tags = [],
+  fileName,
+} = {}) {
+  const value = String(dataUrl ?? '').trim();
+  if (!value) return '';
+
+  if (isHttpUrl(value)) return value;
+
+  if (!isFileDataUrl(value)) {
+    const err = new Error('File must be a JPG, PNG, or PDF data URL, or an https URL');
+    err.code = 'INVALID_FILE';
+    throw err;
+  }
+
   const client = getImageKit();
   const ext = extensionFromDataUrl(value);
-  const fileName = `${fileNamePrefix}_${Date.now()}.${ext}`;
+  const resolvedName = fileName
+    ? String(fileName).replace(/[^\w.\-]+/g, '_').slice(0, 80)
+    : `${fileNamePrefix}_${Date.now()}.${ext}`;
+  const finalName = resolvedName.endsWith(`.${ext}`) ? resolvedName : `${resolvedName}.${ext}`;
   const buffer = Buffer.from(base64FromDataUrl(value), 'base64');
-  const file = await toFile(buffer, fileName);
+  const file = await toFile(buffer, finalName);
 
   const result = await client.files.upload({
     file,
-    fileName,
+    fileName: finalName,
     folder,
     tags: Array.isArray(tags) ? tags : [],
     useUniqueFileName: true,
@@ -101,8 +139,13 @@ async function uploadImageDataUrl(dataUrl, {
 module.exports = {
   isImageKitConfigured,
   isDataUrl,
+  isFileDataUrl,
   isHttpUrl,
   uploadImageDataUrl,
+  uploadFileDataUrl,
+  extensionFromDataUrl,
+  mimeFromDataUrl,
   DATA_URL_RE,
+  FILE_DATA_URL_RE,
   HTTP_URL_RE,
 };

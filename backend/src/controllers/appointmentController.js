@@ -33,10 +33,30 @@ function getEndTime(dateTime, durationMinutes) {
   return new Date(new Date(dateTime).getTime() + (durationMinutes || 60) * 60000);
 }
 
-const BLOCKING_APPOINTMENT_STATUSES = ['pending', 'approved', 'rescheduled', 'confirmed'];
+const BLOCKING_APPOINTMENT_STATUSES = ['pending', 'approved', 'rescheduled', 'confirmed', 'in_progress'];
 
 function coachFilter(coachId) {
   return { $or: [{ coach: coachId }, { coach_id: coachId }] };
+}
+
+function clientFilter(clientId) {
+  return { $or: [{ client: clientId }, { user_id: clientId }] };
+}
+
+function isCoachOwner(appointment, coachId) {
+  return String(appointment.coach || appointment.coach_id) === String(coachId);
+}
+
+function populateAppointmentQuery(query) {
+  return query
+    .populate('client', 'username full_name phone avatar')
+    .populate('coach', 'username full_name phone avatar')
+    .populate('fitnessClass', 'title category')
+    .populate('followUpOf', 'dateTime status durationMinutes');
+}
+
+async function loadAppointment(id) {
+  return populateAppointmentQuery(Appointment.findById(id));
 }
 
 function appointmentStart(appt) {
@@ -177,7 +197,16 @@ async function requestAppointment(req, res) {
 
 async function createCoachAppointment(req, res) {
   try {
-    const { clientId, fitnessClassId, dateTime, durationMinutes, notes, coachNotes } = req.body;
+    const {
+      clientId,
+      fitnessClassId,
+      dateTime,
+      durationMinutes,
+      notes,
+      coachNotes,
+      sessionMode,
+      meetingLink,
+    } = req.body;
     if (!dateTime) {
       return res.status(400).json({ message: 'Date and time are required' });
     }
@@ -199,6 +228,12 @@ async function createCoachAppointment(req, res) {
       return res.status(409).json({ message: 'That time slot overlaps with another appointment.' });
     }
 
+    const mode = sessionMode === 'online' ? 'online' : 'in_person';
+    const link = String(meetingLink || '').trim();
+    if (mode === 'online' && link && !/^https?:\/\//i.test(link)) {
+      return res.status(400).json({ message: 'Meeting link must be a valid http(s) URL' });
+    }
+
     const baseFields = {
       coach: req.user._id,
       coach_id: req.user._id,
@@ -210,6 +245,9 @@ async function createCoachAppointment(req, res) {
       coachNotes: String(coachNotes || '').trim(),
       type: 'coach_created',
       status: 'approved',
+      sessionMode: mode,
+      meetingLink: mode === 'online' ? link : '',
+      reminderSent: false,
     };
 
     if (fitnessClassId) {
@@ -276,15 +314,7 @@ async function createCoachAppointment(req, res) {
       'reminder',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone')
-      .populate('fitnessClass', 'title category');
-
-    return res.status(201).json({
-      created: 1,
-      appointments: [populated],
-    });
+    return res.status(201).json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -292,11 +322,9 @@ async function createCoachAppointment(req, res) {
 
 async function getCoachAppointments(req, res) {
   try {
-    const appointments = await Appointment.find({ coach: req.user._id })
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone')
-      .populate('fitnessClass', 'title category')
-      .sort({ dateTime: 1 });
+    const appointments = await populateAppointmentQuery(
+      Appointment.find(coachFilter(req.user._id)),
+    ).sort({ dateTime: -1 });
     return res.json(appointments);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -305,11 +333,9 @@ async function getCoachAppointments(req, res) {
 
 async function getUserAppointments(req, res) {
   try {
-    const appointments = await Appointment.find({ client: req.user._id })
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone')
-      .populate('fitnessClass', 'title category')
-      .sort({ dateTime: 1 });
+    const appointments = await populateAppointmentQuery(
+      Appointment.find(clientFilter(req.user._id)),
+    ).sort({ dateTime: -1 });
     return res.json(appointments);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -320,7 +346,7 @@ async function approveAppointment(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
     if (appointment.status !== 'pending' && appointment.status !== 'rescheduled') {
@@ -332,9 +358,20 @@ async function approveAppointment(req, res) {
       return res.status(409).json({ message: 'Cannot approve — time slot overlaps with another appointment.' });
     }
 
-    const { coachNotes } = req.body;
+    const { coachNotes, meetingLink, sessionMode } = req.body;
     appointment.status = 'approved';
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
+    if (sessionMode === 'online' || sessionMode === 'in_person') {
+      appointment.sessionMode = sessionMode;
+    }
+    if (meetingLink !== undefined) {
+      const link = String(meetingLink || '').trim();
+      if (link && !/^https?:\/\//i.test(link)) {
+        return res.status(400).json({ message: 'Meeting link must be a valid http(s) URL' });
+      }
+      appointment.meetingLink = link;
+    }
+    appointment.reminderSent = false;
     await appointment.save();
 
     await notifyUser(
@@ -343,10 +380,7 @@ async function approveAppointment(req, res) {
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -356,13 +390,16 @@ async function rejectAppointment(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const { coachNotes } = req.body;
+    const { coachNotes, rejectionReason } = req.body;
     appointment.status = 'rejected';
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
+    if (rejectionReason !== undefined) {
+      appointment.rejectionReason = String(rejectionReason || '').trim();
+    }
     await appointment.save();
 
     await notifyUser(
@@ -371,10 +408,7 @@ async function rejectAppointment(req, res) {
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -382,15 +416,18 @@ async function rejectAppointment(req, res) {
 
 async function rescheduleAppointment(req, res) {
   try {
-    const { dateTime, coachNotes } = req.body;
+    const { dateTime, coachNotes, durationMinutes } = req.body;
     if (!dateTime) {
       return res.status(400).json({ message: 'New date and time are required' });
     }
 
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
+    }
+    if (['completed', 'cancelled', 'rejected'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Cannot reschedule a closed appointment' });
     }
 
     const parsedDate = new Date(dateTime);
@@ -398,16 +435,24 @@ async function rescheduleAppointment(req, res) {
       return res.status(400).json({ message: 'New appointment time must be in the future' });
     }
 
-    const overlap = await hasOverlap(req.user._id, parsedDate, appointment.durationMinutes, appointment._id);
+    const nextDuration = Number(durationMinutes) > 0
+      ? Number(durationMinutes)
+      : appointment.durationMinutes || 60;
+
+    const overlap = await hasOverlap(req.user._id, parsedDate, nextDuration, appointment._id);
     if (overlap) {
       return res.status(409).json({ message: 'That time slot overlaps with another appointment.' });
     }
 
     appointment.rescheduledFrom = appointment.dateTime;
     appointment.dateTime = parsedDate;
+    appointment.datetime = parsedDate;
+    appointment.durationMinutes = nextDuration;
+    appointment.duration = nextDuration;
     appointment.status = 'rescheduled';
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
     appointment.reminderSent = false;
+    appointment.startedAt = null;
     await appointment.save();
 
     await notifyUser(
@@ -416,10 +461,7 @@ async function rescheduleAppointment(req, res) {
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -429,15 +471,18 @@ async function completeAppointment(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
-    if (appointment.status !== 'approved' && appointment.status !== 'rescheduled') {
-      return res.status(400).json({ message: 'Only approved or rescheduled appointments can be completed' });
+    if (!['approved', 'rescheduled', 'in_progress', 'confirmed'].includes(appointment.status)) {
+      return res.status(400).json({
+        message: 'Only approved, in-progress, or rescheduled appointments can be completed',
+      });
     }
 
     const { coachNotes } = req.body;
     appointment.status = 'completed';
+    appointment.completedAt = new Date();
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
     await appointment.save();
 
@@ -447,10 +492,7 @@ async function completeAppointment(req, res) {
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -460,7 +502,7 @@ async function updateAppointmentNotes(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
@@ -468,10 +510,199 @@ async function updateAppointmentNotes(req, res) {
     appointment.coachNotes = String(coachNotes || '').trim();
     await appointment.save();
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+async function startAppointment(req, res) {
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
+    if (!isCoachOwner(appointment, req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+    if (!['approved', 'rescheduled', 'confirmed'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Only approved appointments can be started' });
+    }
+
+    const { meetingLink, sessionMode } = req.body || {};
+    if (sessionMode === 'online' || sessionMode === 'in_person') {
+      appointment.sessionMode = sessionMode;
+    }
+    if (meetingLink !== undefined) {
+      const link = String(meetingLink || '').trim();
+      if (link && !/^https?:\/\//i.test(link)) {
+        return res.status(400).json({ message: 'Meeting link must be a valid http(s) URL' });
+      }
+      appointment.meetingLink = link;
+    }
+    if (appointment.sessionMode === 'online' && !appointment.meetingLink) {
+      return res.status(400).json({ message: 'Add a meeting link before starting an online session' });
+    }
+
+    appointment.status = 'in_progress';
+    appointment.startedAt = new Date();
+    await appointment.save();
+
+    await notifyUser(
+      appointment.client,
+      appointment.sessionMode === 'online' && appointment.meetingLink
+        ? `Your session has started. Join here: ${appointment.meetingLink}`
+        : `Your appointment on ${formatDateTime(appointment.dateTime)} is now in progress.`,
+      'update',
+    );
+
+    return res.json(await loadAppointment(appointment._id));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+async function updateMeetingLink(req, res) {
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
+    if (!isCoachOwner(appointment, req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const { meetingLink, sessionMode } = req.body || {};
+    if (sessionMode === 'online' || sessionMode === 'in_person') {
+      appointment.sessionMode = sessionMode;
+    }
+    if (meetingLink !== undefined) {
+      const link = String(meetingLink || '').trim();
+      if (link && !/^https?:\/\//i.test(link)) {
+        return res.status(400).json({ message: 'Meeting link must be a valid http(s) URL' });
+      }
+      appointment.meetingLink = link;
+    }
+    if (appointment.sessionMode === 'in_person') {
+      // Keep link optional for in-person; clear if switching away from online intentionally
+      if (sessionMode === 'in_person' && meetingLink === '') {
+        appointment.meetingLink = '';
+      }
+    }
+    await appointment.save();
+
+    if (appointment.meetingLink && appointment.client) {
+      await notifyUser(
+        appointment.client,
+        `Meeting link updated for your appointment on ${formatDateTime(appointment.dateTime)}: ${appointment.meetingLink}`,
+        'update',
+      );
+    }
+
+    return res.json(await loadAppointment(appointment._id));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+async function addAppointmentAttachment(req, res) {
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
+    if (!isCoachOwner(appointment, req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const { file, name } = req.body || {};
+    if (!file) {
+      return res.status(400).json({ message: 'Attachment file is required' });
+    }
+
+    const { uploadImageDataUrl, isHttpUrl } = require('../utils/imageKit');
+    let url = String(file).trim();
+    if (!isHttpUrl(url)) {
+      url = await uploadImageDataUrl(url, {
+        folder: '/vital/appointment-attachments',
+        fileNamePrefix: `appt_${appointment._id}`,
+        tags: ['appointment', 'attachment'],
+      });
+    }
+
+    appointment.attachments = appointment.attachments || [];
+    appointment.attachments.push({
+      url,
+      name: String(name || 'Attachment').trim() || 'Attachment',
+      uploadedAt: new Date(),
+    });
+    await appointment.save();
+
+    return res.json(await loadAppointment(appointment._id));
+  } catch (error) {
+    console.error('addAppointmentAttachment:', error.message);
+    if (error.code === 'IMAGEKIT_NOT_CONFIGURED') {
+      return res.status(503).json({ message: error.message, code: error.code });
+    }
+    return res.status(500).json({ message: error.message || 'Unable to upload attachment' });
+  }
+}
+
+async function createFollowUpAppointment(req, res) {
+  try {
+    const parent = await Appointment.findById(req.params.id);
+    if (!parent) return res.status(404).json({ message: 'Appointment not found' });
+    if (!isCoachOwner(parent, req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+    if (!parent.client) {
+      return res.status(400).json({ message: 'Follow-up requires a 1-on-1 client appointment' });
+    }
+
+    const { dateTime, durationMinutes, notes, coachNotes, sessionMode, meetingLink } = req.body || {};
+    if (!dateTime) {
+      return res.status(400).json({ message: 'Follow-up date and time are required' });
+    }
+    const parsedDate = new Date(dateTime);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate <= new Date()) {
+      return res.status(400).json({ message: 'Follow-up must be scheduled in the future' });
+    }
+
+    const duration = Number(durationMinutes) > 0
+      ? Number(durationMinutes)
+      : parent.durationMinutes || 60;
+    const overlap = await hasOverlap(req.user._id, parsedDate, duration);
+    if (overlap) {
+      return res.status(409).json({ message: 'That time slot overlaps with another appointment.' });
+    }
+
+    const mode = sessionMode === 'online'
+      ? 'online'
+      : (sessionMode === 'in_person' ? 'in_person' : (parent.sessionMode || 'in_person'));
+    const link = meetingLink !== undefined
+      ? String(meetingLink || '').trim()
+      : (mode === 'online' ? (parent.meetingLink || '') : '');
+
+    const followUp = await Appointment.create({
+      coach: req.user._id,
+      coach_id: req.user._id,
+      client: parent.client,
+      user_id: parent.client,
+      dateTime: parsedDate,
+      datetime: parsedDate,
+      durationMinutes: duration,
+      duration,
+      notes: String(notes || '').trim() || `Follow-up for ${formatDateTime(parent.dateTime)}`,
+      coachNotes: String(coachNotes || '').trim(),
+      type: 'coach_created',
+      status: 'approved',
+      sessionMode: mode,
+      meetingLink: mode === 'online' ? link : '',
+      followUpOf: parent._id,
+      reminderSent: false,
+    });
+
+    await notifyUser(
+      parent.client,
+      `Your coach scheduled a follow-up appointment for ${formatDateTime(parsedDate)}.`,
+      'reminder',
+    );
+
+    return res.status(201).json(await loadAppointment(followUp._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -710,10 +941,13 @@ async function cancelAppointmentByUser(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.client) !== String(req.user._id)) {
+    const isOwner =
+      String(appointment.client || '') === String(req.user._id) ||
+      String(appointment.user_id || '') === String(req.user._id);
+    if (!isOwner) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
-    if (!['pending', 'approved', 'rescheduled'].includes(appointment.status)) {
+    if (!['pending', 'approved', 'confirmed', 'rescheduled'].includes(appointment.status)) {
       return res.status(400).json({ message: 'This appointment can no longer be cancelled.' });
     }
 
@@ -721,15 +955,12 @@ async function cancelAppointmentByUser(req, res) {
     await appointment.save();
 
     await notifyUser(
-      appointment.coach,
-      `${req.user.name || 'A client'} cancelled their appointment on ${formatDateTime(appointment.dateTime)}.`,
+      appointment.coach || appointment.coach_id,
+      `${req.user.full_name || req.user.username || 'A client'} cancelled their appointment on ${formatDateTime(appointment.dateTime)}.`,
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -740,14 +971,14 @@ async function cancelAppointmentByCoach(req, res) {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
-    if (String(appointment.coach) !== String(req.user._id)) {
+    if (!isCoachOwner(appointment, req.user._id)) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
     if (['completed', 'cancelled', 'rejected'].includes(appointment.status)) {
       return res.status(400).json({ message: 'This appointment can no longer be cancelled.' });
     }
 
-    const { coachNotes } = req.body;
+    const { coachNotes } = req.body || {};
     appointment.status = 'cancelled';
     if (coachNotes !== undefined) appointment.coachNotes = String(coachNotes).trim();
     await appointment.save();
@@ -758,10 +989,7 @@ async function cancelAppointmentByCoach(req, res) {
       'update',
     );
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('client', 'username full_name phone')
-      .populate('coach', 'username full_name phone');
-    return res.json(populated);
+    return res.json(await loadAppointment(appointment._id));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -771,10 +999,10 @@ async function processAppointmentReminders() {
   try {
     const now = new Date();
     const appointments = await Appointment.find({
-      status: { $in: ['approved', 'rescheduled'] },
-      reminderSent: false,
+      status: { $in: ['approved', 'rescheduled', 'confirmed'] },
+      $or: [{ reminderSent: false }, { reminderSent: { $exists: false } }],
       dateTime: { $gt: now },
-    }).select('client coach dateTime reminderMinutesBefore');
+    }).select('client coach dateTime reminderMinutesBefore reminderSent');
 
     for (const appt of appointments) {
       const reminderAt = new Date(
@@ -812,6 +1040,10 @@ module.exports = {
   rescheduleAppointment,
   completeAppointment,
   updateAppointmentNotes,
+  startAppointment,
+  updateMeetingLink,
+  addAppointmentAttachment,
+  createFollowUpAppointment,
   processAppointmentReminders,
   getCoachAvailability,
   bookAppointment,

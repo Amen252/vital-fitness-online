@@ -10,6 +10,28 @@ function asStringList(value) {
   return [];
 }
 
+/** Normalize uploaded certificate file payloads for API responses. */
+function normalizeCertificateFiles(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((file) => file && typeof file === 'object')
+    .map((file) => ({
+      url: String(file.url || '').trim(),
+      fileName: String(file.fileName || '').trim(),
+      mimeType: String(file.mimeType || '').trim(),
+      uploadedAt: file.uploadedAt || null,
+    }))
+    .filter((file) => file.url);
+}
+
+function pickCertificateFiles(...sources) {
+  for (const source of sources) {
+    const files = normalizeCertificateFiles(source);
+    if (files.length) return files;
+  }
+  return [];
+}
+
 /** True when a coach account is safe to show/book for members. */
 function isApprovedPublicCoach(user) {
   if (!user || user.role !== 'coach') return false;
@@ -89,6 +111,7 @@ function coachDataToProfile(coachData = {}, phone = '', extras = {}) {
       ?? 60,
     dayAvailability: data.dayAvailability ?? extras.dayAvailability ?? [],
     photoUrl: data.photoUrl || extras.photoUrl || extras.avatar || '',
+    certificateFiles: pickCertificateFiles(data.certificateFiles, extras.certificateFiles),
   };
 }
 
@@ -123,6 +146,7 @@ function formatPublicCoach(user, application = null) {
         dayAvailability: application.dayAvailability,
         appointmentDurationMinutes: application.appointmentDurationMinutes,
         photoUrl: application.photoUrl,
+        certificateFiles: application.certificateFiles,
       }
     : {};
 
@@ -190,11 +214,13 @@ function buildCoachDataFromApplication({
   appointmentDurationMinutes = 60,
   workingHoursStart = '09:00',
   workingHoursEnd = '17:00',
+  certificateFiles = [],
 } = {}) {
   return {
     approval_status,
     specialties: asStringList(specialization),
     certifications: asStringList(certifications),
+    certificateFiles: Array.isArray(certificateFiles) ? certificateFiles : [],
     bio: String(bio || '').trim(),
     experience: String(experience || '').trim(),
     location: String(location || '').trim(),
@@ -218,6 +244,8 @@ module.exports = {
   enrichCoachUser,
   buildCoachDataFromApplication,
   asStringList,
+  normalizeCertificateFiles,
+  pickCertificateFiles,
   isApprovedPublicCoach,
   approvedPublicCoachFilter,
   getHiddenCoachApplicantIds,

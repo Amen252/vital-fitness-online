@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
 import '../../widgets/profile_avatar.dart';
+import '../../widgets/certificate_files_gallery.dart';
 import 'widgets/coach_home/coach_dashboard_theme.dart';
 import '../../widgets/coach_appointment_days_display.dart';
 import '../../widgets/coach_working_days_display.dart';
@@ -582,6 +583,11 @@ class _CoachPublicProfileScreenState extends State<CoachPublicProfileScreen> {
                               Text(profile['certifications'] as String, style: const TextStyle(fontSize: 14, height: 1.5)),
                               const SizedBox(height: 20),
                             ],
+                            CertificateFilesGallery(
+                              files: normalizeCertificateFiles(profile['certificateFiles']),
+                              emptyLabel: 'No certificate files available for this coach.',
+                            ),
+                            const SizedBox(height: 20),
                             if ((profile['bio'] as String?)?.isNotEmpty == true) ...[
                               Text('About', style: CoachDashboardTheme.sectionLabel(isDark)),
                               const SizedBox(height: 8),

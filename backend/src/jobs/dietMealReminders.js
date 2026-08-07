@@ -4,18 +4,19 @@ const Notification = require('../models/Notification');
 const FitnessClass = require('../models/FitnessClass');
 const {
   getMealsForDate,
-  MEAL_LABELS,
+  mealHasContent,
   mondayBasedDayOfWeek,
 } = require('../utils/mealAdherenceUtils');
+const {
+  normalizeReminderTime,
+  buildMealReminderPayload,
+  pad2,
+} = require('../utils/mealReminderUtils');
 const { isDatabaseConnected } = require('../config/db');
 
 const INTERVAL_MS = 60 * 1000;
-/** In-process dedupe for the current day: `${userId}:${yyyy-mm-dd}:${mealType}` */
+/** In-process dedupe for the current day: `${userId}:${yyyy-mm-dd}:${mealKey}` */
 const sentKeys = new Set();
-
-function pad2(n) {
-  return String(n).padStart(2, '0');
-}
 
 function localDateKey(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
@@ -25,16 +26,10 @@ function localHm(date = new Date()) {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-function normalizeReminderTime(value) {
-  const raw = String(value || '').trim();
-  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return '';
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) {
-    return '';
-  }
-  return `${pad2(h)}:${pad2(m)}`;
+function startOfLocalDay(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 function pruneSentKeys(todayKey) {
@@ -43,14 +38,35 @@ function pruneSentKeys(todayKey) {
   }
 }
 
+function mealDedupeKey(userId, todayKey, meal, hm) {
+  const type = meal.type || 'snacks';
+  const mealId = meal._id ? String(meal._id) : `${type}:${hm}:${String(meal.name || '').trim()}`;
+  return `${userId}:${todayKey}:${mealId}`;
+}
+
+async function isMealAlreadyCompleted(userId, mealType, dayStart) {
+  const adherence = await DietAdherence.findOne({
+    user: userId,
+    date: dayStart,
+  })
+    .select('mealAdherence dayCompleted')
+    .lean();
+  if (!adherence) return false;
+  if (adherence.dayCompleted) return true;
+  const row = (adherence.mealAdherence || []).find((m) => m.type === mealType);
+  return Boolean(row?.followed);
+}
+
 async function processDietMealReminders() {
   if (!isDatabaseConnected()) return;
 
   const now = new Date();
   const todayKey = localDateKey(now);
   const hm = localHm(now);
+  const dayStart = startOfLocalDay(now);
   pruneSentKeys(todayKey);
 
+  // Active diet plans only — meal times live on DietPlan meals/days.
   const activePlans = await DietPlan.find({ status: 'active' })
     .select('coach client fitnessClass title meals days planType targetDayOfWeek')
     .lean();
@@ -59,6 +75,7 @@ async function processDietMealReminders() {
 
   for (const plan of activePlans) {
     const meals = getMealsForDate(plan, now).filter((meal) => {
+      if (!mealHasContent(meal)) return false;
       const time = normalizeReminderTime(meal.reminderTime);
       return time && time === hm;
     });
@@ -77,19 +94,27 @@ async function processDietMealReminders() {
     for (const userId of userIds) {
       for (const meal of meals) {
         const type = meal.type || 'snacks';
-        const dedupeKey = `${userId}:${todayKey}:${type}`;
+        const dedupeKey = mealDedupeKey(userId, todayKey, meal, hm);
         if (sentKeys.has(dedupeKey)) continue;
 
-        const label = MEAL_LABELS[type] || type;
-        const mealName = String(meal.name || label).trim() || label;
-        const message = `Meal reminder: time for ${label} (${mealName}).`;
+        if (await isMealAlreadyCompleted(userId, type, dayStart)) {
+          sentKeys.add(dedupeKey);
+          continue;
+        }
+
+        const payload = buildMealReminderPayload(plan, meal, { dateKey: todayKey });
 
         const already = await Notification.findOne({
           user: userId,
-          type: 'diet',
-          message,
-          createdAt: { $gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) },
-        }).select('_id').lean();
+          type: 'reminder',
+          'data.kind': 'meal_reminder',
+          'data.planId': payload.data.planId,
+          'data.mealType': type,
+          'data.dateKey': todayKey,
+          'data.reminderTime': payload.data.reminderTime,
+        })
+          .select('_id')
+          .lean();
 
         if (already) {
           sentKeys.add(dedupeKey);
@@ -98,8 +123,9 @@ async function processDietMealReminders() {
 
         await Notification.create({
           user: userId,
-          message,
-          type: 'diet',
+          message: payload.message,
+          type: payload.type,
+          data: payload.data,
         });
         sentKeys.add(dedupeKey);
       }

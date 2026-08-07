@@ -15,9 +15,54 @@ const {
   formatPublicCoach,
   isApprovedPublicCoach,
   buildMemberVisibleCoachFilter,
+  pickCertificateFiles,
 } = require('../utils/coachProfile');
 const { USER_DISPLAY_SELECT } = require('../utils/userDisplay');
 const { backfillGroupPlanAccess } = require('../utils/backfillGroupPlanAccess');
+
+/**
+ * Prefer coachData.certificateFiles; fall back to the approved CoachApplication
+ * so members still see certificates after approval even if coachData was empty.
+ */
+async function withPublicCertificateFiles(trainers) {
+  const list = (Array.isArray(trainers) ? trainers : [trainers]).filter(Boolean);
+  if (!list.length) return trainers;
+
+  const missingIds = list
+    .filter((coach) => !pickCertificateFiles(coach.coachData?.certificateFiles).length)
+    .map((coach) => coach._id)
+    .filter(Boolean);
+
+  let byUserId = new Map();
+  if (missingIds.length) {
+    const apps = await CoachApplication.find({
+      user: { $in: missingIds },
+      status: 'approved',
+    })
+      .select('user certificateFiles')
+      .lean();
+    byUserId = new Map(
+      apps.map((app) => [String(app.user), pickCertificateFiles(app.certificateFiles)]),
+    );
+  }
+
+  const attach = (coach) => {
+    const fromCoach = pickCertificateFiles(coach.coachData?.certificateFiles);
+    const fromApp = byUserId.get(String(coach._id)) || [];
+    const certificateFiles = fromCoach.length ? fromCoach : fromApp;
+    if (!certificateFiles.length) return coach;
+    return {
+      ...coach,
+      coachData: {
+        ...(coach.coachData || {}),
+        certificateFiles,
+      },
+    };
+  };
+
+  if (Array.isArray(trainers)) return list.map(attach);
+  return attach(trainers);
+}
 
 const PROFILE_UPDATE_FIELDS = [
   'age',
@@ -301,9 +346,13 @@ async function getCoachingAssignment(req, res) {
       return res.json(null);
     }
 
+    const coachWithCerts = assignment.coach
+      ? await withPublicCertificateFiles(assignment.coach)
+      : null;
+
     return res.json({
       ...assignment,
-      coach: assignment.coach ? formatPublicCoach(assignment.coach) : null,
+      coach: coachWithCerts ? formatPublicCoach(coachWithCerts) : null,
     });
   } catch (error) {
     console.error('[USER] getCoachingAssignment error:', error.message);
@@ -348,8 +397,8 @@ async function getTrainers(req, res) {
         const trainer = await User.findOne(coachFilter)
           .select(PUBLIC_COACH_SELECT)
           .lean();
-
-        return res.json(trainer && isApprovedPublicCoach(trainer) ? [formatPublicCoach(trainer)] : []);
+        const withCerts = await withPublicCertificateFiles(trainer);
+        return res.json(withCerts && isApprovedPublicCoach(withCerts) ? [formatPublicCoach(withCerts)] : []);
       }
     }
 
@@ -359,8 +408,9 @@ async function getTrainers(req, res) {
       .sort({ full_name: 1, username: 1 })
       .lean();
 
+    const withCerts = await withPublicCertificateFiles(trainers);
     return res.json(
-      trainers
+      withCerts
         .filter(isApprovedPublicCoach)
         .map(formatPublicCoach)
         .filter(Boolean),
@@ -389,12 +439,13 @@ async function getTrainerById(req, res) {
       .select(PUBLIC_COACH_SELECT)
       .lean();
 
-    if (!trainer || !isApprovedPublicCoach(trainer)) {
+    const withCerts = await withPublicCertificateFiles(trainer);
+    if (!withCerts || !isApprovedPublicCoach(withCerts)) {
       return res.status(404).json({ message: 'Coach not found' });
     }
 
-    const summary = await getCoachRatingSummary(trainer._id);
-    return res.json({ ...formatPublicCoach(trainer), ...summary });
+    const summary = await getCoachRatingSummary(withCerts._id);
+    return res.json({ ...formatPublicCoach(withCerts), ...summary });
   } catch (error) {
     console.error('[USER] getTrainerById error:', error.message);
     return res.status(500).json({ message: 'Unable to load coach profile' });
@@ -688,7 +739,19 @@ async function submitCoachApplication(req, res) {
       workingHoursEnd,
       appointmentDurationMinutes,
       dayAvailability,
+      certificateFiles,
     } = req.body;
+
+    const { resolveCertificateFiles, requireCertificateFiles } = require('../utils/certificateUpload');
+    let uploadedCertificates = [];
+    try {
+      requireCertificateFiles(certificateFiles);
+      uploadedCertificates = await resolveCertificateFiles(certificateFiles, {
+        userId: String(req.user._id),
+      });
+    } catch (certError) {
+      return res.status(400).json({ message: certError.message, code: certError.code });
+    }
 
     const availability = normalizeDayAvailability(
       appointmentDays,
@@ -757,6 +820,7 @@ async function submitCoachApplication(req, res) {
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
+        certificateFiles: uploadedCertificates,
         bio: String(bio || '').trim(),
         experience: String(experience || '').trim(),
         location: String(location).trim(),
@@ -782,6 +846,7 @@ async function submitCoachApplication(req, res) {
       location: String(location).trim(),
       yearsExperience: Number(yearsExperience),
       certifications: String(certifications).trim(),
+      certificateFiles: uploadedCertificates,
       specialization: String(specialization).trim(),
       bio: String(bio || '').trim(),
       experience: String(experience || '').trim(),
@@ -792,6 +857,7 @@ async function submitCoachApplication(req, res) {
       appointmentDurationMinutes: availability.durationMinutes || 60,
       status: 'pending',
       reviewedAt: undefined,
+      rejectionReason: '',
     };
 
     const existing = await CoachApplication.findOne({ user: req.user._id });
@@ -817,6 +883,13 @@ async function submitCoachApplication(req, res) {
 
     return res.status(201).json(application);
   } catch (error) {
+    console.error('[USER] submitCoachApplication:', error.message);
+    if (error.code === 'IMAGEKIT_NOT_CONFIGURED') {
+      return res.status(503).json({ message: error.message, code: error.code });
+    }
+    if (['INVALID_CERTIFICATES', 'TOO_MANY_CERTIFICATES', 'CERTIFICATE_TOO_LARGE', 'CERTIFICATES_REQUIRED', 'INVALID_FILE'].includes(error.code)) {
+      return res.status(400).json({ message: error.message, code: error.code });
+    }
     return res.status(500).json({ message: 'Unable to submit coach application' });
   }
 }

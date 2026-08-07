@@ -431,6 +431,7 @@ async function registerCoach(req, res) {
       appointmentDays,
       dayAvailability,
       appointmentDurationMinutes,
+      certificateFiles,
     } = req.body;
 
     const identity = String(username || email || '')
@@ -461,6 +462,15 @@ async function registerCoach(req, res) {
       if (value === undefined || value === null || String(value).trim() === '') {
         return res.status(400).json({ message: `${field} is required` });
       }
+    }
+
+    const { resolveCertificateFiles, requireCertificateFiles } = require('../utils/certificateUpload');
+    let uploadedCertificates = [];
+    try {
+      requireCertificateFiles(certificateFiles);
+      uploadedCertificates = await resolveCertificateFiles(certificateFiles, { userId: identity });
+    } catch (certError) {
+      return res.status(400).json({ message: certError.message, code: certError.code });
     }
 
     const workingDaysError = validateWorkingDays(workingDays);
@@ -525,6 +535,7 @@ async function registerCoach(req, res) {
       appointmentDurationMinutes: duration,
       workingHoursStart: daySlots[0]?.start || '09:00',
       workingHoursEnd: daySlots[0]?.end || '17:00',
+      certificateFiles: uploadedCertificates,
     });
 
     // Applicants start as members with a pending coach application.
@@ -552,6 +563,7 @@ async function registerCoach(req, res) {
       location: String(location).trim(),
       yearsExperience: Number(yearsExperience),
       certifications: String(certifications).trim(),
+      certificateFiles: uploadedCertificates,
       specialization: String(specialization).trim(),
       bio: String(bio || '').trim(),
       experience: String(experience || '').trim(),
@@ -583,6 +595,12 @@ async function registerCoach(req, res) {
       return res.status(409).json({ message: 'Username already exists' });
     }
     console.error('[AUTH] registerCoach error:', error.message);
+    if (error.code === 'IMAGEKIT_NOT_CONFIGURED') {
+      return res.status(503).json({ message: error.message, code: error.code });
+    }
+    if (['INVALID_CERTIFICATES', 'TOO_MANY_CERTIFICATES', 'CERTIFICATE_TOO_LARGE', 'CERTIFICATES_REQUIRED', 'INVALID_FILE'].includes(error.code)) {
+      return res.status(400).json({ message: error.message, code: error.code });
+    }
     return res.status(500).json({ message: 'Unable to submit coach application right now' });
   }
 }

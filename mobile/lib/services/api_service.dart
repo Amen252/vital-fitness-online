@@ -560,6 +560,7 @@ class ApiService {
     required List<String> appointmentDays,
     required List<Map<String, String>> dayAvailability,
     int appointmentDurationMinutes = 60,
+    List<Map<String, dynamic>> certificateFiles = const [],
   }) async {
     try {
       final response = await http.post(
@@ -583,6 +584,7 @@ class ApiService {
           'appointmentDays': appointmentDays,
           'dayAvailability': dayAvailability,
           'appointmentDurationMinutes': appointmentDurationMinutes,
+          'certificateFiles': certificateFiles,
         }),
       );
 
@@ -703,6 +705,179 @@ class ApiService {
       body: jsonEncode({'status': status}),
     );
     if (response.statusCode == 200) return jsonDecode(response.body);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> confirmSession(
+    String id, {
+    String? coachNotes,
+    String? sessionMode,
+    String? meetingLink,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/confirm'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (coachNotes != null) 'coachNotes': coachNotes,
+        if (sessionMode != null) 'sessionMode': sessionMode,
+        if (meetingLink != null) 'meetingLink': meetingLink,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> rescheduleSession(
+    String id,
+    String date, {
+    String? coachNotes,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/reschedule'),
+      headers: _headers(),
+      body: jsonEncode({
+        'date': date,
+        if (coachNotes != null) 'coachNotes': coachNotes,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> startSession(
+    String id, {
+    String? meetingLink,
+    String? sessionMode,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/start'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (meetingLink != null) 'meetingLink': meetingLink,
+        if (sessionMode != null) 'sessionMode': sessionMode,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> updateSessionMeetingLink(
+    String id, {
+    String? meetingLink,
+    String? sessionMode,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/meeting-link'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (meetingLink != null) 'meetingLink': meetingLink,
+        if (sessionMode != null) 'sessionMode': sessionMode,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> completeSession(
+    String id, {
+    String? coachNotes,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/complete'),
+      headers: _headers(),
+      body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> cancelSession(
+    String id, {
+    String? coachNotes,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/cancel'),
+      headers: _headers(),
+      body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> updateSessionNotes(
+    String id, {
+    String? coachNotes,
+    String? notes,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id/notes'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (coachNotes != null) 'coachNotes': coachNotes,
+        if (notes != null) 'notes': notes,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> updateSession(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/session/$id'),
+      headers: _headers(),
+      body: jsonEncode(data),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> deleteSession(String id) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/session/$id'),
+      headers: _headers(),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> addSessionAttachment(
+    String id, {
+    required String file,
+    String name = 'Attachment',
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/$id/attachments'),
+      headers: _headers(),
+      body: jsonEncode({'file': file, 'name': name}),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> createFollowUpSession(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/$id/follow-up'),
+      headers: _headers(),
+      body: jsonEncode(data),
+    );
+    if (response.statusCode == 201)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
@@ -893,6 +1068,71 @@ class ApiService {
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
     );
     if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> startAppointment(
+    String id, {
+    String? meetingLink,
+    String? sessionMode,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/coach/appointments/$id/start'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (meetingLink != null) 'meetingLink': meetingLink,
+        if (sessionMode != null) 'sessionMode': sessionMode,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> updateAppointmentMeetingLink(
+    String id, {
+    String? meetingLink,
+    String? sessionMode,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/coach/appointments/$id/meeting-link'),
+      headers: _headers(),
+      body: jsonEncode({
+        if (meetingLink != null) 'meetingLink': meetingLink,
+        if (sessionMode != null) 'sessionMode': sessionMode,
+      }),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> addAppointmentAttachment(
+    String id, {
+    required String file,
+    String name = 'Attachment',
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/coach/appointments/$id/attachments'),
+      headers: _headers(),
+      body: jsonEncode({'file': file, 'name': name}),
+    );
+    if (response.statusCode == 200)
+      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    throw Exception(_parseError(response));
+  }
+
+  Future<Map<String, dynamic>> createFollowUpAppointment(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/coach/appointments/$id/follow-up'),
+      headers: _headers(),
+      body: jsonEncode(data),
+    );
+    if (response.statusCode == 201)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
@@ -2225,6 +2465,7 @@ class ApiService {
     required List<String> appointmentDays,
     required List<Map<String, String>> dayAvailability,
     int appointmentDurationMinutes = 60,
+    List<Map<String, dynamic>> certificateFiles = const [],
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/user/coach-application'),
@@ -2243,6 +2484,7 @@ class ApiService {
         'appointmentDays': appointmentDays,
         'dayAvailability': dayAvailability,
         'appointmentDurationMinutes': appointmentDurationMinutes,
+        'certificateFiles': certificateFiles,
       }),
     );
     if (response.statusCode == 200 || response.statusCode == 201) {

@@ -23,6 +23,11 @@ export function coachProfileFromUser(coach) {
     profile.phone = profile.phone || coach.phone || "";
     profile.specialization = asList(profile.specialization || profile.specialties);
     profile.photoUrl = profile.photoUrl || coach.avatar || "";
+    if (!Array.isArray(profile.certificateFiles) || !profile.certificateFiles.length) {
+      profile.certificateFiles = Array.isArray(coach.coachData?.certificateFiles)
+        ? coach.coachData.certificateFiles
+        : [];
+    }
     return profile;
   }
 
@@ -47,6 +52,7 @@ export function coachProfileFromUser(coach) {
     appointmentDurationMinutes: data.appointmentDurationMinutes ?? 60,
     dayAvailability: data.dayAvailability || [],
     photoUrl: data.photoUrl || coach.avatar || "",
+    certificateFiles: Array.isArray(data.certificateFiles) ? data.certificateFiles : [],
   };
 }
 
