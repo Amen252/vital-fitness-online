@@ -4,7 +4,10 @@ const {
   uploadFileDataUrl,
   mimeFromDataUrl,
   extensionFromDataUrl,
+  getConfig,
 } = require('./imageKit');
+const CoachApplication = require('../models/CoachApplication');
+const User = require('../models/User');
 
 const MAX_CERTIFICATES = 5;
 const MAX_BYTES_PER_FILE = 2 * 1024 * 1024; // 2 MB decoded
@@ -24,11 +27,40 @@ function estimateBase64Bytes(dataUrl) {
   return Math.floor((b64.length * 3) / 4);
 }
 
+function imageKitHostAllowed(url) {
+  try {
+    const { urlEndpoint } = getConfig();
+    if (!urlEndpoint) return false;
+    const endpointHost = new URL(urlEndpoint).hostname.toLowerCase();
+    const fileHost = new URL(url).hostname.toLowerCase();
+    return Boolean(endpointHost) && fileHost === endpointHost;
+  } catch {
+    return false;
+  }
+}
+
+async function ownedCertificateUrls(userId) {
+  if (!userId) return new Set();
+  const [application, user] = await Promise.all([
+    CoachApplication.findOne({ user: userId }).select('certificateFiles').lean(),
+    User.findById(userId).select('coachData.certificateFiles').lean(),
+  ]);
+  const urls = new Set();
+  for (const file of [
+    ...(application?.certificateFiles || []),
+    ...(user?.coachData?.certificateFiles || []),
+  ]) {
+    const url = String(file?.url || '').trim();
+    if (url) urls.add(url);
+  }
+  return urls;
+}
+
 /**
  * Normalize + upload certificate payloads from registration.
  * Accepts:
- * - data URLs (image/pdf)
- * - already-uploaded https URLs (re-apply / pass-through)
+ * - data URLs (image/pdf) → uploaded to ImageKit
+ * - already-owned https URLs (re-apply) or ImageKit CDN URLs for this deployment
  * Returns [{ url, fileName, mimeType, uploadedAt }]
  */
 async function resolveCertificateFiles(input, { userId } = {}) {
@@ -44,6 +76,7 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     throw err;
   }
 
+  const ownedUrls = await ownedCertificateUrls(userId);
   const results = [];
   for (let i = 0; i < input.length; i += 1) {
     const item = input[i];
@@ -61,6 +94,14 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     }
 
     if (isHttpUrl(dataUrl)) {
+      const allowed = ownedUrls.has(dataUrl) || imageKitHostAllowed(dataUrl);
+      if (!allowed) {
+        const err = new Error(
+          `Certificate #${i + 1} URL is not allowed. Re-upload the file or use a previously saved certificate.`,
+        );
+        err.code = 'INVALID_CERTIFICATES';
+        throw err;
+      }
       const mimeType = typeof item === 'object' && item?.mimeType
         ? String(item.mimeType)
         : (dataUrl.toLowerCase().includes('.pdf') ? 'application/pdf' : 'image/jpeg');

@@ -137,6 +137,7 @@ async function uploadFileDataUrl(dataUrl, {
 }
 
 module.exports = {
+  getConfig,
   isImageKitConfigured,
   isDataUrl,
   isFileDataUrl,

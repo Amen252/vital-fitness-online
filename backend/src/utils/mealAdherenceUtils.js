@@ -29,9 +29,11 @@ function mealHasContent(meal) {
 }
 
 /** Resolve meals for a calendar date from single-day or weekly plans. */
-function getMealsForDate(plan, date = new Date()) {
+function getMealsForDate(plan, date = new Date(), options = {}) {
   if (!plan) return [];
-  const dow = mondayBasedDayOfWeek(date);
+  const dow = Number.isFinite(Number(options.dayOfWeek))
+    ? Number(options.dayOfWeek)
+    : mondayBasedDayOfWeek(date);
   if (plan.planType === 'weekly' && Array.isArray(plan.days) && plan.days.length) {
     const day = plan.days.find((d) => Number(d.dayOfWeek) === dow);
     return Array.isArray(day?.meals) ? day.meals : [];

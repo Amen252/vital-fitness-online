@@ -88,7 +88,11 @@ export default function RoleNotificationsPage() {
     setActionError("");
     setActionNotice("");
     try {
-      await logMemberDietAdherence({ mealType, followed: true });
+      await logMemberDietAdherence({
+        mealType,
+        followed: true,
+        ...(data.dateKey ? { date: data.dateKey } : {}),
+      });
       setActionNotice("Meal marked complete. Diet progress updated.");
     } catch (error) {
       setActionError(getErrorMessage(error));

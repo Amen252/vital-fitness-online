@@ -36,3 +36,6 @@ services:
         sync: false
       - key: IMAGEKIT_URL_ENDPOINT
         sync: false
+      # IANA timezone for meal reminder HH:MM matching (e.g. Asia/Jerusalem)
+      - key: DIET_REMINDER_TZ
+        sync: false

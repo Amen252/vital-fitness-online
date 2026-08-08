@@ -71,6 +71,11 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
   String get _id => _session['_id'].toString();
   String get _status => _session['status']?.toString() ?? 'pending';
   bool get _closed => ['completed', 'cancelled', 'no_show'].contains(_status);
+  bool get _startReached {
+    final d = DateTime.tryParse(_session['date']?.toString() ?? '');
+    if (d == null) return false;
+    return !DateTime.now().toUtc().isBefore(d.toUtc());
+  }
 
   String _clientName() {
     final client = _session['client'];
@@ -377,16 +382,26 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
                       FilledButton.icon(
                         onPressed: _busy
                             ? null
-                            : () => _run(
-                                  () => _api.startSession(
-                                    _id,
-                                    sessionMode: _sessionMode,
-                                    meetingLink: _linkCtrl.text.trim().isEmpty
-                                        ? null
-                                        : _linkCtrl.text.trim(),
-                                  ),
-                                  success: 'Session in progress',
-                                ),
+                            : (!_startReached
+                                ? () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Cannot start before the scheduled session time.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : () => _run(
+                                      () => _api.startSession(
+                                        _id,
+                                        sessionMode: _sessionMode,
+                                        meetingLink: _linkCtrl.text.trim().isEmpty
+                                            ? null
+                                            : _linkCtrl.text.trim(),
+                                      ),
+                                      success: 'Session in progress',
+                                    )),
                         icon: const Icon(Icons.play_arrow_rounded),
                         label: Text(_sessionMode == 'online' ? 'Start online' : 'Mark in progress'),
                       ),
@@ -394,14 +409,24 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
                       FilledButton(
                         onPressed: _busy
                             ? null
-                            : () => _run(
-                                  () => _api.completeSession(
-                                    _id,
-                                    coachNotes: _coachNotesCtrl.text.trim(),
-                                  ),
-                                  success: 'Session completed',
-                                ),
-                        child: const Text('Mark completed'),
+                            : (!_startReached
+                                ? () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Cannot complete before the scheduled session time.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : () => _run(
+                                      () => _api.completeSession(
+                                        _id,
+                                        coachNotes: _coachNotesCtrl.text.trim(),
+                                      ),
+                                      success: 'Session completed',
+                                    )),
+                        child: Text(_startReached ? 'Mark completed' : 'Complete after start time'),
                       ),
                     if (!_closed) ...[
                       OutlinedButton(

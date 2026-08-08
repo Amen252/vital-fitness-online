@@ -614,11 +614,18 @@ async function logUserAdherence(req, res) {
 
     let targetDate = startOfDay();
     if (dateInput) {
-      const parsed = new Date(dateInput);
-      if (Number.isNaN(parsed.getTime())) {
-        return res.status(400).json({ message: 'Invalid date' });
+      const raw = String(dateInput).trim();
+      const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+      if (ymd) {
+        // Interpret calendar date in local components (avoid UTC Date.parse shift).
+        targetDate = startOfDay(new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3])));
+      } else {
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) {
+          return res.status(400).json({ message: 'Invalid date' });
+        }
+        targetDate = startOfDay(parsed);
       }
-      targetDate = startOfDay(parsed);
     } else if (dayOfWeek != null && dayOfWeek !== '') {
       const dated = dateForMondayBasedDay(Number(dayOfWeek));
       if (!dated) return res.status(400).json({ message: 'Invalid dayOfWeek' });
@@ -1292,6 +1299,15 @@ async function updateDietPlanById(req, res) {
 
     const becomingActive = plan.status === 'active' && previousStatus !== 'active';
     if (becomingActive) {
+      const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
+      const mealTimeCheck = validateActivePlanMealTimes({
+        planType: plan.planType,
+        meals: plan.meals,
+        days: plan.days,
+      });
+      if (mealTimeCheck?.error) {
+        return res.status(400).json({ message: mealTimeCheck.error });
+      }
       const existingActive = await findActivePlanForAssignee(
         req.user._id,
         { clientId: plan.client, fitnessClassId: plan.fitnessClass },

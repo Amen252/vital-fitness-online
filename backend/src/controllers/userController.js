@@ -349,10 +349,20 @@ async function getCoachingAssignment(req, res) {
     const coachWithCerts = assignment.coach
       ? await withPublicCertificateFiles(assignment.coach)
       : null;
+    let publicCoach = coachWithCerts ? formatPublicCoach(coachWithCerts) : null;
+    // Only expose certificates for approved, publicly safe coaches.
+    if (publicCoach && !isApprovedPublicCoach(coachWithCerts)) {
+      if (publicCoach.profile) {
+        publicCoach = {
+          ...publicCoach,
+          profile: { ...publicCoach.profile, certificateFiles: [] },
+        };
+      }
+    }
 
     return res.json({
       ...assignment,
-      coach: coachWithCerts ? formatPublicCoach(coachWithCerts) : null,
+      coach: publicCoach,
     });
   } catch (error) {
     console.error('[USER] getCoachingAssignment error:', error.message);

@@ -473,6 +473,14 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
             if (specs.isNotEmpty) _detailRow('Specializations', specs.map((s) => s.toString()).join(', ')),
             if ((profile['certifications'] as String?)?.isNotEmpty == true)
               _detailRow('Certifications', profile['certifications']),
+            _buildCertificateFilesSection(
+              isDark,
+              _certificateFilesFromApp({
+                'certificateFiles': profile['certificateFiles'] ?? coachData['certificateFiles'],
+                'profile': profile,
+                'user': {'coachData': coachData, 'profile': profile},
+              }),
+            ),
             if ((profile['location'] as String?)?.isNotEmpty == true) _detailRow('Location', profile['location']),
             if ((profile['workingDays'] as List?)?.isNotEmpty == true)
               _detailRow('Working days', (profile['workingDays'] as List).map((d) => d.toString()).join(', ')),

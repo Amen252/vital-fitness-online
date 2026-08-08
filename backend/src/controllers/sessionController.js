@@ -180,14 +180,20 @@ exports.getSessions = async (req, res) => {
       query.coach = me;
     } else if (req.user.role === 'user') {
       query.client = me;
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
 
     const sessions = await populateSession(Session.find(query)).sort({ date: -1 });
+    const isMember = req.user.role === 'user';
     return res.json(
       sessions.map((row) => {
         const obj = row.toObject();
         obj.client = withDisplayName(obj.client);
         obj.coach = withDisplayName(obj.coach);
+        if (isMember && obj.status !== 'completed') {
+          delete obj.coachNotes;
+        }
         return obj;
       }),
     );
@@ -220,6 +226,22 @@ exports.updateSessionStatus = async (req, res) => {
     // Clients may only cancel; coaches/admins manage the rest.
     if (req.user.role === 'user' && status !== 'cancelled') {
       return res.status(403).json({ message: 'Members can only cancel their sessions' });
+    }
+    if (req.user.role === 'user' && status === 'cancelled' && session.status === 'in_progress') {
+      return res.status(400).json({ message: 'Cannot cancel a session that is already in progress' });
+    }
+    if (status === 'completed' || status === 'in_progress') {
+      if (req.user.role === 'user') {
+        return res.status(403).json({ message: 'Only coaches can start or complete sessions' });
+      }
+      if (!sessionStartReached(session)) {
+        return res.status(400).json({
+          message: status === 'completed'
+            ? 'Cannot complete a 1-on-1 session before its scheduled start time'
+            : 'Cannot start a 1-on-1 session before its scheduled start time',
+          code: 'SESSION_NOT_STARTED_YET',
+        });
+      }
     }
 
     session.status = status;
@@ -301,6 +323,12 @@ exports.rescheduleSession = async (req, res) => {
   }
 };
 
+function sessionStartReached(session, now = new Date()) {
+  const start = new Date(session.date);
+  if (Number.isNaN(start.getTime())) return false;
+  return now.getTime() >= start.getTime();
+}
+
 exports.startSession = async (req, res) => {
   try {
     const session = await Session.findById(req.params.id);
@@ -310,6 +338,12 @@ exports.startSession = async (req, res) => {
     }
     if (!['confirmed', 'rescheduled'].includes(session.status)) {
       return res.status(400).json({ message: 'Only confirmed sessions can be started' });
+    }
+    if (!sessionStartReached(session)) {
+      return res.status(400).json({
+        message: 'Cannot start a 1-on-1 session before its scheduled start time',
+        code: 'SESSION_NOT_STARTED_YET',
+      });
     }
 
     const { meetingLink, sessionMode } = req.body || {};
@@ -380,6 +414,12 @@ exports.completeSession = async (req, res) => {
     if (!['confirmed', 'rescheduled', 'in_progress'].includes(session.status)) {
       return res.status(400).json({ message: 'Only active sessions can be completed' });
     }
+    if (!sessionStartReached(session)) {
+      return res.status(400).json({
+        message: 'Cannot complete a 1-on-1 session before its scheduled start time',
+        code: 'SESSION_NOT_STARTED_YET',
+      });
+    }
 
     const { coachNotes } = req.body || {};
     session.status = 'completed';
@@ -406,6 +446,9 @@ exports.cancelSession = async (req, res) => {
     }
     if (['completed', 'cancelled', 'no_show'].includes(session.status)) {
       return res.status(400).json({ message: 'This session is already closed' });
+    }
+    if (clientOwned && !coachOwned && session.status === 'in_progress') {
+      return res.status(400).json({ message: 'Cannot cancel a session that is already in progress' });
     }
 
     const { coachNotes } = req.body || {};
@@ -586,6 +629,10 @@ exports.createFollowUpSession = async (req, res) => {
     if (!parent) return res.status(404).json({ message: 'Session not found' });
     if (!isCoachOwner(parent, userId(req.user))) {
       return res.status(403).json({ message: 'Unauthorized' });
+    }
+    const stillAssigned = await verifyActiveAssignment(parent.client, parent.coach);
+    if (!stillAssigned) {
+      return res.status(400).json({ message: 'This client is no longer assigned to you' });
     }
 
     const { date, durationMinutes, notes, coachNotes, sessionMode, meetingLink } = req.body || {};

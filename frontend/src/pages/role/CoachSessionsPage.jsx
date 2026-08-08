@@ -40,6 +40,12 @@ function statusLabel(status = "") {
   return String(status).replaceAll("_", " ");
 }
 
+function sessionStartReached(session) {
+  if (!session?.date) return false;
+  const start = new Date(session.date).getTime();
+  return Number.isFinite(start) && Date.now() >= start;
+}
+
 export default function CoachSessionsPage() {
   const toast = useToast();
   const [sessions, setSessions] = useState([]);
@@ -395,7 +401,15 @@ export default function CoachSessionsPage() {
                             </Button>
                           ) : null}
                           {["confirmed", "rescheduled"].includes(s.status) ? (
-                            <Button size="sm" disabled={busyId === s._id} onClick={() => runAction(s._id, "start", {
+                            <Button
+                              size="sm"
+                              disabled={busyId === s._id || !sessionStartReached(s)}
+                              title={
+                                sessionStartReached(s)
+                                  ? undefined
+                                  : "Available after the scheduled start time"
+                              }
+                              onClick={() => runAction(s._id, "start", {
                               sessionMode: detail.sessionMode,
                               meetingLink: detail.meetingLink,
                             })}>
@@ -403,7 +417,15 @@ export default function CoachSessionsPage() {
                             </Button>
                           ) : null}
                           {["confirmed", "rescheduled", "in_progress"].includes(s.status) ? (
-                            <Button size="sm" disabled={busyId === s._id} onClick={() => runAction(s._id, "complete", {
+                            <Button
+                              size="sm"
+                              disabled={busyId === s._id || !sessionStartReached(s)}
+                              title={
+                                sessionStartReached(s)
+                                  ? undefined
+                                  : "Available after the scheduled start time"
+                              }
+                              onClick={() => runAction(s._id, "complete", {
                               coachNotes: detail.coachNotes,
                             })}>
                               Complete
