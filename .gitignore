@@ -45,3 +45,6 @@ mobile/**/*.map.json
 # Backend uploads / local data
 backend/uploads/
 backend/tmp/
+
+# Tesseract OCR language data (downloaded at runtime)
+*.traineddata

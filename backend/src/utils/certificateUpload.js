@@ -86,8 +86,11 @@ async function ownedCertificateUrls(userId) {
  * - data URLs (image/pdf) → uploaded to ImageKit
  * - already-owned https URLs (re-apply) or ImageKit CDN URLs for this deployment
  * Returns [{ url, fileName, mimeType, uploadedAt }]
+ *
+ * New image uploads are OCR-checked so the certificate shows a first + last name
+ * (and matches expectedName when provided).
  */
-async function resolveCertificateFiles(input, { userId } = {}) {
+async function resolveCertificateFiles(input, { userId, expectedName } = {}) {
   if (input == null) return [];
   if (!Array.isArray(input)) {
     const err = new Error('certificateFiles must be an array');
@@ -99,6 +102,12 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     err.code = 'TOO_MANY_CERTIFICATES';
     throw err;
   }
+
+  const {
+    isNameValidationEnabled,
+    assertCertificateImageShowsName,
+  } = require('./certificateNameValidation');
+  const nameCheckEnabled = isNameValidationEnabled();
 
   const ownedUrls = await ownedCertificateUrls(userId);
   const results = [];
@@ -139,15 +148,25 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     }
 
     if (!isFileDataUrl(dataUrl)) {
-      const err = new Error(`Certificate #${i + 1} must be JPG, PNG, or PDF`);
+      const err = new Error(`Certificate #${i + 1} must be JPG or PNG`);
       err.code = 'INVALID_CERTIFICATES';
       throw err;
     }
 
     const mimeType = mimeFromDataUrl(dataUrl);
+    const normalizedMime = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
     if (!ALLOWED_MIME.has(mimeType) && mimeType !== 'image/jpg') {
-      const err = new Error(`Certificate #${i + 1} must be JPG, PNG, or PDF`);
+      const err = new Error(`Certificate #${i + 1} must be JPG or PNG`);
       err.code = 'INVALID_CERTIFICATES';
+      throw err;
+    }
+
+    // Name OCR only supports images — block new PDF uploads when validation is on.
+    if (nameCheckEnabled && normalizedMime === 'application/pdf') {
+      const err = new Error(
+        `Certificate #${i + 1} must be a JPG or PNG photo that clearly shows your first and last name.`,
+      );
+      err.code = 'CERTIFICATE_NAME_REQUIRED';
       throw err;
     }
 
@@ -156,6 +175,13 @@ async function resolveCertificateFiles(input, { userId } = {}) {
       const err = new Error(`Certificate #${i + 1} exceeds the 2 MB size limit`);
       err.code = 'CERTIFICATE_TOO_LARGE';
       throw err;
+    }
+
+    if (nameCheckEnabled && normalizedMime.startsWith('image/')) {
+      await assertCertificateImageShowsName(dataUrl, {
+        expectedName,
+        index: i + 1,
+      });
     }
 
     const ext = extensionFromDataUrl(dataUrl);
@@ -170,7 +196,7 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     results.push({
       url,
       fileName,
-      mimeType: mimeType === 'image/jpg' ? 'image/jpeg' : mimeType,
+      mimeType: normalizedMime,
       uploadedAt: new Date(),
     });
   }
@@ -180,7 +206,9 @@ async function resolveCertificateFiles(input, { userId } = {}) {
 
 function requireCertificateFiles(files) {
   if (!Array.isArray(files) || files.length === 0) {
-    const err = new Error('Upload at least one professional certificate (JPG, PNG, or PDF)');
+    const err = new Error(
+      'Upload at least one professional certificate photo (JPG or PNG) that clearly shows your first and last name',
+    );
     err.code = 'CERTIFICATES_REQUIRED';
     throw err;
   }

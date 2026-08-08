@@ -327,7 +327,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         return _showError('List your certifications');
       }
       if (_certificates.isEmpty && _existingCertificateFiles.isEmpty) {
-        return _showError('Upload at least one certificate image (JPG or PNG)');
+        return _showError(
+          'Upload at least one certificate photo (JPG or PNG) that clearly shows your first and last name',
+        );
       }
       if (_specializationController.text.trim().isEmpty) {
         return _showError('Enter at least one specialization');
@@ -1205,7 +1207,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         Text(
           _isViewOnly
               ? 'Certificates submitted with your application.'
-              : 'Upload clear photos of your professional certificates (JPG or PNG, max 2 MB each, up to $_maxCertificates).',
+              : 'Upload a clear JPG/PNG of your certificate. Your first and last name must be visible on the document (like a fitness trainer certificate), max 2 MB each, up to $_maxCertificates.',
           style: TextStyle(color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 12),

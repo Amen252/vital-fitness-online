@@ -476,6 +476,7 @@ async function registerCoach(req, res) {
       // runs ownership lookups when userId is a valid ObjectId.
       uploadedCertificates = await resolveCertificateFiles(certificateFiles, {
         userId: identity,
+        expectedName: fullName,
       });
     } catch (certError) {
       return res.status(400).json({ message: certError.message, code: certError.code });
@@ -606,7 +607,16 @@ async function registerCoach(req, res) {
     if (error.code === 'IMAGEKIT_NOT_CONFIGURED') {
       return res.status(503).json({ message: error.message, code: error.code });
     }
-    if (['INVALID_CERTIFICATES', 'TOO_MANY_CERTIFICATES', 'CERTIFICATE_TOO_LARGE', 'CERTIFICATES_REQUIRED', 'INVALID_FILE'].includes(error.code)) {
+    if ([
+      'INVALID_CERTIFICATES',
+      'TOO_MANY_CERTIFICATES',
+      'CERTIFICATE_TOO_LARGE',
+      'CERTIFICATES_REQUIRED',
+      'INVALID_FILE',
+      'CERTIFICATE_NAME_REQUIRED',
+      'CERTIFICATE_NAME_MISMATCH',
+      'CERTIFICATE_OCR_FAILED',
+    ].includes(error.code)) {
       return res.status(400).json({ message: error.message, code: error.code });
     }
     return res.status(500).json({ message: 'Unable to submit coach application right now' });
