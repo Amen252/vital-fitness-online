@@ -150,23 +150,33 @@ async function getOcrWorker() {
   return _workerPromise;
 }
 
-async function recognizeCertificateText(dataUrl) {
+async function recognizeCertificateText(imageSource) {
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(dataUrl);
+  const { data } = await worker.recognize(imageSource);
   return String(data?.text || '');
 }
 
 /**
- * Validate a certificate image data URL shows first+last name.
+ * Validate a certificate image (data URL or uploaded CDN URL) shows first+last name.
+ * Prefer calling this AFTER ImageKit upload with the public URL.
  */
-async function assertCertificateImageShowsName(dataUrl, { expectedName, index = 1 } = {}) {
+async function assertCertificateImageShowsName(imageSource, { expectedName, index = 1 } = {}) {
   if (!isNameValidationEnabled()) {
     return { ok: true, skipped: true };
   }
 
+  const source = String(imageSource || '').trim();
+  if (!source) {
+    const err = new Error(
+      `Certificate #${index} could not be scanned. Upload a clear JPG or PNG of your certificate.`,
+    );
+    err.code = 'CERTIFICATE_OCR_FAILED';
+    throw err;
+  }
+
   let text = '';
   try {
-    text = await recognizeCertificateText(dataUrl);
+    text = await recognizeCertificateText(source);
   } catch (error) {
     console.error('[CERT OCR]', error.message);
     const err = new Error(

@@ -624,8 +624,9 @@ async function registerCoach(req, res) {
 }
 
 /**
- * Pre-check a certificate image (mobile/web) before it is added to the form.
- * Body: { certificateFile | dataUrl | file, expectedName? }
+ * Upload a certificate image, then OCR-check the uploaded file for first + last name.
+ * Body: { certificateFile | dataUrl | file, expectedName?, fileName? }
+ * Returns CDN url on success so the client can attach the already-uploaded file.
  */
 async function validateCoachCertificate(req, res) {
   try {
@@ -633,11 +634,12 @@ async function validateCoachCertificate(req, res) {
       isNameValidationEnabled,
       assertCertificateImageShowsName,
     } = require('../utils/certificateNameValidation');
-    const { isFileDataUrl, mimeFromDataUrl } = require('../utils/imageKit');
-
-    if (!isNameValidationEnabled()) {
-      return res.json({ ok: true, skipped: true });
-    }
+    const {
+      isFileDataUrl,
+      mimeFromDataUrl,
+      extensionFromDataUrl,
+      uploadFileDataUrl,
+    } = require('../utils/imageKit');
 
     const raw = req.body?.certificateFile ?? req.body?.dataUrl ?? req.body?.file ?? req.body?.url;
     const dataUrl = typeof raw === 'string'
@@ -646,6 +648,7 @@ async function validateCoachCertificate(req, res) {
     const expectedName = String(
       req.body?.expectedName || req.body?.name || req.body?.full_name || '',
     ).trim();
+    const fileNameHint = String(req.body?.fileName || req.body?.name || '').trim();
 
     if (!dataUrl) {
       return res.status(400).json({
@@ -676,14 +679,33 @@ async function validateCoachCertificate(req, res) {
       });
     }
 
-    const result = await assertCertificateImageShowsName(dataUrl, {
-      expectedName,
-      index: 1,
+    const ext = extensionFromDataUrl(dataUrl);
+    const fileName = fileNameHint || `certificate.${ext}`;
+    // 1) Upload to ImageKit first
+    const url = await uploadFileDataUrl(dataUrl, {
+      folder: '/vital/certificates',
+      fileNamePrefix: 'cert_pending',
+      fileName,
+      tags: ['certificate', 'coach', 'pending-validation'],
     });
+
+    // 2) OCR the uploaded image (skip only if validation disabled)
+    let matchedName = null;
+    if (isNameValidationEnabled()) {
+      const result = await assertCertificateImageShowsName(url, {
+        expectedName,
+        index: 1,
+      });
+      matchedName = result.matchedName || null;
+    }
 
     return res.json({
       ok: true,
-      matchedName: result.matchedName || null,
+      matchedName,
+      url,
+      fileName,
+      mimeType: normalizedMime,
+      uploadedAt: new Date().toISOString(),
     });
   } catch (error) {
     if ([
@@ -692,8 +714,12 @@ async function validateCoachCertificate(req, res) {
       'CERTIFICATE_NAME_MISMATCH',
       'CERTIFICATE_OCR_FAILED',
       'CERTIFICATE_TOO_LARGE',
+      'INVALID_FILE',
+      'IMAGEKIT_NOT_CONFIGURED',
+      'IMAGEKIT_UPLOAD_FAILED',
     ].includes(error.code)) {
-      return res.status(400).json({ message: error.message, code: error.code });
+      const status = error.code === 'IMAGEKIT_NOT_CONFIGURED' ? 503 : 400;
+      return res.status(status).json({ message: error.message, code: error.code });
     }
     console.error('[AUTH] validateCoachCertificate:', error.message);
     return res.status(500).json({ message: 'Unable to validate certificate right now' });

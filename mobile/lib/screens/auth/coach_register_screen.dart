@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../models/user_model.dart';
 import '../../services/api_service.dart';
 import '../../utils/password_utils.dart';
+import '../../utils/somalia_cities.dart';
 import '../../widgets/scrollable_body.dart';
 import '../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'auth_home.dart';
@@ -17,21 +18,37 @@ class _PendingCertificate {
   final String mimeType;
   final String dataUrl;
   final Uint8List bytes;
+  /// CDN URL after upload + name validation (preferred on submit).
+  final String? uploadedUrl;
+  final String? uploadedAt;
 
   const _PendingCertificate({
     required this.fileName,
     required this.mimeType,
     required this.dataUrl,
     required this.bytes,
+    this.uploadedUrl,
+    this.uploadedAt,
   });
 
   bool get isImage => mimeType.startsWith('image/');
 
-  Map<String, dynamic> toPayload() => {
+  Map<String, dynamic> toPayload() {
+    final remote = (uploadedUrl ?? '').trim();
+    if (remote.isNotEmpty) {
+      return {
         'fileName': fileName,
         'mimeType': mimeType,
-        'dataUrl': dataUrl,
+        'url': remote,
+        if (uploadedAt != null && uploadedAt!.isNotEmpty) 'uploadedAt': uploadedAt,
       };
+    }
+    return {
+      'fileName': fileName,
+      'mimeType': mimeType,
+      'dataUrl': dataUrl,
+    };
+  }
 }
 
 class _DayHours {
@@ -151,7 +168,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         _phoneController.text = (application['phone'] ?? user?.profile?.phone ?? '').toString();
         final age = application['age'] ?? user?.profile?.age;
         if (age != null) _ageController.text = age.toString();
-        _locationController.text = (application['location'] ?? user?.profile?.location ?? '').toString();
+        final savedLocation =
+            (application['location'] ?? user?.profile?.location ?? '').toString();
+        _locationController.text =
+            SomaliaCities.match(savedLocation) ?? savedLocation.trim();
         final years = application['yearsExperience'] ?? user?.profile?.yearsExperience;
         if (years != null) _yearsExperienceController.text = years.toString();
         _certificationsController.text = (application['certifications'] ?? '').toString();
@@ -239,7 +259,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         final profile = user!.profile!;
         _phoneController.text = profile.phone ?? '';
         if (profile.age != null) _ageController.text = profile.age.toString();
-        _locationController.text = profile.location ?? '';
+        final profileLocation = profile.location ?? '';
+        _locationController.text =
+            SomaliaCities.match(profileLocation) ?? profileLocation.trim();
         if (profile.yearsExperience != null) {
           _yearsExperienceController.text = profile.yearsExperience.toString();
         }
@@ -318,7 +340,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       if (_phoneController.text.trim().isEmpty) return _showError('Phone number is required');
       final age = int.tryParse(_ageController.text.trim());
       if (age == null || age < 18) return _showError('You must be at least 18 years old');
-      if (_locationController.text.trim().isEmpty) return _showError('Location is required');
+      if (_locationController.text.trim().isEmpty) {
+        return _showError('Select your city / location');
+      }
+      if (!SomaliaCities.contains(_locationController.text)) {
+        return _showError('Select a city from the Somalia cities list');
+      }
       return true;
     }
     if (_currentStep == _professionalStepIndex) {
@@ -1123,13 +1150,50 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             decoration: _fieldDecoration('Age *', hint: 'Must be 18+', icon: Icons.cake_outlined),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _locationController,
-            readOnly: !_canEdit,
-            decoration: _fieldDecoration('City / Location *', icon: Icons.location_on_outlined),
-          ),
+          _buildSomaliaCityDropdown(isDark),
         ],
       ),
+    );
+  }
+
+  Widget _buildSomaliaCityDropdown(bool isDark) {
+    final selected = SomaliaCities.match(_locationController.text);
+    final displayRaw = _locationController.text.trim();
+
+    if (!_canEdit) {
+      return InputDecorator(
+        decoration: _fieldDecoration('City / Location *', icon: Icons.location_on_outlined),
+        child: Text(
+          (selected ?? displayRaw).isNotEmpty ? (selected ?? displayRaw) : '—',
+          style: TextStyle(
+            fontSize: 16,
+            color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
+          ),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: selected,
+      isExpanded: true,
+      menuMaxHeight: 360,
+      decoration: _fieldDecoration(
+        'City / Location *',
+        hint: 'Select a city in Somalia',
+        icon: Icons.location_on_outlined,
+      ),
+      items: SomaliaCities.all
+          .map(
+            (city) => DropdownMenuItem<String>(
+              value: city,
+              child: Text(city, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(),
+      onChanged: (city) {
+        if (city == null) return;
+        setState(() => _locationController.text = city);
+      },
     );
   }
 
@@ -1192,23 +1256,39 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           continue;
         }
 
+        final localName = file.name.isNotEmpty ? file.name : 'certificate.jpg';
         final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+        Map<String, dynamic> validated;
         try {
-          await _apiService.validateCoachCertificate(
+          // Backend uploads to ImageKit first, then OCR-checks the uploaded image.
+          validated = await _apiService.validateCoachCertificate(
             dataUrl: dataUrl,
             expectedName: expectedName,
+            fileName: localName,
           );
         } catch (e) {
           lastError = ApiService.friendlyError(e);
           continue;
         }
 
+        final remoteUrl = validated['url']?.toString().trim() ?? '';
+        if (remoteUrl.isEmpty) {
+          lastError = 'Certificate upload did not return a file URL. Try again.';
+          continue;
+        }
+
         additions.add(
           _PendingCertificate(
-            fileName: file.name.isNotEmpty ? file.name : 'certificate.jpg',
-            mimeType: mime,
+            fileName: validated['fileName']?.toString().trim().isNotEmpty == true
+                ? validated['fileName'].toString()
+                : localName,
+            mimeType: validated['mimeType']?.toString().trim().isNotEmpty == true
+                ? validated['mimeType'].toString()
+                : mime,
             dataUrl: dataUrl,
             bytes: bytes,
+            uploadedUrl: remoteUrl,
+            uploadedAt: validated['uploadedAt']?.toString(),
           ),
         );
       }
@@ -1366,7 +1446,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
                 : const Icon(Icons.upload_file_rounded),
             label: Text(
               _validatingCertificates
-                  ? 'Checking name on certificate…'
+                  ? 'Uploading & verifying name…'
                   : (totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
             ),
           ),

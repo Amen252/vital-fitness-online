@@ -87,8 +87,8 @@ async function ownedCertificateUrls(userId) {
  * - already-owned https URLs (re-apply) or ImageKit CDN URLs for this deployment
  * Returns [{ url, fileName, mimeType, uploadedAt }]
  *
- * New image uploads are OCR-checked so the certificate shows a first + last name
- * (and matches expectedName when provided).
+ * New image uploads go to ImageKit first, then OCR checks first + last name
+ * on the uploaded file (and matches expectedName when provided).
  */
 async function resolveCertificateFiles(input, { userId, expectedName } = {}) {
   if (input == null) return [];
@@ -138,6 +138,18 @@ async function resolveCertificateFiles(input, { userId, expectedName } = {}) {
       const mimeType = typeof item === 'object' && item?.mimeType
         ? String(item.mimeType)
         : (dataUrl.toLowerCase().includes('.pdf') ? 'application/pdf' : 'image/jpeg');
+      // Already-saved certificates skip OCR; newly supplied CDN URLs are checked after upload path.
+      if (
+        nameCheckEnabled
+        && !ownedUrls.has(dataUrl)
+        && !String(mimeType).includes('pdf')
+        && !dataUrl.toLowerCase().endsWith('.pdf')
+      ) {
+        await assertCertificateImageShowsName(dataUrl, {
+          expectedName,
+          index: i + 1,
+        });
+      }
       results.push({
         url: dataUrl,
         fileName: fileNameHint || `certificate_${i + 1}`,
@@ -177,21 +189,22 @@ async function resolveCertificateFiles(input, { userId, expectedName } = {}) {
       throw err;
     }
 
-    if (nameCheckEnabled && normalizedMime.startsWith('image/')) {
-      await assertCertificateImageShowsName(dataUrl, {
-        expectedName,
-        index: i + 1,
-      });
-    }
-
     const ext = extensionFromDataUrl(dataUrl);
     const fileName = fileNameHint || `certificate_${i + 1}.${ext}`;
+    // Upload first, then OCR the hosted image (same order as mobile validate endpoint).
     const url = await uploadFileDataUrl(dataUrl, {
       folder: '/vital/certificates',
       fileNamePrefix: `cert_${safeFilePrefix(userId)}_${i + 1}`,
       fileName,
       tags: ['certificate', 'coach'],
     });
+
+    if (nameCheckEnabled && normalizedMime.startsWith('image/')) {
+      await assertCertificateImageShowsName(url, {
+        expectedName,
+        index: i + 1,
+      });
+    }
 
     results.push({
       url,

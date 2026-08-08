@@ -543,10 +543,12 @@ class ApiService {
     }
   }
 
-  /// OCR pre-check before a certificate is added to the coach registration form.
-  Future<void> validateCoachCertificate({
+  /// Upload certificate to ImageKit, then OCR-check the uploaded file for the applicant name.
+  /// Returns `{ url, fileName, mimeType, uploadedAt, matchedName }`.
+  Future<Map<String, dynamic>> validateCoachCertificate({
     required String dataUrl,
     required String expectedName,
+    String? fileName,
   }) async {
     try {
       final response = await http
@@ -556,13 +558,16 @@ class ApiService {
             body: jsonEncode({
               'dataUrl': dataUrl,
               'expectedName': expectedName.trim(),
+              if (fileName != null && fileName.trim().isNotEmpty) 'fileName': fileName.trim(),
             }),
           )
-          .timeout(const Duration(seconds: 90));
+          .timeout(const Duration(seconds: 120));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data is Map && data['ok'] == true) return;
+        if (data is Map && data['ok'] == true) {
+          return Map<String, dynamic>.from(data);
+        }
       }
       throw Exception(_parseError(response));
     } on Exception catch (e) {
