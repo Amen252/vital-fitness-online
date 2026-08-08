@@ -781,9 +781,35 @@ async function deleteClass(req, res) {
   }
 }
 
+function enrichCoachApplicationDoc(app) {
+  const { pickCertificateFiles } = require('../utils/coachProfile');
+  if (!app) return null;
+  const profile = enrichCoachUser(
+    {
+      ...(app.user || {}),
+      phone: app.user?.phone || app.phone,
+      coachData: app.user?.coachData,
+    },
+    app,
+  ).profile;
+  // Always expose a single normalized certificate list for admin review UIs.
+  const certificateFiles = pickCertificateFiles(
+    app.certificateFiles,
+    profile?.certificateFiles,
+    app.user?.coachData?.certificateFiles,
+  );
+  return {
+    ...app,
+    certificateFiles,
+    profile: {
+      ...profile,
+      certificateFiles,
+    },
+  };
+}
+
 async function getCoachApplications(req, res) {
   try {
-    const { pickCertificateFiles } = require('../utils/coachProfile');
     // Default to pending so Applications stays focused on review queue.
     const status = req.query.status || 'pending';
     const filter = status === 'all' ? {} : { status };
@@ -792,35 +818,25 @@ async function getCoachApplications(req, res) {
       .sort({ createdAt: -1 })
       .lean();
 
-    const enriched = applications.map((app) => {
-      const profile = enrichCoachUser(
-        {
-          ...(app.user || {}),
-          phone: app.user?.phone || app.phone,
-          coachData: app.user?.coachData,
-        },
-        app,
-      ).profile;
-      // Always expose a single normalized certificate list for admin review UIs.
-      const certificateFiles = pickCertificateFiles(
-        app.certificateFiles,
-        profile?.certificateFiles,
-        app.user?.coachData?.certificateFiles,
-      );
-      return {
-        ...app,
-        certificateFiles,
-        profile: {
-          ...profile,
-          certificateFiles,
-        },
-      };
-    });
-
-    return res.json(enriched);
+    return res.json(applications.map(enrichCoachApplicationDoc));
   } catch (error) {
     console.error('[ADMIN] getCoachApplications:', error.message);
     return res.status(500).json({ message: 'Error fetching coach applications' });
+  }
+}
+
+async function getCoachApplication(req, res) {
+  try {
+    const application = await CoachApplication.findById(req.params.id)
+      .populate('user', 'username full_name phone status role avatar coachData createdAt')
+      .lean();
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+    return res.json(enrichCoachApplicationDoc(application));
+  } catch (error) {
+    console.error('[ADMIN] getCoachApplication:', error.message);
+    return res.status(500).json({ message: 'Error fetching coach application' });
   }
 }
 
@@ -1621,6 +1637,7 @@ module.exports = {
   getStatistics,
   sendAnnouncement,
   getCoachApplications,
+  getCoachApplication,
   approveCoachApplication,
   rejectCoachApplication,
   getAppointments,

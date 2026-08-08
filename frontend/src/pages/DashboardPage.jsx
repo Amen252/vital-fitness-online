@@ -306,21 +306,23 @@ export default function DashboardPage() {
                 app.user?.full_name || app.user?.username || app.user?.email || "Applicant";
               const status = app.status || "pending";
               return (
-                <li
-                  key={app._id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-[var(--vf-border)] px-3 py-2 text-sm"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">{name}</p>
-                    <p className="truncate text-xs text-[var(--vf-muted)]">
-                      {app.specialization || "—"}
-                      {app.createdAt ? ` · Applied ${formatDate(app.createdAt)}` : ""}
-                      {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
-                    </p>
-                  </div>
-                  <Badge tone={applicationStatusTone(status)}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </Badge>
+                <li key={app._id}>
+                  <Link
+                    to={`/coaches/applications/${app._id}`}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-[var(--vf-border)] px-3 py-2 text-sm transition hover:border-[var(--vf-primary)] hover:bg-[var(--vf-surface-muted)]/50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{name}</p>
+                      <p className="truncate text-xs text-[var(--vf-muted)]">
+                        {app.specialization || "—"}
+                        {app.createdAt ? ` · Applied ${formatDate(app.createdAt)}` : ""}
+                        {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
+                      </p>
+                    </div>
+                    <Badge tone={applicationStatusTone(status)}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </Badge>
+                  </Link>
                 </li>
               );
             })

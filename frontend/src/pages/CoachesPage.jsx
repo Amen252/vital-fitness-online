@@ -11,7 +11,6 @@ import {
 import { getErrorMessage } from "../api/client";
 import { formatDate, formatList } from "../utils/profileDisplay";
 import { coachDisplayEmail, coachDisplayName, coachProfileFromUser } from "../utils/coachDisplay";
-import CertificateFilesGallery, { pickCertificateFiles } from "../components/CertificateFilesGallery";
 import {
   Badge,
   Breadcrumbs,
@@ -73,7 +72,6 @@ export default function CoachesPage() {
   const [applicationFilter, setApplicationFilter] = useState(
     searchParams.get("status") || "all",
   );
-  const [detailApplication, setDetailApplication] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -129,11 +127,6 @@ export default function CoachesPage() {
       setAllCoaches(items);
       const apps = Array.isArray(appsResult) ? appsResult : [];
       setAllApplications(apps);
-      setDetailApplication((current) => {
-        if (!current?._id) return current;
-        const next = apps.find((a) => String(a._id) === String(current._id));
-        return next || null;
-      });
     } catch (err) {
       if (!silent) {
         setError(getErrorMessage(err));
@@ -219,15 +212,6 @@ export default function CoachesPage() {
     );
   }
 
-  function applicationCertificates(app) {
-    return pickCertificateFiles(
-      app?.certificateFiles,
-      app?.profile?.certificateFiles,
-      app?.user?.coachData?.certificateFiles,
-      app?.user?.profile?.certificateFiles,
-    );
-  }
-
   const applicationColumns = useMemo(
     () => [
       {
@@ -279,9 +263,11 @@ export default function CoachesPage() {
         header: "",
         render: (row) => (
           <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            <Button size="sm" variant="secondary" onClick={() => setDetailApplication(row)}>
-              View
-            </Button>
+            <Link to={`/coaches/applications/${row._id}`}>
+              <Button size="sm" variant="secondary">
+                View
+              </Button>
+            </Link>
             {row.status === "pending" ? (
               <>
                 <Button
@@ -420,7 +406,6 @@ export default function CoachesPage() {
       await load({ silent: true });
       setTab("applications");
       setApplicationFilter("approved");
-      setDetailApplication(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -443,194 +428,11 @@ export default function CoachesPage() {
       await load({ silent: true });
       setTab("applications");
       setApplicationFilter("rejected");
-      setDetailApplication(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
       setReviewingId(null);
     }
-  }
-
-  function renderApplicationDetailModal() {
-    if (!detailApplication) return null;
-    const app = detailApplication;
-    const displayName = applicationDisplayName(app);
-    const email = app.user?.username || app.user?.email || "";
-    const profile = applicationProfile(app);
-    const certificates = applicationCertificates(app);
-    const experienceNotes = String(profile.experience || "").trim();
-    const yearsLabel =
-      profile.yearsExperience != null && profile.yearsExperience !== ""
-        ? `${profile.yearsExperience} year${Number(profile.yearsExperience) === 1 ? "" : "s"}`
-        : null;
-    // Hide free-text experience when it only restates yearsExperience (e.g. "4yrs").
-    const yearsToken = String(profile.yearsExperience ?? "").trim().toLowerCase();
-    const notesToken = experienceNotes.replace(/\s+/g, "").toLowerCase();
-    const experienceIsRedundant =
-      !experienceNotes ||
-      notesToken === yearsToken ||
-      notesToken === `${yearsToken}yr` ||
-      notesToken === `${yearsToken}yrs` ||
-      notesToken === `${yearsToken}year` ||
-      notesToken === `${yearsToken}years`;
-    const showExperienceNotes = Boolean(experienceNotes && !experienceIsRedundant);
-
-    function Section({ title, children }) {
-      return (
-        <section className="rounded-[14px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)]/40 p-4">
-          <h4 className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--vf-muted)]">
-            {title}
-          </h4>
-          {children}
-        </section>
-      );
-    }
-
-    function InfoRow({ label, value }) {
-      const display = value == null || value === "" ? "—" : value;
-      return (
-        <div className="min-w-0">
-          <p className="text-xs text-[var(--vf-muted)]">{label}</p>
-          <p className="mt-0.5 break-words text-sm font-medium text-[var(--vf-text)]">{display}</p>
-        </div>
-      );
-    }
-
-    function formatDayAvailability(days) {
-      if (!Array.isArray(days) || !days.length) return "—";
-      return (
-        days
-          .map((d) => {
-            if (!d?.day) return null;
-            return `${d.day} ${d.start || ""}–${d.end || ""}`.trim();
-          })
-          .filter(Boolean)
-          .join(", ") || "—"
-      );
-    }
-
-    return (
-      <Modal
-        open
-        wide
-        title="Review application"
-        onClose={() => setDetailApplication(null)}
-        footer={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="secondary" onClick={() => setDetailApplication(null)}>
-              Close
-            </Button>
-            {app.status === "pending" ? (
-              <>
-                <Button
-                  disabled={reviewingId === app._id || deleting}
-                  onClick={() => approve(app._id)}
-                >
-                  {reviewingId === app._id ? "Approving…" : "Approve"}
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={Boolean(reviewingId) || deleting}
-                  onClick={() => reject(app._id)}
-                >
-                  Reject
-                </Button>
-              </>
-            ) : null}
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xl font-bold text-[var(--vf-text)]">{displayName}</p>
-              <p className="mt-0.5 text-sm text-[var(--vf-muted)]">{email || "No email"}</p>
-            </div>
-            <div className="text-right">
-              <Badge tone={applicationStatusTone(app.status)}>
-                {(app.status || "pending").charAt(0).toUpperCase() +
-                  (app.status || "pending").slice(1)}
-              </Badge>
-              <p className="mt-1 text-xs text-[var(--vf-muted)]">
-                Applied {formatDate(app.createdAt)}
-                {app.reviewedAt ? ` · Reviewed ${formatDate(app.reviewedAt)}` : ""}
-              </p>
-            </div>
-          </div>
-
-          {app.status === "rejected" && app.rejectionReason ? (
-            <div className="rounded-[12px] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              <p className="font-semibold">Rejection reason</p>
-              <p className="mt-1 leading-6">{app.rejectionReason}</p>
-            </div>
-          ) : null}
-
-          <Section title="Certificates">
-            <CertificateFilesGallery
-              files={certificates}
-              title=""
-              showTitleWhenEmpty
-              emptyLabel="No certificate files on this application. Ask the coach to re-upload before approving."
-            />
-          </Section>
-
-          <Section title="Contact">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <InfoRow label="Phone" value={profile.phone || app.phone} />
-              <InfoRow label="Location" value={profile.location || app.location} />
-              <InfoRow label="Age" value={profile.age ?? app.age} />
-            </div>
-          </Section>
-
-          <Section title="Professional">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InfoRow label="Years of experience" value={yearsLabel} />
-              <InfoRow
-                label="Certifications"
-                value={profile.certifications || app.certifications}
-              />
-              <InfoRow
-                label="Specialization"
-                value={
-                  formatList(profile.specialization) !== "—"
-                    ? formatList(profile.specialization)
-                    : app.specialization
-                }
-              />
-              {showExperienceNotes ? (
-                <InfoRow label="Experience notes" value={experienceNotes} />
-              ) : null}
-            </div>
-          </Section>
-
-          <Section title="Schedule">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InfoRow label="Working days" value={formatList(profile.workingDays)} />
-              <InfoRow label="Appointment days" value={formatList(profile.appointmentDays)} />
-              <InfoRow
-                label="Day availability"
-                value={formatDayAvailability(profile.dayAvailability)}
-              />
-              <InfoRow
-                label="Appointment duration"
-                value={
-                  profile.appointmentDurationMinutes != null
-                    ? `${profile.appointmentDurationMinutes} min`
-                    : null
-                }
-              />
-            </div>
-          </Section>
-
-          <Section title="About">
-            <div className="grid gap-3">
-              <InfoRow label="Bio" value={profile.bio || app.bio} />
-              <InfoRow label="Application message" value={app.message} />
-            </div>
-          </Section>
-        </div>
-      </Modal>
-    );
   }
 
   return (
@@ -764,8 +566,6 @@ export default function CoachesPage() {
           />
         </>
       ) : null}
-
-      {renderApplicationDetailModal()}
 
       <Modal
         open={Boolean(pendingDelete)}

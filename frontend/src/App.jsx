@@ -5,6 +5,7 @@ import RoleShell from "./components/RoleShell";
 import AppointmentsPage from "./pages/AppointmentsPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import CoachesPage from "./pages/CoachesPage";
+import CoachApplicationDetailPage from "./pages/CoachApplicationDetailPage";
 import CoachDetailPage from "./pages/CoachDetailPage";
 import DashboardPage from "./pages/DashboardPage";
 import InsightsPage from "./pages/InsightsPage";
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="users" element={<UsersPage />} />
         <Route path="users/:id" element={<UserDetailPage />} />
         <Route path="coaches" element={<CoachesPage />} />
+        <Route path="coaches/applications/:id" element={<CoachApplicationDetailPage />} />
         <Route path="coaches/:id" element={<CoachDetailPage />} />
         <Route path="appointments" element={<AppointmentsPage />} />
         <Route path="insights" element={<InsightsPage />} />

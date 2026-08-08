@@ -15,6 +15,7 @@ const {
   getStatistics,
   sendAnnouncement,
   getCoachApplications,
+  getCoachApplication,
   approveCoachApplication,
   rejectCoachApplication,
   getAppointments,
@@ -45,6 +46,7 @@ router.patch('/users/:id', updateUser);
 router.patch('/users/:id/status', updateUserStatus);
 router.post('/notifications', sendAnnouncement);
 router.get('/coach-applications', getCoachApplications);
+router.get('/coach-applications/:id', getCoachApplication);
 router.patch('/coach-applications/:id/approve', approveCoachApplication);
 router.patch('/coach-applications/:id/reject', rejectCoachApplication);
 router.get('/trainers', getTrainers);

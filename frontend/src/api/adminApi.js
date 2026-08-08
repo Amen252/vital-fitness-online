@@ -109,6 +109,9 @@ export const getCoachApplications = (status) =>
     .get("/admin/coach-applications", { params: status ? { status } : {} })
     .then((r) => r.data);
 
+export const getCoachApplication = (id) =>
+  api.get(`/admin/coach-applications/${id}`).then((r) => r.data);
+
 export const approveCoachApplication = (id) =>
   api.patch(`/admin/coach-applications/${id}/approve`).then((r) => r.data);
 
