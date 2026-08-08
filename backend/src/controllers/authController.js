@@ -472,7 +472,11 @@ async function registerCoach(req, res) {
     let uploadedCertificates = [];
     try {
       requireCertificateFiles(certificateFiles);
-      uploadedCertificates = await resolveCertificateFiles(certificateFiles, { userId: identity });
+      // Identity may be an email (no User ObjectId yet). certificateUpload only
+      // runs ownership lookups when userId is a valid ObjectId.
+      uploadedCertificates = await resolveCertificateFiles(certificateFiles, {
+        userId: identity,
+      });
     } catch (certError) {
       return res.status(400).json({ message: certError.message, code: certError.code });
     }

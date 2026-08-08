@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const {
   isFileDataUrl,
   isHttpUrl,
@@ -39,21 +40,44 @@ function imageKitHostAllowed(url) {
   }
 }
 
+function isMongoObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value)
+    && String(new mongoose.Types.ObjectId(value)) === String(value);
+}
+
+/** Safe ImageKit prefix segment (emails / ids → alphanumeric underscore). */
+function safeFilePrefix(value) {
+  const cleaned = String(value || 'coach')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48);
+  return cleaned || 'coach';
+}
+
 async function ownedCertificateUrls(userId) {
-  if (!userId) return new Set();
-  const [application, user] = await Promise.all([
-    CoachApplication.findOne({ user: userId }).select('certificateFiles').lean(),
-    User.findById(userId).select('coachData.certificateFiles').lean(),
-  ]);
-  const urls = new Set();
-  for (const file of [
-    ...(application?.certificateFiles || []),
-    ...(user?.coachData?.certificateFiles || []),
-  ]) {
-    const url = String(file?.url || '').trim();
-    if (url) urls.add(url);
+  // New register-coach passes email/username before a User exists — skip ownership lookup.
+  if (!userId || !isMongoObjectId(userId)) return new Set();
+  try {
+    const [application, user] = await Promise.all([
+      CoachApplication.findOne({ user: userId }).select('certificateFiles').lean(),
+      User.findById(userId).select('coachData.certificateFiles').lean(),
+    ]);
+    const urls = new Set();
+    for (const file of [
+      ...(application?.certificateFiles || []),
+      ...(user?.coachData?.certificateFiles || []),
+    ]) {
+      const url = String(file?.url || '').trim();
+      if (url) urls.add(url);
+    }
+    return urls;
+  } catch (error) {
+    // Never fail registration/re-apply because of ownership lookup issues.
+    console.error('[CERT] ownedCertificateUrls:', error.message);
+    return new Set();
   }
-  return urls;
 }
 
 /**
@@ -138,7 +162,7 @@ async function resolveCertificateFiles(input, { userId } = {}) {
     const fileName = fileNameHint || `certificate_${i + 1}.${ext}`;
     const url = await uploadFileDataUrl(dataUrl, {
       folder: '/vital/certificates',
-      fileNamePrefix: `cert_${userId || 'coach'}_${i + 1}`,
+      fileNamePrefix: `cert_${safeFilePrefix(userId)}_${i + 1}`,
       fileName,
       tags: ['certificate', 'coach'],
     });

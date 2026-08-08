@@ -783,6 +783,7 @@ async function deleteClass(req, res) {
 
 async function getCoachApplications(req, res) {
   try {
+    const { pickCertificateFiles } = require('../utils/coachProfile');
     // Default to pending so Applications stays focused on review queue.
     const status = req.query.status || 'pending';
     const filter = status === 'all' ? {} : { status };
@@ -800,14 +801,25 @@ async function getCoachApplications(req, res) {
         },
         app,
       ).profile;
+      // Always expose a single normalized certificate list for admin review UIs.
+      const certificateFiles = pickCertificateFiles(
+        app.certificateFiles,
+        profile?.certificateFiles,
+        app.user?.coachData?.certificateFiles,
+      );
       return {
         ...app,
-        profile,
+        certificateFiles,
+        profile: {
+          ...profile,
+          certificateFiles,
+        },
       };
     });
 
     return res.json(enriched);
   } catch (error) {
+    console.error('[ADMIN] getCoachApplications:', error.message);
     return res.status(500).json({ message: 'Error fetching coach applications' });
   }
 }

@@ -30,8 +30,10 @@ flutter run --dart-define=API_URL=http://192.168.x.x:5050/api
 
 ```bash
 flutter build apk --release
-# Explicit (same as default):
+# Explicit production API (same as release default):
 flutter build apk --release --dart-define=API_URL=https://vital-online-app.onrender.com/api
 ```
+
+Current shipping version: **1.1.0 (versionCode 2)**. Package ID remains `com.example.vital_fitness` so installs update over the previous APK.
 
 See `lib/config/api_config.dart`.

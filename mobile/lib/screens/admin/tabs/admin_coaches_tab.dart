@@ -570,6 +570,7 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
             ],
           ),
           children: [
+            _buildCertificateFilesSection(isDark, _certificateFilesFromApp(app)),
             _detailSection(isDark, 'Contact', [
               _detailRow('Phone', app['phone']),
               _detailRow('Age', app['age']?.toString()),
@@ -582,7 +583,6 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
               _detailRow('Working Days', (app['workingDays'] as List?)?.map((d) => d.toString()).join(', ')),
               _detailRow('Appointment Days', (app['appointmentDays'] as List?)?.map((d) => d.toString()).join(', ')),
             ]),
-            _buildCertificateFilesSection(isDark, _certificateFilesFromApp(app)),
             _detailSection(isDark, 'Profile', [
               _detailRow('Bio', app['bio']),
               _detailRow('Work Experience', app['experience']),
