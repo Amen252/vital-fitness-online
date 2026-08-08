@@ -6,6 +6,7 @@ const {
   me,
   register,
   registerCoach,
+  validateCoachCertificate,
   logout,
   changePassword,
   forgotPassword,
@@ -61,6 +62,7 @@ router.post('/register', [
   body('password').isLength({ min: 6, max: MAX_PASSWORD_LENGTH }),
 ], register);
 router.post('/register-coach', registerCoach);
+router.post('/validate-coach-certificate', validateCoachCertificate);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 

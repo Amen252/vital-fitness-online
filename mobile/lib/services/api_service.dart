@@ -543,6 +543,34 @@ class ApiService {
     }
   }
 
+  /// OCR pre-check before a certificate is added to the coach registration form.
+  Future<void> validateCoachCertificate({
+    required String dataUrl,
+    required String expectedName,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/auth/validate-coach-certificate'),
+            headers: _headers(),
+            body: jsonEncode({
+              'dataUrl': dataUrl,
+              'expectedName': expectedName.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 90));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['ok'] == true) return;
+      }
+      throw Exception(_parseError(response));
+    } on Exception catch (e) {
+      if (!_isConnectionError(e)) rethrow;
+      throw Exception(friendlyError(e));
+    }
+  }
+
   Future<User> registerCoach({
     required String name,
     required String email,

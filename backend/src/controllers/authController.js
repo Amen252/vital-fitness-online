@@ -623,6 +623,83 @@ async function registerCoach(req, res) {
   }
 }
 
+/**
+ * Pre-check a certificate image (mobile/web) before it is added to the form.
+ * Body: { certificateFile | dataUrl | file, expectedName? }
+ */
+async function validateCoachCertificate(req, res) {
+  try {
+    const {
+      isNameValidationEnabled,
+      assertCertificateImageShowsName,
+    } = require('../utils/certificateNameValidation');
+    const { isFileDataUrl, mimeFromDataUrl } = require('../utils/imageKit');
+
+    if (!isNameValidationEnabled()) {
+      return res.json({ ok: true, skipped: true });
+    }
+
+    const raw = req.body?.certificateFile ?? req.body?.dataUrl ?? req.body?.file ?? req.body?.url;
+    const dataUrl = typeof raw === 'string'
+      ? raw.trim()
+      : String(raw?.dataUrl || raw?.url || raw?.file || '').trim();
+    const expectedName = String(
+      req.body?.expectedName || req.body?.name || req.body?.full_name || '',
+    ).trim();
+
+    if (!dataUrl) {
+      return res.status(400).json({
+        message: 'Certificate image is required',
+        code: 'INVALID_CERTIFICATES',
+      });
+    }
+    if (!isFileDataUrl(dataUrl)) {
+      return res.status(400).json({
+        message: 'Certificate must be a JPG or PNG image',
+        code: 'INVALID_CERTIFICATES',
+      });
+    }
+
+    const mimeType = mimeFromDataUrl(dataUrl);
+    const normalizedMime = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
+    if (!normalizedMime.startsWith('image/') || normalizedMime === 'application/pdf') {
+      return res.status(400).json({
+        message: 'Certificate must be a JPG or PNG photo that clearly shows your first and last name.',
+        code: 'CERTIFICATE_NAME_REQUIRED',
+      });
+    }
+
+    if (!expectedName) {
+      return res.status(400).json({
+        message: 'Enter your full name first, then upload a certificate that shows that name.',
+        code: 'CERTIFICATE_NAME_REQUIRED',
+      });
+    }
+
+    const result = await assertCertificateImageShowsName(dataUrl, {
+      expectedName,
+      index: 1,
+    });
+
+    return res.json({
+      ok: true,
+      matchedName: result.matchedName || null,
+    });
+  } catch (error) {
+    if ([
+      'INVALID_CERTIFICATES',
+      'CERTIFICATE_NAME_REQUIRED',
+      'CERTIFICATE_NAME_MISMATCH',
+      'CERTIFICATE_OCR_FAILED',
+      'CERTIFICATE_TOO_LARGE',
+    ].includes(error.code)) {
+      return res.status(400).json({ message: error.message, code: error.code });
+    }
+    console.error('[AUTH] validateCoachCertificate:', error.message);
+    return res.status(500).json({ message: 'Unable to validate certificate right now' });
+  }
+}
+
 async function forgotPassword(req, res) {
   try {
     const email = String(req.body.email || req.body.username || '')
@@ -731,6 +808,7 @@ module.exports = {
   changePassword,
   register,
   registerCoach,
+  validateCoachCertificate,
   forgotPassword,
   resetPassword,
 };

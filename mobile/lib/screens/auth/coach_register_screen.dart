@@ -64,6 +64,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   final _pageController = PageController();
   int _currentStep = 0;
   bool _isSubmitting = false;
+  bool _validatingCertificates = false;
   String? _errorMessage;
   bool _obscurePassword = true;
 
@@ -1132,12 +1133,26 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     );
   }
 
+  String get _expectedCertificateName {
+    final fromForm = _nameController.text.trim();
+    if (fromForm.isNotEmpty) return fromForm;
+    final user = widget.existingUser;
+    return (user?.name ?? user?.email ?? '').trim();
+  }
+
   Future<void> _pickCertificates() async {
     final already = _certificates.length + _existingCertificateFiles.length;
     if (already >= _maxCertificates) {
       _showError('You can upload at most $_maxCertificates certificates');
       return;
     }
+
+    final expectedName = _expectedCertificateName;
+    if (expectedName.isEmpty) {
+      _showError('Enter your full name first, then upload a certificate that shows that name.');
+      return;
+    }
+
     try {
       final remaining = _maxCertificates - already;
       final files = await _picker.pickMultiImage(
@@ -1146,13 +1161,18 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       );
       if (files.isEmpty) return;
 
+      if (!mounted) return;
+      setState(() {
+        _validatingCertificates = true;
+        _errorMessage = null;
+      });
+
       final additions = <_PendingCertificate>[];
+      String? lastError;
       for (final file in files.take(remaining)) {
         final bytes = await file.readAsBytes();
         if (bytes.length > _maxCertBytes) {
-          if (mounted) {
-            _showError('${file.name} exceeds the 2 MB limit');
-          }
+          lastError = '${file.name} exceeds the 2 MB limit';
           continue;
         }
         final lower = file.name.toLowerCase();
@@ -1164,26 +1184,51 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         } else if (lower.endsWith('.webp')) {
           mime = 'image/webp';
         } else {
-          // image_picker returns images; default jpeg
           mime = 'image/jpeg';
         }
-        final b64 = base64Encode(bytes);
+
+        if (mime == 'image/webp') {
+          lastError = '${file.name}: use JPG or PNG so your name can be verified';
+          continue;
+        }
+
+        final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+        try {
+          await _apiService.validateCoachCertificate(
+            dataUrl: dataUrl,
+            expectedName: expectedName,
+          );
+        } catch (e) {
+          lastError = ApiService.friendlyError(e);
+          continue;
+        }
+
         additions.add(
           _PendingCertificate(
             fileName: file.name.isNotEmpty ? file.name : 'certificate.jpg',
             mimeType: mime,
-            dataUrl: 'data:$mime;base64,$b64',
+            dataUrl: dataUrl,
             bytes: bytes,
           ),
         );
       }
+
       if (!mounted) return;
       setState(() {
-        _certificates.addAll(additions);
-        _errorMessage = null;
+        _validatingCertificates = false;
+        if (additions.isNotEmpty) {
+          _certificates.addAll(additions);
+          _errorMessage = lastError;
+        } else {
+          _errorMessage = lastError ??
+              'Certificate rejected. Upload a clear photo that shows your first and last name ($expectedName).';
+        }
       });
     } catch (e) {
-      if (mounted) _showError('Could not pick certificates. Try again.');
+      if (mounted) {
+        setState(() => _validatingCertificates = false);
+        _showError('Could not pick certificates. Try again.');
+      }
     }
   }
 
@@ -1309,9 +1354,21 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         if (totalCount > 0) const SizedBox(height: 12),
         if (_canEdit) ...[
           OutlinedButton.icon(
-            onPressed: totalCount >= _maxCertificates ? null : _pickCertificates,
-            icon: const Icon(Icons.upload_file_rounded),
-            label: Text(totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
+            onPressed: (totalCount >= _maxCertificates || _validatingCertificates)
+                ? null
+                : _pickCertificates,
+            icon: _validatingCertificates
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.upload_file_rounded),
+            label: Text(
+              _validatingCertificates
+                  ? 'Checking name on certificate…'
+                  : (totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
+            ),
           ),
           if (totalCount > 0)
             Padding(
