@@ -8,7 +8,7 @@ import {
   getTrainersMeta,
   rejectCoachApplication,
 } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import { formatDate, formatList } from "../utils/profileDisplay";
 import { coachDisplayEmail, coachDisplayName, coachProfileFromUser } from "../utils/coachDisplay";
 import {
@@ -105,7 +105,7 @@ export default function CoachesPage() {
       removeCoachFromLists(deletedId);
       setPendingDelete(null);
       toast.success(`${name} has been permanently deleted`);
-      await load({ silent: true });
+      void load({ silent: true });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -119,10 +119,12 @@ export default function CoachesPage() {
       setError("");
     }
     try {
-      const [trainers, appsResult] = await Promise.all([
-        getTrainersMeta(),
-        getCoachApplications("all"),
-      ]);
+      const [trainers, appsResult] = await withHardTimeout(
+        Promise.all([
+          getTrainersMeta().catch(() => ({ items: [] })),
+          getCoachApplications("all").catch(() => []),
+        ]),
+      );
       const items = Array.isArray(trainers?.items) ? trainers.items : [];
       setAllCoaches(items);
       const apps = Array.isArray(appsResult) ? appsResult : [];
@@ -402,10 +404,15 @@ export default function CoachesPage() {
     setReviewingId(id);
     try {
       await approveCoachApplication(id);
+      setAllApplications((prev) =>
+        prev.map((a) =>
+          a._id === id || a.id === id ? { ...a, status: "approved" } : a,
+        ),
+      );
       toast.success("Coach approved — now listed under Active Coaches");
-      await load({ silent: true });
       setTab("applications");
       setApplicationFilter("approved");
+      void load({ silent: true });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -424,10 +431,15 @@ export default function CoachesPage() {
     setReviewingId(id);
     try {
       await rejectCoachApplication(id, reason);
+      setAllApplications((prev) =>
+        prev.map((a) =>
+          a._id === id || a.id === id ? { ...a, status: "rejected", rejectionReason: reason } : a,
+        ),
+      );
       toast.warning("Application rejected");
-      await load({ silent: true });
       setTab("applications");
       setApplicationFilter("rejected");
+      void load({ silent: true });
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {

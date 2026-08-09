@@ -144,9 +144,11 @@ export default function CoachClientsPage() {
   const [notice, setNotice] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [dashboard, pending] = await Promise.all([
         fetchCoachDashboard(),
@@ -155,9 +157,9 @@ export default function CoachClientsPage() {
       setAssignments(dashboard?.assignments || []);
       setRequests(Array.isArray(pending) ? pending : []);
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!silent) setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -167,7 +169,7 @@ export default function CoachClientsPage() {
 
   useEffect(() => {
     if (requests.length === 0) return undefined;
-    const timer = setInterval(load, 15000);
+    const timer = setInterval(() => load({ silent: true }), 15000);
     return () => clearInterval(timer);
   }, [requests.length, load]);
 
@@ -177,8 +179,9 @@ export default function CoachClientsPage() {
     setNotice("");
     try {
       await approveCoachRequest(id);
+      setRequests((prev) => prev.filter((r) => r._id !== id && r.id !== id));
       setNotice("Request accepted. The member is now linked to you.");
-      await load();
+      void load({ silent: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -192,8 +195,9 @@ export default function CoachClientsPage() {
     setNotice("");
     try {
       await rejectCoachRequest(id);
+      setRequests((prev) => prev.filter((r) => r._id !== id && r.id !== id));
       setNotice("Request declined. The member can choose another coach.");
-      await load();
+      void load({ silent: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -210,7 +214,12 @@ export default function CoachClientsPage() {
           Review coaching requests and manage members currently linked to you.
         </p>
         {loading ? <div className="mt-5"><Spinner label="Loading clients…" /></div> : null}
-        {error ? <p className="mt-5 text-sm text-[var(--vf-danger)]">{error}</p> : null}
+        {!loading && error ? (
+          <div className="mt-5 space-y-2">
+            <p className="text-sm text-[var(--vf-danger)]">{error || "Unable to load data"}</p>
+            <Button size="sm" variant="secondary" onClick={() => load()}>Retry</Button>
+          </div>
+        ) : null}
         {notice ? <p className="mt-5 text-sm text-emerald-700">{notice}</p> : null}
       </Card>
 

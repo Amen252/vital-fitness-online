@@ -140,10 +140,13 @@ async function getUsers(req, res) {
       ];
     }
 
+    // Cap list size so admin UI cannot hang on an unbounded collection scan.
     const users = await User.find(filter)
       .select('-password -admin_password')
       .populate('clientData.assigned_coach_id', 'username full_name')
       .sort({ full_name: 1 })
+      .limit(1000)
+      .maxTimeMS(15000)
       .lean();
 
     // View-only monitoring — never expose credentials to admins.

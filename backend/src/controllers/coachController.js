@@ -17,10 +17,10 @@ const { backfillGroupPlanAccess, clearPendingGroupPlanAccess } = require('../uti
 
 async function buildClientSnapshot(userId) {
   const [meals, activities, water, pendingWorkouts] = await Promise.all([
-    MealLog.find({ user: userId }).sort({ date: -1 }).limit(7),
-    ActivityLog.find({ user: userId }).sort({ date: -1 }).limit(7),
-    WaterLog.find({ user: userId }).sort({ date: -1 }).limit(7),
-    ActivityLog.countDocuments({ user: userId, status: 'pending' }),
+    MealLog.find({ user: userId }).sort({ date: -1 }).limit(7).maxTimeMS(8000),
+    ActivityLog.find({ user: userId }).sort({ date: -1 }).limit(7).maxTimeMS(8000),
+    WaterLog.find({ user: userId }).sort({ date: -1 }).limit(7).maxTimeMS(8000),
+    ActivityLog.countDocuments({ user: userId, status: 'pending' }).maxTimeMS(8000),
   ]);
 
   const approvedActivities = activities.filter((a) => a.status === 'approved');
@@ -76,9 +76,12 @@ async function getClientGroups(coachId, userId) {
 }
 
 async function getClients(req, res) {
+  try {
   // Query both assignment collections and merge by client ID
   // This ensures clients show up regardless of which collection was populated
   const coachId = req.user._id;
+  // light=1 skips heavy per-client snapshots (used by workout forms / pickers).
+  const light = req.query.light === '1' || req.query.light === 'true';
 
   const [legacyAssignments, modernAssignments] = await Promise.all([
     CoachAssignment.find({ coach: coachId, status: 'active' })
@@ -103,20 +106,30 @@ async function getClients(req, res) {
     }
   }
 
+  const modernToSync = [];
   for (const a of modernAssignments) {
     const u = a.user_id;
     if (!u?._id) continue;
     const key = String(u._id);
     if (!seen.has(key)) {
-      const legacy = await ensureLegacyCoachAssignment(coachId, u._id);
-      seen.set(key, {
+      modernToSync.push({ key, user: u, assigned_at: a.assigned_at });
+    }
+  }
+
+  if (modernToSync.length) {
+    const legacyRows = await Promise.all(
+      modernToSync.map((row) => ensureLegacyCoachAssignment(coachId, row.user._id)),
+    );
+    modernToSync.forEach((row, i) => {
+      const legacy = legacyRows[i];
+      seen.set(row.key, {
         _id: legacy._id,
-        user: u,
-        assigned_at: a.assigned_at,
+        user: row.user,
+        assigned_at: row.assigned_at,
         status: 'active',
         _source: 'CoachClientAssignment',
       });
-    }
+    });
   }
 
   const merged = [...seen.values()].map((assignment) => {
@@ -128,6 +141,13 @@ async function getClients(req, res) {
     };
   });
 
+  if (light) {
+    return res.json(merged.map((assignment) => ({
+      ...assignment,
+      groups: [],
+    })));
+  }
+
   const withSnapshots = await Promise.all(
     merged.map(async (assignment) => ({
       ...assignment,
@@ -137,6 +157,10 @@ async function getClients(req, res) {
   );
 
   return res.json(withSnapshots);
+  } catch (error) {
+    console.error('getClients:', error.message);
+    return res.status(500).json({ message: 'Failed to load clients' });
+  }
 }
 
 async function getClientDetail(req, res) {

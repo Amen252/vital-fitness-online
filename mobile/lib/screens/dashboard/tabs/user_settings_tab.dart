@@ -163,21 +163,20 @@ class UserSettingsTabState extends State<UserSettingsTab> {
         fullName: name,
         phone: phone,
       );
-      final fresh = await _apiService.getMe();
-      final updatedUser = (fresh != null && fresh.id == _user.id)
-          ? fresh
-          : _user.copyWith(
-              name: name,
-              phone: phone,
-              profile: (_user.profile ?? Profile(goals: const [])).copyWith(
-                photoUrl: _photoUrl,
-                phone: phone,
-              ),
-            );
+      // Update UI from the saved form immediately — don't wait on /auth/me.
+      final updatedUser = _user.copyWith(
+        name: name,
+        phone: phone,
+        profile: (_user.profile ?? Profile(goals: const [])).copyWith(
+          photoUrl: _photoUrl,
+          phone: phone,
+        ),
+      );
       _user = updatedUser;
       _hydrateFromUser(updatedUser);
       widget.onUserUpdated(updatedUser);
       if (mounted) {
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(AppLocalizations.of(context).profileUpdated),
@@ -186,8 +185,18 @@ class UserSettingsTabState extends State<UserSettingsTab> {
           ),
         );
       }
+      // Optional sync in background.
+      _apiService.getMe().then((fresh) {
+        if (!mounted || fresh == null || fresh.id != _user.id) return;
+        setState(() {
+          _user = fresh;
+          _hydrateFromUser(fresh);
+        });
+        widget.onUserUpdated(fresh);
+      });
     } catch (e) {
       if (mounted) {
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ApiService.friendlyError(e)),
@@ -197,7 +206,7 @@ class UserSettingsTabState extends State<UserSettingsTab> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted && _isSaving) setState(() => _isSaving = false);
     }
   }
 

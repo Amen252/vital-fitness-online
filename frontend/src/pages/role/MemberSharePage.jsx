@@ -13,23 +13,35 @@ import { shareOrCopy } from "./roleHelpers";
 
 export default function MemberSharePage() {
   const [invite, setInvite] = useState(null);
+  const [inviteLoading, setInviteLoading] = useState(true);
+  const [inviteError, setInviteError] = useState("");
   const [shareBusy, setShareBusy] = useState("");
   const [shareMessage, setShareMessage] = useState("");
   const [inviteCopied, setInviteCopied] = useState(false);
   const [hasShareableProgress, setHasShareableProgress] = useState(false);
 
   const load = useCallback(async () => {
-    const [inviteData, progressData, workoutData, dietData] = await Promise.all([
-      getMyInvite().catch(() => null),
-      getMemberProgress().catch(() => null),
-      getMemberWorkoutProgress(7).catch(() => null),
-      getMemberDietProgress(7).catch(() => null),
-    ]);
-    setInvite(inviteData);
-    const workoutsDone = workoutData?.summary?.completed ?? 0;
-    const dietAdherence = dietData?.weeklyAveragePercent ?? dietData?.avgAdherence ?? 0;
-    const waterMl = progressData?.summary?.hydration ?? 0;
-    setHasShareableProgress(workoutsDone > 0 || dietAdherence > 0 || waterMl > 0);
+    setInviteLoading(true);
+    setInviteError("");
+    try {
+      const [inviteData, progressData, workoutData, dietData] = await Promise.all([
+        getMyInvite().catch(() => null),
+        getMemberProgress().catch(() => null),
+        getMemberWorkoutProgress(7).catch(() => null),
+        getMemberDietProgress(7).catch(() => null),
+      ]);
+      setInvite(inviteData);
+      if (!inviteData) setInviteError("Unable to load invite link");
+      const workoutsDone = workoutData?.summary?.completed ?? 0;
+      const dietAdherence = dietData?.weeklyAveragePercent ?? dietData?.avgAdherence ?? 0;
+      const waterMl = progressData?.summary?.hydration ?? 0;
+      setHasShareableProgress(workoutsDone > 0 || dietAdherence > 0 || waterMl > 0);
+    } catch (error) {
+      setInvite(null);
+      setInviteError(getErrorMessage(error) || "Unable to load data");
+    } finally {
+      setInviteLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -115,7 +127,9 @@ export default function MemberSharePage() {
         <p className="mt-2 text-sm text-[var(--vf-muted)]">
           Share your personal invite link. Friends register with your code and you get a notification.
         </p>
-        {invite ? (
+        {inviteLoading ? (
+          <p className="mt-3 text-sm text-[var(--vf-muted)]">Loading invite link…</p>
+        ) : invite ? (
           <>
             <div className="mt-4 rounded-[12px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)] px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--vf-muted)]">Your code</p>
@@ -139,7 +153,14 @@ export default function MemberSharePage() {
             </div>
           </>
         ) : (
-          <p className="mt-3 text-sm text-[var(--vf-muted)]">Loading invite link…</p>
+          <div className="mt-3 space-y-2">
+            <p className="text-sm text-[var(--vf-danger)]">
+              {inviteError || "Unable to load data"}
+            </p>
+            <Button size="sm" variant="secondary" onClick={load}>
+              Retry
+            </Button>
+          </div>
         )}
       </Card>
     </div>

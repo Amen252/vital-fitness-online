@@ -3,6 +3,7 @@ import 'widgets/coach_home/coach_dashboard_theme.dart';
 import '../../models/diet_plan_model.dart';
 import '../../models/diet_today_progress_model.dart';
 import '../../services/api_service.dart';
+import '../../utils/async_load.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/diet_progress_panel.dart';
 import '../../widgets/scrollable_body.dart';
@@ -80,12 +81,21 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
     if (!silent && !hasContent && mounted) setState(() => _loading = true);
     final browseDayBeforeLoad = _browseDay;
     try {
-      final planResult = await _api.getDietPlan();
-      final progress = await _api.getUserDietProgress();
-      final planData = planResult != null
+      final results = await waitIsolatedTimed<Object?>([
+        _api.getDietPlan(),
+        _api.getUserDietProgress(),
+      ], fallback: null, timeout: const Duration(seconds: 25));
+      if (results.every((r) => r == null)) {
+        throw Exception('Unable to load data. Please retry.');
+      }
+      final planResult = results[0];
+      final progress = results[1];
+      final planData = planResult is Map
           ? Map<String, dynamic>.from(planResult)
           : <String, dynamic>{};
-      final progressMap = Map<String, dynamic>.from(progress);
+      final progressMap = progress is Map
+          ? Map<String, dynamic>.from(progress)
+          : <String, dynamic>{};
 
       final planJson = planData['plan'] as Map<String, dynamic>?;
       final todayJson = (planData['today'] as Map<String, dynamic>?) ??
@@ -200,12 +210,14 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   Future<void> _loadHistory() async {
     setState(() => _historyLoading = true);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _api.getUserDietPlanHistory(),
         _api.getUserDietProgress(days: 30),
-      ]);
-      final plans = results[0] as List<dynamic>;
-      final progress = Map<String, dynamic>.from(results[1] as Map);
+      ], fallback: null, timeout: const Duration(seconds: 25));
+      final plans = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+      final progress = results[1] is Map
+          ? Map<String, dynamic>.from(results[1] as Map)
+          : <String, dynamic>{};
       if (!mounted) return;
       setState(() {
         _history = plans
@@ -311,10 +323,13 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                 .toList();
           }
           _hydrateMealsForBrowseDay();
+          _savingMeal = false;
         });
+      } else if (mounted) {
+        setState(() => _savingMeal = false);
       }
-      await _load(silent: true);
       widget.onDietDataChanged?.call();
+      _load(silent: true);
       if (mounted && value) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -329,6 +344,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           _dayCompleted[dayOfWeek] = previous;
           _dayCompletedAt[dayOfWeek] = previousAt;
           _completedDays = previousCompletedDays;
+          _savingMeal = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -338,7 +354,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
         );
       }
     } finally {
-      if (mounted) setState(() => _savingMeal = false);
+      if (mounted && _savingMeal) setState(() => _savingMeal = false);
     }
   }
 
@@ -433,13 +449,12 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
             fatsConsumed: (nutrition?['fats'] as num?)?.toInt(),
           );
         }
+        _savingMeal = false;
       });
 
-      // Full silent reload keeps water/workouts/daily goal in sync with DB.
-      await _load(silent: true);
-      if (_tabs.index == 2) {
-        await _loadHistory();
-      }
+      // Background sync only — UI already updated from the API response.
+      _load(silent: true);
+      if (_tabs.index == 2) _loadHistory();
       widget.onDietDataChanged?.call();
 
       if (mounted && value) {
@@ -456,6 +471,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           _mealFollowed[type] = previous;
           _mealCompletedAt[type] = previousCompletedAt;
           _today = previousToday;
+          _savingMeal = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -465,7 +481,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
         );
       }
     } finally {
-      if (mounted) setState(() => _savingMeal = false);
+      if (mounted && _savingMeal) setState(() => _savingMeal = false);
     }
   }
 

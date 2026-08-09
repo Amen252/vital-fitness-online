@@ -18,13 +18,21 @@ export default function CoachDashboardPage() {
   const load = useCallback(async () => {
     if (!hasDataRef.current) setLoading(true);
     setError("");
+    let timer;
     try {
-      const next = await fetchCoachDashboard();
+      const next = await Promise.race([
+        fetchCoachDashboard(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Request timed out. Please retry.")), 20000);
+        }),
+      ]);
       setData(next);
       hasDataRef.current = true;
     } catch (err) {
       setError(getErrorMessage(err));
+      if (!hasDataRef.current) setData(null);
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }, []);
@@ -46,10 +54,15 @@ export default function CoachDashboardPage() {
         <p className="mt-2 text-white/85">Welcome back. Your coaching workspace is ready.</p>
       </div>
 
-      {loading && !data ? <div className="mt-5"><Spinner label="Loading coach data…" /></div> : null}
-      {error ? <p className="mt-5 text-sm text-[var(--vf-danger)]">{error}</p> : null}
+      {loading ? <div className="mt-5"><Spinner label="Loading coach data…" /></div> : null}
+      {!loading && error ? (
+        <div className="mt-5 space-y-3">
+          <p className="text-sm text-[var(--vf-danger)]">{error}</p>
+          <Button variant="secondary" onClick={load}>Retry</Button>
+        </div>
+      ) : null}
 
-      {(!loading || data) && !error ? (
+      {!loading && !error ? (
         <>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <Card className="p-4">

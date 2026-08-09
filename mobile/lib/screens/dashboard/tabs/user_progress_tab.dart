@@ -7,6 +7,7 @@ import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../widgets/animations/animations.dart';
 import 'dart:math' as math;
+import '../../../utils/async_load.dart';
 import '../../../utils/share_helpers.dart';
 import '../invite_friends_screen.dart';
 
@@ -46,12 +47,21 @@ class UserProgressTabState extends State<UserProgressTab> with SingleTickerProvi
   Future<void> _fetchProgress({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getProgress(),
-        _apiService.getUserWorkoutProgress().catchError((_) => <String, dynamic>{}),
-      ]);
-      final progress = results[0] as ProgressData;
-      final workoutProgress = Map<String, dynamic>.from(results[1] as Map);
+        _apiService.getUserWorkoutProgress(),
+      ], fallback: null, timeout: const Duration(seconds: 20));
+      final progress = results[0] is ProgressData ? results[0] as ProgressData : null;
+      final workoutProgress = results[1] is Map
+          ? Map<String, dynamic>.from(results[1] as Map)
+          : <String, dynamic>{};
+      if (progress == null && workoutProgress.isEmpty) {
+        finishTabError(
+          Exception('Unable to load data. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
       final summary = workoutProgress['summary'] as Map<String, dynamic>?;
       final percent = (summary?['completionPercent'] as num?)?.toInt()
           ?? (workoutProgress['completionPercent'] as num?)?.toInt()
@@ -59,7 +69,7 @@ class UserProgressTabState extends State<UserProgressTab> with SingleTickerProvi
       if (mounted) {
         final firstLoad = !tabHasLoadedOnce;
         finishTabLoad(() {
-          _progressData = progress;
+          if (progress != null) _progressData = progress;
           _workoutCompletionPercent = percent.clamp(0, 100);
         });
         if (firstLoad) {

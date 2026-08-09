@@ -16,7 +16,7 @@ import {
   updateSessionNotes,
   addSessionAttachment,
 } from "../../api/sessionApi";
-import { getErrorMessage } from "../../api/client";
+import { getErrorMessage, withHardTimeout } from "../../api/client";
 import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
 import { fieldClass, formatWhen } from "./roleHelpers";
 
@@ -77,14 +77,18 @@ export default function CoachSessionsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rows, clientRows] = await Promise.all([
-        getSessions().catch(() => []),
-        getCoachClients().catch(() => []),
-      ]);
+      const [rows, clientRows] = await withHardTimeout(
+        Promise.all([
+          getSessions().catch(() => []),
+          getCoachClients({ light: true }).catch(() => []),
+        ]),
+      );
       setSessions(Array.isArray(rows) ? rows : []);
       setClients(Array.isArray(clientRows) ? clientRows : []);
     } catch (error) {
       toast.error(getErrorMessage(error));
+      setSessions([]);
+      setClients([]);
     } finally {
       setLoading(false);
     }
@@ -149,7 +153,7 @@ export default function CoachSessionsPage() {
         meetingLink: "",
         date: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
       }));
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -171,9 +175,25 @@ export default function CoachSessionsPage() {
       if (action === "delete") await deleteSession(id);
       if (action === "attachment") await addSessionAttachment(id, payload);
       if (action === "followup") await createFollowUpSession(id, payload);
+      const statusMap = {
+        confirm: "confirmed",
+        start: "in_progress",
+        complete: "completed",
+        cancel: "cancelled",
+      };
+      if (action === "delete") {
+        setSessions((prev) => prev.filter((s) => s._id !== id && s.id !== id));
+        setSelectedId("");
+      } else if (statusMap[action]) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s._id === id || s.id === id ? { ...s, status: statusMap[action], ...payload } : s,
+          ),
+        );
+      }
       toast.success("Session updated");
-      await load();
-      if (action === "delete" || action === "cancel") setSelectedId("");
+      void load();
+      if (action === "cancel") setSelectedId("");
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {

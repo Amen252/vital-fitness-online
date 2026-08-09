@@ -11,7 +11,8 @@ export const api = axios.create({
     "Content-Type": "application/json",
     Accept: "application/json",
   },
-  timeout: 30000,
+  // Keep list/dashboard screens from hanging for minutes on a cold API.
+  timeout: 20000,
 });
 
 function sleep(ms) {
@@ -32,12 +33,14 @@ api.interceptors.response.use(
   async (error) => {
     const config = error.config;
     const status = error.response?.status;
+    const method = (config?.method || "get").toLowerCase();
 
-    if (config && RETRYABLE_STATUSES.has(status)) {
+    // Only retry safe GETs, and at most once — long retry chains look like stuck loading.
+    if (config && method === "get" && RETRYABLE_STATUSES.has(status)) {
       config.__retryCount = config.__retryCount || 0;
-      if (config.__retryCount < MAX_RETRIES) {
+      if (config.__retryCount < Math.min(MAX_RETRIES, 1)) {
         config.__retryCount += 1;
-        await sleep(350 * config.__retryCount);
+        await sleep(400 * config.__retryCount);
         return api(config);
       }
     }
@@ -77,6 +80,17 @@ export function getErrorMessage(error) {
     error?.message ||
     "Something went wrong"
   );
+}
+
+/** Race a promise against a hard deadline so UI loaders always settle. */
+export function withHardTimeout(promise, ms = 20000) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error("Request timed out. Please retry."));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 export default api;

@@ -1,7 +1,14 @@
 const { MEAL_LABELS, mealHasContent } = require('./mealAdherenceUtils');
 
+/** Only these meal types create reminder notifications. Snacks stay on the plan only. */
+const REMINDER_MEAL_TYPES = ['breakfast', 'lunch', 'dinner'];
+
 function pad2(n) {
   return String(n).padStart(2, '0');
+}
+
+function isReminderMealType(type) {
+  return REMINDER_MEAL_TYPES.includes(String(type || '').toLowerCase());
 }
 
 /** Normalize wall-clock times like "8:00" → "08:00". Returns '' if invalid. */
@@ -98,16 +105,21 @@ function buildMealReminderPayload(plan, meal, { dateKey } = {}) {
   };
 }
 
-/** Meals that have content but are missing a valid HH:MM reminder time. */
+/** Reminder-eligible meals that have content but are missing a valid HH:MM time. */
 function findMealsMissingReminderTime(meals = []) {
   return (meals || [])
-    .filter((meal) => mealHasContent(meal) && !normalizeReminderTime(meal.reminderTime))
+    .filter(
+      (meal) =>
+        isReminderMealType(meal?.type) &&
+        mealHasContent(meal) &&
+        !normalizeReminderTime(meal.reminderTime),
+    )
     .map((meal) => MEAL_LABELS[meal.type] || meal.name || meal.type);
 }
 
 /**
- * For active plans, every planned meal must have a meal time so the cron can fire.
- * Weekly: validate flat meals and every day that has content.
+ * For active plans, Breakfast/Lunch/Dinner must have a meal time so the cron can fire.
+ * Snacks are diet-plan content only and are never required for reminders.
  */
 function validateActivePlanMealTimes(structure) {
   if (!structure) return null;
@@ -125,11 +137,13 @@ function validateActivePlanMealTimes(structure) {
   const missing = findMealsMissingReminderTime(meals);
   if (!missing.length) return null;
   return {
-    error: `Set a Meal Time for every meal so reminders can fire: ${[...new Set(missing)].join(', ')}.`,
+    error: `Set a Meal Time for Breakfast, Lunch, and Dinner so reminders can fire: ${[...new Set(missing)].join(', ')}.`,
   };
 }
 
 module.exports = {
+  REMINDER_MEAL_TYPES,
+  isReminderMealType,
   pad2,
   normalizeReminderTime,
   mealFoodSummary,

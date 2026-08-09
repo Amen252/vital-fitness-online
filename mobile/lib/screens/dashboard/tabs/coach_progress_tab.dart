@@ -127,12 +127,13 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
     }
 
     try {
+      // light=1: list only — progress stats come from per-client calls below.
       final results = await Future.wait([
-        _apiService.getCoachClients(),
+        _apiService.getCoachClients(light: true).catchError((_) => <dynamic>[]),
         _apiService.getCoachDashboard().catchError((_) => null),
-      ]);
+      ]).timeout(const Duration(seconds: 35), onTimeout: () => [<dynamic>[], null]);
 
-      final rawClients = results[0] as List<dynamic>;
+      final rawClients = results[0] is List ? results[0] as List<dynamic> : <dynamic>[];
       final dash = results[1] as Map<String, dynamic>?;
 
       final clients = rawClients
@@ -156,12 +157,23 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
               .toList() ??
           [];
 
+      // Show the client list immediately — do not hold the spinner for N+1 stats.
+      if (!mounted) return;
+      setState(() {
+        _clients = filtered;
+        _dailyTrackings = trackings;
+        _isLoading = false;
+        _errorMessage = '';
+      });
+
       final stats = <String, _ClientWorkoutStats>{};
       await Future.wait(filtered.map((client) async {
         final userId = _userIdOf(client);
         if (userId == null || userId.isEmpty) return;
         try {
-          final progress = await _apiService.getClientWorkoutProgress(userId, days: 90);
+          final progress = await _apiService
+              .getClientWorkoutProgress(userId, days: 90)
+              .timeout(const Duration(seconds: 12));
           stats[userId] = _statsFromWorkoutProgress(progress);
         } catch (_) {
           stats[userId] = const _ClientWorkoutStats();
@@ -170,12 +182,9 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
 
       if (!mounted) return;
       setState(() {
-        _clients = filtered;
         _statsByClientId
           ..clear()
           ..addAll(stats);
-        _dailyTrackings = trackings;
-        _isLoading = false;
       });
 
       if (filtered.isEmpty) return;
@@ -194,6 +203,10 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
           _errorMessage = ApiService.friendlyError(e);
           _isLoading = false;
         });
+      }
+    } finally {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -215,6 +228,10 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
         _apiService.getClientWorkoutProgress(userId, days: 30).catchError((_) => <String, dynamic>{}),
         _apiService.getClientDietProgress(userId, days: 30).catchError((_) => <String, dynamic>{}),
         _apiService.getCoachClientDetail(userId).catchError((_) => <String, dynamic>{}),
+      ]).timeout(const Duration(seconds: 20), onTimeout: () => [
+        <String, dynamic>{},
+        <String, dynamic>{},
+        <String, dynamic>{},
       ]);
 
       if (!mounted) return;
@@ -236,6 +253,10 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
           _errorMessage = ApiService.friendlyError(e);
           _detailLoading = false;
         });
+      }
+    } finally {
+      if (mounted && _detailLoading) {
+        setState(() => _detailLoading = false);
       }
     }
   }

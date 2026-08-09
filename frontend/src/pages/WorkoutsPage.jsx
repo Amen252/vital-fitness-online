@@ -5,7 +5,7 @@ import {
   getWorkoutsOverview,
   rejectExercise,
 } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Badge,
   Breadcrumbs,
@@ -31,12 +31,17 @@ export default function WorkoutsPage({ embedded = false }) {
     if (!hasContent) setLoading(true);
     setError("");
     try {
-      const [workouts, ex] = await Promise.all([
-        getWorkoutsOverview(),
-        getExercises(),
-      ]);
+      const [workouts, ex] = await withHardTimeout(
+        Promise.all([
+          getWorkoutsOverview().catch(() => null),
+          getExercises().catch(() => null),
+        ]),
+      );
       setOverview(workouts);
       setExercises(ex);
+      if (workouts == null && ex == null) {
+        setError("Unable to load workout data");
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -51,8 +56,15 @@ export default function WorkoutsPage({ embedded = false }) {
   async function approve(id) {
     try {
       await approveExercise(id);
+      setExercises((prev) => {
+        if (!prev?.pendingLogs) return prev;
+        return {
+          ...prev,
+          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id),
+        };
+      });
       toast.success("Exercise approved");
-      await load();
+      void load();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -61,8 +73,15 @@ export default function WorkoutsPage({ embedded = false }) {
   async function reject(id) {
     try {
       await rejectExercise(id);
+      setExercises((prev) => {
+        if (!prev?.pendingLogs) return prev;
+        return {
+          ...prev,
+          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id),
+        };
+      });
       toast.warning("Exercise rejected");
-      await load();
+      void load();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { UtensilsCrossed } from "lucide-react";
 import { getDietAdherence, getDietPlans } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Badge,
   Breadcrumbs,
@@ -26,12 +26,17 @@ export default function DietPage({ embedded = false }) {
     if (!hasContent) setLoading(true);
     setError("");
     try {
-      const [planData, adherenceData] = await Promise.all([
-        getDietPlans({ status }),
-        getDietAdherence({ days: 30 }),
-      ]);
-      setPlans(planData.plans || []);
+      const [planData, adherenceData] = await withHardTimeout(
+        Promise.all([
+          getDietPlans({ status }).catch(() => ({ plans: [] })),
+          getDietAdherence({ days: 30 }).catch(() => null),
+        ]),
+      );
+      setPlans(planData?.plans || []);
       setAdherence(adherenceData);
+      if (!planData?.plans && !adherenceData) {
+        setError("Unable to load diet data");
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

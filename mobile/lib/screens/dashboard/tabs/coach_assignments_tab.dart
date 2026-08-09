@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/coach_workout_detail_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
@@ -49,22 +50,43 @@ class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerPr
   Future<void> _fetchData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await Future.wait([
+      // Isolate each call so one slow endpoint cannot freeze Workout Management.
+      // Clients use light=1 (no snapshots) — this screen only needs ids/names.
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getWorkoutTemplates(),
-        _apiService.getCoachClients(),
+        _apiService.getCoachClients(light: true),
         _apiService.getCoachClasses(),
         _apiService.getCoachWorkoutSchedules(),
         _apiService.getCoachWeeklyWorkoutPlans(),
-      ]);
+      ], fallback: null);
+
+      final templates = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+      final clients = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
+      final classes = results[2] is List ? List<dynamic>.from(results[2] as List) : <dynamic>[];
+      final scheduleData = results[3] is Map
+          ? Map<String, dynamic>.from(results[3] as Map)
+          : <String, dynamic>{};
+      final weeklyPlans = results[4] is List ? List<dynamic>.from(results[4] as List) : <dynamic>[];
+
+      final allFailed = results.every((r) => r == null);
+      if (allFailed) {
+        finishTabError(
+          Exception('Unable to load workout data. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
+
       if (mounted) {
         finishTabLoad(() {
-          final scheduleData = results[3] as Map<String, dynamic>;
-          _templates = List<dynamic>.from(results[0] as List);
-          _clients = List<dynamic>.from(results[1] as List);
-          _classes = List<dynamic>.from(results[2] as List);
+          _templates = templates;
+          _clients = clients;
+          _classes = classes;
           _schedules = List<dynamic>.from(scheduleData['schedules'] as List<dynamic>? ?? []);
-          _weeklyPlans = List<dynamic>.from(results[4] as List);
-          _scheduleSummary = Map<String, dynamic>.from(scheduleData['summary'] as Map<String, dynamic>? ?? {});
+          _weeklyPlans = weeklyPlans;
+          _scheduleSummary = Map<String, dynamic>.from(
+            scheduleData['summary'] as Map<String, dynamic>? ?? {},
+          );
         });
       }
     } catch (e) {

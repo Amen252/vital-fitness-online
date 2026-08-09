@@ -93,15 +93,19 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
     final seq = ++_loadSeq;
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final scheduleData = await _apiService.getUserWorkoutSchedules(bustCache: isRefresh);
+      final scheduleData = await _apiService
+          .getUserWorkoutSchedules(bustCache: isRefresh)
+          .timeout(const Duration(seconds: 20));
       if (!mounted || seq != _loadSeq) return;
 
       var weekToLoad = respectSelectedWeek ? mondayOf(_weekStart) : _resolveBestWeek(scheduleData);
 
-      var weeklyData = await _apiService.getUserWeeklySchedule(
-        weekStart: weekToLoad,
-        bustCache: isRefresh,
-      );
+      var weeklyData = await _apiService
+          .getUserWeeklySchedule(
+            weekStart: weekToLoad,
+            bustCache: isRefresh,
+          )
+          .timeout(const Duration(seconds: 20));
       if (!mounted || seq != _loadSeq) return;
 
       final workoutDays = (weeklyData['summary'] as Map<String, dynamic>?)?['workoutDays'] as int? ?? 0;
@@ -114,10 +118,12 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
             final targetWeek = mondayOf(firstStart);
             if (targetWeek != weekToLoad) {
               weekToLoad = targetWeek;
-              weeklyData = await _apiService.getUserWeeklySchedule(
-                weekStart: weekToLoad,
-                bustCache: isRefresh,
-              );
+              weeklyData = await _apiService
+                  .getUserWeeklySchedule(
+                    weekStart: weekToLoad,
+                    bustCache: isRefresh,
+                  )
+                  .timeout(const Duration(seconds: 15));
               if (!mounted || seq != _loadSeq) return;
             }
           }
@@ -206,9 +212,8 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
         durationMinutes: proof['durationMinutes'] as int,
         proofPhoto: proof['proofPhoto'] as String,
       );
-      await _load(isRefresh: true, respectSelectedWeek: true);
-      widget.onScheduleDataChanged?.call();
       if (mounted) {
+        setState(() => _completing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Submitted for coach review · Streak updates when your coach approves'),
@@ -216,14 +221,17 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
           ),
         );
       }
+      _load(isRefresh: true, respectSelectedWeek: true);
+      widget.onScheduleDataChanged?.call();
     } catch (e) {
       if (mounted) {
+        setState(() => _completing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
     } finally {
-      if (mounted) setState(() => _completing = false);
+      if (mounted && _completing) setState(() => _completing = false);
     }
   }
 

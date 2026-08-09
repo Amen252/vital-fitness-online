@@ -11,7 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { getReports } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Breadcrumbs,
   Button,
@@ -31,9 +31,10 @@ export default function ReportsPage({ embedded = false }) {
     setLoading(true);
     setError("");
     try {
-      setData(await getReports());
+      setData(await withHardTimeout(getReports()));
     } catch (err) {
       setError(getErrorMessage(err));
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -45,6 +46,7 @@ export default function ReportsPage({ embedded = false }) {
 
   if (loading) return <Spinner label="Building analytics…" />;
   if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!data) return <ErrorState message="Unable to load data" onRetry={load} />;
 
   const meals = (data.mealsByDay || []).map((row) => ({
     day: row._id,

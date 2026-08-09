@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity } from "lucide-react";
 import { getCoachingProgress } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Badge,
   Breadcrumbs,
@@ -31,10 +31,11 @@ export default function CoachingProgressPage({ embedded = false }) {
     setLoading(true);
     setError("");
     try {
-      const data = await getCoachingProgress();
+      const data = await withHardTimeout(getCoachingProgress());
       setPairs(data.pairs || []);
     } catch (err) {
       setError(getErrorMessage(err));
+      setPairs([]);
     } finally {
       setLoading(false);
     }

@@ -226,20 +226,24 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       );
       if (!mounted) return;
       _notesController.clear();
+      setState(() => _booking = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Appointment requested! Your coach will confirm it.'), backgroundColor: CoachDashboardTheme.success),
       );
       final keepDate = _selectedDate!;
-      await _refreshAppointments();
-      await _selectDate(keepDate);
+      // Refresh lists in background so Book spinner stops with the API.
+      _refreshAppointments().then((_) {
+        if (mounted) _selectDate(keepDate);
+      });
     } catch (e) {
       if (mounted) {
+        setState(() => _booking = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
     } finally {
-      if (mounted) setState(() => _booking = false);
+      if (mounted && _booking) setState(() => _booking = false);
     }
   }
 

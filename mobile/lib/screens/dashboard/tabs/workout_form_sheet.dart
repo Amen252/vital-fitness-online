@@ -184,7 +184,7 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
         await widget.apiService.createExercisePlan(payload);
       }
       if (mounted) {
-        widget.onSaved();
+        setState(() => _isSubmitting = false);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -192,15 +192,18 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
             backgroundColor: CoachDashboardTheme.success,
           ),
         );
+        // Refresh parent list after the sheet closes — don't hold Save spinner.
+        widget.onSaved();
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted && _isSubmitting) setState(() => _isSubmitting = false);
     }
   }
 

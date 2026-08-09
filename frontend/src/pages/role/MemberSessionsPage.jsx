@@ -92,8 +92,13 @@ export default function MemberSessionsPage() {
     setBusyId(id);
     try {
       await cancelSession(id);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s._id === id || s.id === id ? { ...s, status: "cancelled" } : s,
+        ),
+      );
       toast.success("Session cancelled");
-      await load();
+      void load();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {

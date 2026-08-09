@@ -307,12 +307,15 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     if (confirmed != true || plan.id == null) return;
     try {
       await _api.archiveDietPlan(plan.id!);
-      await _load();
       if (mounted) {
+        setState(() {
+          _plans = _plans.where((p) => p.id != plan.id).toList();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Diet plan deleted.'), backgroundColor: CoachDashboardTheme.success),
         );
       }
+      _load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -326,12 +329,12 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     if (plan.id == null) return;
     try {
       await _api.sendDietPlanAgain(plan.id!);
-      await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Diet plan sent again.'), backgroundColor: CoachDashboardTheme.success),
         );
       }
+      _load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1315,11 +1318,14 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
 
   Future<void> _loadAssignees() async {
     try {
-      final results = await Future.wait([_api.getCoachClients(), _api.getCoachClasses()]);
+      final results = await Future.wait([
+        _api.getCoachClients(light: true).catchError((_) => <dynamic>[]),
+        _api.getCoachClasses().catchError((_) => <dynamic>[]),
+      ]).timeout(const Duration(seconds: 30), onTimeout: () => [<dynamic>[], <dynamic>[]]);
       if (mounted) {
         setState(() {
-          _clients = results[0];
-          _classes = results[1];
+          _clients = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+          _classes = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
         });
       }
     } catch (_) {}
@@ -1766,7 +1772,9 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           backgroundColor: CoachDashboardTheme.success,
         ),
       );
-      await _load();
+      // Stop Save spinner immediately; sync editor state in background.
+      if (mounted) setState(() => _saving = false);
+      _load();
     } on ApiConflictException catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -2753,15 +2761,12 @@ class _DayMealsBucket {
   }
 
   List<String> missingMealTimes() {
+    // Breakfast / Lunch / Dinner only — snacks never require a reminder time.
     final missing = <String>[];
     for (final entry in mealForms.entries) {
       if (entry.value.hasContent && !entry.value.hasValidMealTime) {
         missing.add(entry.key[0].toUpperCase() + entry.key.substring(1));
       }
-    }
-    final snacksNeedingTime = snackForms.where((f) => f.hasContent && !f.hasValidMealTime).toList();
-    if (snacksNeedingTime.isNotEmpty) {
-      missing.add(snacksNeedingTime.length == 1 ? 'Snacks' : 'Snacks (${snacksNeedingTime.length})');
     }
     return missing;
   }
@@ -2839,12 +2844,16 @@ class _MealForm {
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
-    var reminderTime = reminder.text.trim();
-    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(reminderTime);
-    if (match != null) {
-      final h = int.parse(match.group(1)!).clamp(0, 23);
-      final m = int.parse(match.group(2)!).clamp(0, 59);
-      reminderTime = '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    // Snacks are diet-plan content only — never attach a reminder time.
+    var reminderTime = '';
+    if (type != 'snacks') {
+      reminderTime = reminder.text.trim();
+      final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(reminderTime);
+      if (match != null) {
+        final h = int.parse(match.group(1)!).clamp(0, 23);
+        final m = int.parse(match.group(2)!).clamp(0, 59);
+        reminderTime = '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+      }
     }
     return DietMeal(
       type: type,
@@ -2882,6 +2891,8 @@ class _MealEssentialFields extends StatelessWidget {
   final bool readOnly;
   final VoidCallback? onEdited;
   final String nameLabel;
+  /// When false (snacks), hide meal-time / reminder picker.
+  final bool showReminderTime;
 
   const _MealEssentialFields({
     required this.form,
@@ -2889,6 +2900,7 @@ class _MealEssentialFields extends StatelessWidget {
     this.readOnly = false,
     this.onEdited,
     this.nameLabel = 'Meal Name',
+    this.showReminderTime = true,
   });
 
   void _edited() => onEdited?.call();
@@ -2939,12 +2951,38 @@ class _MealEssentialFields extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        _MealTimeField(
-          controller: form.reminder,
-          isDark: isDark,
-          readOnly: readOnly,
-          onChanged: readOnly ? null : _edited,
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: form.carbs,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Carbs (g)'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: form.fats,
+                readOnly: readOnly,
+                keyboardType: TextInputType.number,
+                onChanged: readOnly ? null : (_) => _edited(),
+                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Fat (g)'),
+              ),
+            ),
+          ],
         ),
+        if (showReminderTime) ...[
+          const SizedBox(height: 8),
+          _MealTimeField(
+            controller: form.reminder,
+            isDark: isDark,
+            readOnly: readOnly,
+            onChanged: readOnly ? null : _edited,
+          ),
+        ],
       ],
     );
   }
@@ -3098,7 +3136,9 @@ class _SnacksListSection extends StatelessWidget {
         initiallyExpanded: true,
         title: Text('Snacks', style: CoachDashboardTheme.sectionTitle(isDark)),
         subtitle: Text(
-          filledCount == 0 ? 'Select snacks below' : '$filledCount snack${filledCount == 1 ? '' : 's'} selected',
+          filledCount == 0
+              ? 'Select snacks below (no reminder)'
+              : '$filledCount snack${filledCount == 1 ? '' : 's'} selected · no reminder',
           style: CoachDashboardTheme.bodyMuted(isDark),
         ),
         children: [
@@ -3178,6 +3218,7 @@ class _SnacksListSection extends StatelessWidget {
                           isDark: isDark,
                           readOnly: readOnly,
                           nameLabel: 'Snack Name',
+                          showReminderTime: false,
                         ),
                       ],
                     ),

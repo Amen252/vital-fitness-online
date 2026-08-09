@@ -76,9 +76,13 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
     setState(() => _busyRequestId = requestId);
     try {
       await _apiService.approveCoachRequest(requestId);
-      await _load();
-      widget.onRequestHandled?.call();
       if (mounted) {
+        setState(() {
+          _busyRequestId = null;
+          _requests = _requests
+              .where((r) => r is! Map || r['_id']?.toString() != requestId)
+              .toList();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$memberName approved. You can now add them to a class.'),
@@ -86,14 +90,19 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
           ),
         );
       }
+      _load();
+      widget.onRequestHandled?.call();
     } catch (e) {
       if (mounted) {
+        setState(() => _busyRequestId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
         );
       }
     } finally {
-      if (mounted) setState(() => _busyRequestId = null);
+      if (mounted && _busyRequestId == requestId) {
+        setState(() => _busyRequestId = null);
+      }
     }
   }
 
@@ -117,21 +126,30 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
     setState(() => _busyRequestId = requestId);
     try {
       await _apiService.rejectCoachRequest(requestId);
-      await _load();
-      widget.onRequestHandled?.call();
       if (mounted) {
+        setState(() {
+          _busyRequestId = null;
+          _requests = _requests
+              .where((r) => r is! Map || r['_id']?.toString() != requestId)
+              .toList();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request rejected.'), backgroundColor: CoachDashboardTheme.warning),
         );
       }
+      _load();
+      widget.onRequestHandled?.call();
     } catch (e) {
       if (mounted) {
+        setState(() => _busyRequestId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
         );
       }
     } finally {
-      if (mounted) setState(() => _busyRequestId = null);
+      if (mounted && _busyRequestId == requestId) {
+        setState(() => _busyRequestId = null);
+      }
     }
   }
 

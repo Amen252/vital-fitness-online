@@ -50,8 +50,13 @@ export default function MemberAppointmentsPage() {
     setBusyId(id);
     try {
       await cancelUserAppointment(id);
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a._id === id || a.id === id ? { ...a, status: "cancelled" } : a,
+        ),
+      );
       toast.success("Appointment cancelled");
-      await load();
+      void load();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {

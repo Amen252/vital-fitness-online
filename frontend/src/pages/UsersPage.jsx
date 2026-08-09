@@ -42,10 +42,11 @@ export default function UsersPage() {
       pendingDelete.username ||
       "User";
     try {
-      await deleteUser(pendingDelete._id);
+      const deletedId = pendingDelete._id;
+      await deleteUser(deletedId);
       setPendingDelete(null);
       toast.success(`${name} has been permanently deleted`);
-      await reload();
+      void reload();
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -161,9 +162,9 @@ export default function UsersPage() {
           </Button>
         }
       />
-      {loading && !users?.length ? <Spinner label="Loading users…" /> : null}
-      {error && !users?.length ? <ErrorState message={error} onRetry={reload} /> : null}
-      {(!loading || users?.length) && (!error || users?.length) ? (
+      {loading ? <Spinner label="Loading users…" /> : null}
+      {!loading && error ? <ErrorState message={error} onRetry={reload} /> : null}
+      {!loading && !error ? (
         <DataTable
           columns={columns}
           rows={users}

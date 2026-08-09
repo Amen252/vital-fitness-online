@@ -113,10 +113,14 @@ function normalizeFoodItems(value) {
 }
 
 function normalizeMeal(meal, fallbackType) {
-  const { normalizeReminderTime } = require('../utils/mealReminderUtils');
+  const { normalizeReminderTime, isReminderMealType } = require('../utils/mealReminderUtils');
   const type = MEAL_TYPES.includes(meal?.type)
     ? meal.type
     : (fallbackType || _inferMealType(meal?.name));
+  // Snacks stay on the diet plan but never carry a reminder time.
+  const reminderTime = isReminderMealType(type)
+    ? normalizeReminderTime(meal?.reminderTime)
+    : '';
   return {
     type,
     name: meal?.name || '',
@@ -127,7 +131,7 @@ function normalizeMeal(meal, fallbackType) {
     protein: Math.max(0, Number(meal?.protein) || 0),
     carbs: Math.max(0, Number(meal?.carbs) || 0),
     fats: Math.max(0, Number(meal?.fats) || 0),
-    reminderTime: normalizeReminderTime(meal?.reminderTime),
+    reminderTime,
     prepInstructions: String(meal?.prepInstructions || '').trim(),
     mealNotes: String(meal?.mealNotes || meal?.notes || '').trim(),
   };
@@ -1831,10 +1835,17 @@ async function sendGroupMealReminders(req, res) {
     });
     if (!plan) return res.status(404).json({ message: 'No active diet plan for this group' });
 
-    const { buildMealReminderPayload, normalizeReminderTime } = require('../utils/mealReminderUtils');
+    const {
+      buildMealReminderPayload,
+      normalizeReminderTime,
+      isReminderMealType,
+    } = require('../utils/mealReminderUtils');
     const { mealHasContent: hasMeal } = require('../utils/mealAdherenceUtils');
     const studentIds = (fitnessClass.enrolledStudents || []).map((id) => id);
-    const dayMeals = mealsForReminders(plan).filter((m) => hasMeal(m));
+    // Snacks are diet-plan content only — never send snack reminder notifications.
+    const dayMeals = mealsForReminders(plan).filter(
+      (m) => hasMeal(m) && isReminderMealType(m.type),
+    );
     const mealsWithReminders = dayMeals.filter((m) => normalizeReminderTime(m.reminderTime));
     const mealsToSend = mealsWithReminders.length ? mealsWithReminders : dayMeals;
     const dateKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
@@ -1870,9 +1881,16 @@ async function sendMealReminders(req, res) {
     const plan = await DietPlan.findOne({ coach: req.user._id, client: clientId, status: 'active' });
     if (!plan) return res.status(404).json({ message: 'No active diet plan for client' });
 
-    const { buildMealReminderPayload, normalizeReminderTime } = require('../utils/mealReminderUtils');
+    const {
+      buildMealReminderPayload,
+      normalizeReminderTime,
+      isReminderMealType,
+    } = require('../utils/mealReminderUtils');
     const { mealHasContent: hasMeal } = require('../utils/mealAdherenceUtils');
-    const dayMeals = mealsForReminders(plan).filter((m) => hasMeal(m));
+    // Snacks are diet-plan content only — never send snack reminder notifications.
+    const dayMeals = mealsForReminders(plan).filter(
+      (m) => hasMeal(m) && isReminderMealType(m.type),
+    );
     const mealsWithReminders = dayMeals.filter((m) => normalizeReminderTime(m.reminderTime));
     const mealsToSend = mealsWithReminders.length ? mealsWithReminders : dayMeals;
     const dateKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;

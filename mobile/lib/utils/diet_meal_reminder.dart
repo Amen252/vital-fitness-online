@@ -79,11 +79,12 @@ List<DietMealReminderItem> buildTodayMealReminders({
 
   for (final meal in meals) {
     if (!meal.hasContent) continue;
+    // Snacks appear on the diet plan only — never in the reminder schedule.
+    final type = meal.type;
+    if (type == 'snacks') continue;
     final time = meal.reminderTime.trim();
     final at = scheduledTimeToday(time, clock);
     if (at == null) continue;
-
-    final type = meal.type;
     final done = completedTypes.contains(type);
     scheduled.add(
       DietMealReminderItem(

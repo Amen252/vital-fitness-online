@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 
 /**
  * Fetch helper that ignores stale responses when deps change mid-flight.
  * Soft-refreshes when data already exists (no full-page loading wipe).
+ * Always clears loading (hard timeout) so screens never stick on Loading…
  * @param {() => Promise<any>} fetcher
  * @param {unknown[]} deps
  */
@@ -22,15 +23,17 @@ export default function useStableFetch(fetcher, deps = []) {
     if (!hasDataRef.current) setLoading(true);
     setError("");
     try {
-      const result = await fetcherRef.current();
+      const result = await withHardTimeout(fetcherRef.current());
       if (id !== requestId.current) return;
-      setData(result);
+      setData(result ?? null);
       hasDataRef.current = true;
     } catch (err) {
       if (id !== requestId.current) return;
       setError(getErrorMessage(err));
       if (!hasDataRef.current) setData(null);
     } finally {
+      // Always clear loading for this generation so abandoned/timed-out
+      // requests cannot leave the UI stuck on a spinner.
       if (id === requestId.current) setLoading(false);
     }
   }, []);

@@ -1,7 +1,10 @@
 import api from "./client";
 
-export const getCoachClients = () =>
-  api.get("/coach/clients").then((r) => r.data);
+/** Assigned clients. Prefer light=true for pickers/lists (skips heavy snapshots). */
+export const getCoachClients = ({ light = true } = {}) =>
+  api
+    .get("/coach/clients", { params: light ? { light: 1 } : undefined })
+    .then((r) => r.data);
 
 export const getCoachClientDetail = (clientId) =>
   api.get(`/coach/clients/${clientId}`).then((r) => r.data);

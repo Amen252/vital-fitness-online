@@ -150,19 +150,22 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
       setState(() {
         _session = Map<String, dynamic>.from(updated);
         _changed = true;
+        _busy = false;
         _notesCtrl.text = _session['notes']?.toString() ?? _notesCtrl.text;
         _coachNotesCtrl.text = _session['coachNotes']?.toString() ?? _coachNotesCtrl.text;
         _linkCtrl.text = _session['meetingLink']?.toString() ?? _linkCtrl.text;
         _sessionMode = _session['sessionMode']?.toString() == 'online' ? 'online' : 'in_person';
       });
-      await widget.onChanged();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(success), backgroundColor: CoachDashboardTheme.success),
       );
+      // Parent list refresh in background — don't hold the action spinner.
+      widget.onChanged();
       if (close) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
+        setState(() => _busy = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ApiService.friendlyError(e)),
@@ -171,7 +174,7 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 

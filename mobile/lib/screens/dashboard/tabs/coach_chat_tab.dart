@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../utils/coach_thread_utils.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/chat_message_bubble.dart';
@@ -29,16 +30,22 @@ class _CoachChatTabState extends State<CoachChatTab> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    final showFullLoader = _threads.isEmpty && _errorMessage.isEmpty;
+    if (mounted && showFullLoader) setState(() => _isLoading = true);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getChatThreads(),
         _apiService.getMe(),
-      ]);
+      ], fallback: null, timeout: const Duration(seconds: 20));
       if (mounted) {
         setState(() {
-          _threads = results[0] as List<dynamic>;
-          _coachUser = results[1] as User?;
+          _threads = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+          _coachUser = results[1] is User ? results[1] as User : _coachUser;
+          if (results.every((r) => r == null)) {
+            _errorMessage = 'Unable to load data';
+          } else {
+            _errorMessage = '';
+          }
         });
         widget.onUnreadChanged?.call();
       }

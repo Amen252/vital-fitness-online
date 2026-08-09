@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
@@ -44,17 +45,28 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
   Future<void> _fetchDashboardData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getCoachClients(),
         _apiService.getSessions(),
         _apiService.getCoachRequests(),
-      ]);
+      ], fallback: null);
+
+      final clients = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+      final sessions = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
+      final requests = results[2] is List ? List<dynamic>.from(results[2] as List) : <dynamic>[];
+      if (results.every((r) => r == null)) {
+        finishTabError(
+          Exception('Unable to load dashboard. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
 
       if (mounted) {
         finishTabLoad(() {
-          _clients = results[0];
-          _sessions = results[1];
-          _pendingClientRequests = List<dynamic>.from(results[2]);
+          _clients = clients;
+          _sessions = sessions;
+          _pendingClientRequests = requests;
         });
       }
     } catch (e) {

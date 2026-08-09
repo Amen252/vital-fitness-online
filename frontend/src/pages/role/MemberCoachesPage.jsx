@@ -30,9 +30,11 @@ export default function MemberCoachesPage() {
   const [notice, setNotice] = useState("");
   const [detailCoach, setDetailCoach] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [trainers, assignment, myRequest] = await Promise.all([
         getMemberTrainers().catch(() => []),
@@ -43,9 +45,9 @@ export default function MemberCoachesPage() {
       setCoaching(assignment || null);
       setRequest(myRequest || null);
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!silent) setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -56,7 +58,7 @@ export default function MemberCoachesPage() {
   useEffect(() => {
     if (request?.status !== "pending") return undefined;
     const timer = setInterval(() => {
-      load();
+      load({ silent: true });
     }, 15000);
     return () => clearInterval(timer);
   }, [request?.status, load]);
@@ -77,9 +79,10 @@ export default function MemberCoachesPage() {
     setError("");
     setNotice("");
     try {
-      await submitCoachRequest(coachId);
+      const created = await submitCoachRequest(coachId);
+      setRequest(created || { status: "pending", coach: coaches.find((c) => c._id === coachId) });
       setNotice("Request sent. Status: Pending Coach Approval.");
-      await load();
+      void load({ silent: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -93,8 +96,9 @@ export default function MemberCoachesPage() {
     setNotice("");
     try {
       await cancelCoachRequest();
+      setRequest(null);
       setNotice("Request withdrawn. You can choose a different coach.");
-      await load();
+      void load({ silent: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -117,7 +121,12 @@ export default function MemberCoachesPage() {
           <Spinner label="Loading coaches…" />
         </div>
       ) : null}
-      {error ? <p className="mt-5 text-sm text-[var(--vf-danger)]">{error}</p> : null}
+      {!loading && error ? (
+        <div className="mt-5 space-y-2">
+          <p className="text-sm text-[var(--vf-danger)]">{error || "Unable to load data"}</p>
+          <Button size="sm" variant="secondary" onClick={() => load()}>Retry</Button>
+        </div>
+      ) : null}
       {notice ? <p className="mt-5 text-sm text-emerald-700">{notice}</p> : null}
 
       {!loading ? (

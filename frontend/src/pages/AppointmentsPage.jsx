@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock, TrendingUp, XCircle } from "lucide-react";
 import { getAppointments } from "../api/adminApi";
-import { getErrorMessage } from "../api/client";
+import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Badge,
   Breadcrumbs,
@@ -43,10 +43,11 @@ export default function AppointmentsPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await getAppointments({ status });
+      const data = await withHardTimeout(getAppointments({ status }));
       setAppointments(data.appointments || []);
     } catch (err) {
       setError(getErrorMessage(err));
+      setAppointments([]);
     } finally {
       setLoading(false);
     }

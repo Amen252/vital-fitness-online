@@ -57,14 +57,16 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
     }
     try {
       final results = await Future.wait([
-        _apiService.getUserExercisePlans(),
-        _apiService.getUserWorkoutProgress(),
+        _apiService.getUserExercisePlans().catchError((_) => <dynamic>[]),
+        _apiService.getUserWorkoutProgress().catchError((_) => <String, dynamic>{}),
         _apiService.getUserWorkoutSchedules().catchError((_) => <String, dynamic>{}),
-      ]);
+      ]).timeout(const Duration(seconds: 35), onTimeout: () {
+        throw Exception('Unable to load workouts. Please retry.');
+      });
       if (mounted) {
         final plans = List<dynamic>.from(results[0] as List);
         final scheduleData = results[2] as Map<String, dynamic>?;
-        final progress = results[1] as Map<String, dynamic>;
+        final progress = Map<String, dynamic>.from(results[1] as Map? ?? {});
         final history = (progress['history'] as List<dynamic>? ?? const [])
             .whereType<Map>()
             .map((h) => Map<String, dynamic>.from(h))
@@ -74,6 +76,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
         setState(() {
           _workouts = merged;
           _progress = progress;
+          if (plans.isEmpty && progress.isEmpty && (scheduleData == null || scheduleData.isEmpty)) {
+            _error = '';
+          }
         });
       }
     } catch (e) {
@@ -118,9 +123,22 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
           proofPhoto: proof['proofPhoto'] as String,
         );
       }
-      await _load(isRefresh: true);
-      widget.onDataChanged?.call();
       if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _workouts = _workouts.map((w) {
+            if (w['_id']?.toString() != planId) return w;
+            final copy = Map<String, dynamic>.from(w as Map);
+            copy['status'] = 'pending_review';
+            copy['completion'] = {
+              ...(copy['completion'] is Map
+                  ? Map<String, dynamic>.from(copy['completion'] as Map)
+                  : <String, dynamic>{}),
+              'status': 'pending_review',
+            };
+            return copy;
+          }).toList();
+        });
         final streak = (_progress?['summary'] as Map<String, dynamic>?)?['streak'] ?? 0;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
@@ -129,15 +147,19 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
           backgroundColor: CoachDashboardTheme.warning,
         ));
       }
+      // Refresh in background — do not hold the button spinner.
+      _load(isRefresh: true);
+      widget.onDataChanged?.call();
     } catch (e) {
       if (mounted) {
+        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(ApiService.friendlyError(e)),
           backgroundColor: CoachDashboardTheme.danger,
         ));
       }
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted && _isSubmitting) setState(() => _isSubmitting = false);
     }
   }
 

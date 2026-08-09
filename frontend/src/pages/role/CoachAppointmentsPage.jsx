@@ -9,7 +9,7 @@ import {
   getCoachAppointments,
   getCoachClients,
 } from "../../api/coachApi";
-import { getErrorMessage } from "../../api/client";
+import { getErrorMessage, withHardTimeout } from "../../api/client";
 import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
 import { fieldClass, formatWhen } from "./roleHelpers";
 
@@ -48,14 +48,18 @@ export default function CoachAppointmentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [appts, clientRows] = await Promise.all([
-        getCoachAppointments().catch(() => []),
-        getCoachClients().catch(() => []),
-      ]);
+      const [appts, clientRows] = await withHardTimeout(
+        Promise.all([
+          getCoachAppointments().catch(() => []),
+          getCoachClients({ light: true }).catch(() => []),
+        ]),
+      );
       setAppointments(Array.isArray(appts) ? appts : []);
       setClients(Array.isArray(clientRows) ? clientRows : []);
     } catch (error) {
       toast.error(getErrorMessage(error));
+      setAppointments([]);
+      setClients([]);
     } finally {
       setLoading(false);
     }
@@ -107,7 +111,7 @@ export default function CoachAppointmentsPage() {
         notes: "",
         dateTime: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
       }));
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -121,8 +125,15 @@ export default function CoachAppointmentsPage() {
       if (action === "complete") await completeCoachAppointment(id);
       if (action === "cancel") await cancelCoachAppointment(id);
       if (action === "approve") await approveCoachAppointment(id);
+      const nextStatus =
+        action === "complete" ? "completed" : action === "cancel" ? "cancelled" : action === "approve" ? "approved" : null;
+      if (nextStatus) {
+        setAppointments((prev) =>
+          prev.map((a) => (a._id === id || a.id === id ? { ...a, status: nextStatus } : a)),
+        );
+      }
       toast.success("Appointment updated");
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {

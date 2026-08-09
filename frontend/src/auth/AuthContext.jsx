@@ -22,21 +22,40 @@ export function AuthProvider({ children }) {
   const refreshUser = useCallback(async () => {
     if (!token) return null;
     try {
-      const data = await getMe();
+      const data = await Promise.race([
+        getMe(),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Session check timed out")), 15000);
+        }),
+      ]);
       if (data?.user) {
         setUser(data.user);
         localStorage.setItem(USER_KEY, JSON.stringify(data.user));
         return data.user;
       }
     } catch (error) {
-      if ([401, 403].includes(error?.response?.status)) logout();
+      const status = error?.response?.status;
+      const code = error?.response?.data?.code;
+      // Keep session for forced password-change; only clear on true auth failure.
+      if (status === 401) logout();
+      else if (status === 403 && code !== "PASSWORD_CHANGE_REQUIRED") logout();
     }
     return null;
   }, [token, logout]);
 
   useEffect(() => {
     if (!token) { setLoading(false); return; }
-    refreshUser().finally(() => setLoading(false));
+    let cancelled = false;
+    refreshUser().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    const failSafe = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 16000);
+    return () => {
+      cancelled = true;
+      clearTimeout(failSafe);
+    };
   }, [token, refreshUser]);
 
   async function login(username, password) {

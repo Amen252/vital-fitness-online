@@ -720,11 +720,15 @@ class ApiService {
     throw Exception(_parseError(response));
   }
 
-  Future<List<dynamic>> getCoachClients() async {
-    final response = await _send(http.get(
-      Uri.parse('$baseUrl/coach/clients'),
-      headers: _headers(),
-    ));
+  /// Assigned clients for the logged-in coach.
+  ///
+  /// When [light] is true, asks the API to skip heavy per-client snapshots
+  /// (workout forms / pickers). Full mode keeps dashboard analysis fields.
+  Future<List<dynamic>> getCoachClients({bool light = false}) async {
+    final uri = Uri.parse('$baseUrl/coach/clients').replace(
+      queryParameters: light ? const {'light': '1'} : null,
+    );
+    final response = await _send(http.get(uri, headers: _headers()));
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;

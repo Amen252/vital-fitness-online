@@ -7,6 +7,7 @@ import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../widgets/profile_avatar.dart';
+import '../../../utils/async_load.dart';
 import '../../../utils/date_utils.dart';
 import '../../../utils/workout_media_urls.dart';
 import '../../../widgets/workout_proof_sheet.dart';
@@ -69,22 +70,32 @@ class UserClassesTabState extends State<UserClassesTab>
   Future<void> _fetchData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getUserClasses(),
         _apiService.getAvailableClasses(),
         _apiService.getUserSessions(),
         _apiService.getUserWorkoutSchedules(),
-      ]);
+      ], fallback: null);
+      if (results.every((r) => r == null)) {
+        finishTabError(
+          Exception('Unable to load workouts. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
       if (mounted) {
         finishTabLoad(() {
-          _classes = List<dynamic>.from(results[0] as List);
-          _availableClasses = List<dynamic>.from(results[1] as List);
-          _sessions = (results[2] as List).map((raw) {
+          _classes = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+          _availableClasses = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
+          final sessionsRaw = results[2] is List ? results[2] as List : const [];
+          _sessions = sessionsRaw.map((raw) {
             final map = Map<String, dynamic>.from(raw as Map);
             map['_isOneOnOne'] = true;
             return map;
           }).toList();
-          final scheduleData = Map<String, dynamic>.from(results[3] as Map);
+          final scheduleData = results[3] is Map
+              ? Map<String, dynamic>.from(results[3] as Map)
+              : <String, dynamic>{};
           _workoutSchedules = List<dynamic>.from(scheduleData['all'] as List<dynamic>? ?? []);
         });
       }
@@ -129,12 +140,11 @@ class UserClassesTabState extends State<UserClassesTab>
         durationMinutes: proof['durationMinutes'] as int,
         proofPhoto: proof['proofPhoto'] as String,
       );
-      await _fetchData(isRefresh: true);
-      widget.onScheduleDataChanged?.call();
-      if (widget.onParentRefresh != null) {
-        await widget.onParentRefresh!();
-      }
       if (mounted) {
+        setState(() {
+          _completingSchedule = false;
+          _completingId = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Submitted for coach review · Streak updates when your coach approves'),
@@ -142,14 +152,22 @@ class UserClassesTabState extends State<UserClassesTab>
           ),
         );
       }
+      // Background refresh only — never keep the Complete spinner waiting on reloads.
+      _fetchData(isRefresh: true);
+      widget.onScheduleDataChanged?.call();
+      widget.onParentRefresh?.call();
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _completingSchedule = false;
+          _completingId = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && _completingSchedule) {
         setState(() {
           _completingSchedule = false;
           _completingId = null;

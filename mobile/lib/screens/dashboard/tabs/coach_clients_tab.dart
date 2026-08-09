@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
@@ -57,13 +58,24 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
   Future<void> _fetchClients({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final clients = await _apiService.getCoachClients();
-      final requests = await _apiService.getCoachRequests();
+      final results = await waitIsolatedTimed<Object?>([
+        _apiService.getCoachClients(),
+        _apiService.getCoachRequests(),
+      ], fallback: null);
+      if (results.every((r) => r == null)) {
+        finishTabError(
+          Exception('Unable to load clients. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
       if (mounted) {
         final firstLoad = !tabHasLoadedOnce;
+        final clients = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+        final requests = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
         finishTabLoad(() {
-          final pendingCount = List<dynamic>.from(requests).length;
-          _clients = List<dynamic>.from(clients);
+          final pendingCount = requests.length;
+          _clients = clients;
           _filteredClients = List<dynamic>.from(clients);
           _pendingRequestCount = pendingCount;
           // Only auto-open Requests on the first load (avoids remounting the panel on every refresh).

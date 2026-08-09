@@ -10,6 +10,7 @@ const {
 const {
   normalizeReminderTime,
   buildMealReminderPayload,
+  isReminderMealType,
   pad2,
 } = require('../utils/mealReminderUtils');
 const { isDatabaseConnected } = require('../config/db');
@@ -139,7 +140,9 @@ async function processDietMealReminders() {
   if (!activePlans.length) return;
 
   for (const plan of activePlans) {
+    // Breakfast / Lunch / Dinner only — snacks never trigger reminders.
     const meals = getMealsForDate(plan, now, { dayOfWeek }).filter((meal) => {
+      if (!isReminderMealType(meal?.type)) return false;
       if (!mealHasContent(meal)) return false;
       const time = normalizeReminderTime(meal.reminderTime);
       return time && isReminderDue(time, hm);
@@ -158,7 +161,7 @@ async function processDietMealReminders() {
 
     for (const userId of userIds) {
       for (const meal of meals) {
-        const type = meal.type || 'snacks';
+        const type = meal.type || 'breakfast';
         const reminderTime = normalizeReminderTime(meal.reminderTime);
         const dedupeKey = mealDedupeKey(userId, todayKey, meal, reminderTime);
         if (sentKeys.has(dedupeKey)) continue;

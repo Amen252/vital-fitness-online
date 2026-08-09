@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/admin_management_widgets.dart';
 import '../screens/admin_member_detail_screen.dart';
@@ -41,17 +42,24 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
       _errorMessage = null;
     });
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getCoachApplications(),
         _apiService.getAdminTrainers(),
-      ]);
+      ], fallback: null, timeout: const Duration(seconds: 25));
       if (mounted) {
+        final apps = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+        final trainers = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
         setState(() {
-          _applications = List<dynamic>.from(results[0]);
-          _coaches = List<dynamic>.from(results[1])
+          _applications = apps;
+          _coaches = trainers
               .where((coach) => (coach['role'] as String? ?? '') == 'coach')
               .toList();
           _applyCoachFilters();
+          if (results.every((r) => r == null)) {
+            _errorMessage = 'Unable to load data';
+          } else {
+            _errorMessage = null;
+          }
         });
       }
     } catch (e) {
@@ -93,13 +101,19 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
     if (id.isEmpty) return;
     try {
       await _apiService.approveCoachApplication(id);
-      await refresh();
       if (mounted) {
-        setState(() => _selectedSubTab = 0);
+        setState(() {
+          _applications = _applications.map((app) {
+            if (app is! Map || app['_id']?.toString() != id) return app;
+            return {...Map<String, dynamic>.from(app), 'status': 'approved'};
+          }).toList();
+          _selectedSubTab = 0;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Application approved.'), backgroundColor: CoachDashboardTheme.success),
         );
       }
+      refresh();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -153,9 +167,6 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
         setState(() {
           _applications = _applications.where((app) => app['_id']?.toString() != id).toList();
         });
-      }
-      await refresh();
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Application rejected.'),
@@ -163,6 +174,7 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
           ),
         );
       }
+      refresh();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

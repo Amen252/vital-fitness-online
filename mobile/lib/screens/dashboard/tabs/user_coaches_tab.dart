@@ -8,6 +8,7 @@ import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../chat_screen.dart';
+import '../../../utils/async_load.dart';
 import '../../../utils/coach_thread_utils.dart';
 import '../coach_public_profile_screen.dart';
 import '../user_class_detail_screen.dart';
@@ -153,22 +154,45 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
   Future<void> _fetchData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final coaching = await _apiService.getUserCoaching();
-      final request = await _apiService.getMyCoachRequest();
-      final coachRequest = request;
-      final hasSelectedCoach = coaching != null || coachRequest?['status'] == 'pending';
+      // Parallel + isolated so one slow endpoint cannot freeze Coaches forever.
+      final primary = await waitIsolatedTimed<Object?>([
+        _apiService.getUserCoaching(),
+        _apiService.getMyCoachRequest(),
+        _apiService.getUserClasses(),
+      ], fallback: null, timeout: const Duration(seconds: 20));
 
-      final classes = await _apiService.getUserClasses();
-      final coaches = hasSelectedCoach
-          ? <dynamic>[]
-          : (await _apiService.getCoaches()).where(_isApprovedCoach).toList();
+      final coaching = primary[0] is Map
+          ? Map<String, dynamic>.from(primary[0] as Map)
+          : null;
+      final coachRequest = primary[1] is Map
+          ? Map<String, dynamic>.from(primary[1] as Map)
+          : null;
+      final classes = primary[2] is List
+          ? List<dynamic>.from(primary[2] as List)
+          : <dynamic>[];
+      final hasSelectedCoach =
+          coaching != null || coachRequest?['status'] == 'pending';
+
+      var coaches = <dynamic>[];
+      if (!hasSelectedCoach) {
+        try {
+          coaches = (await _apiService.getCoaches().timeout(const Duration(seconds: 15)))
+              .where(_isApprovedCoach)
+              .toList();
+        } catch (_) {
+          coaches = <dynamic>[];
+        }
+      }
+
       String? lastMessage;
       var unreadCount = 0;
       if (coaching != null) {
         final assignmentId = coaching['_id']?.toString() ?? '';
         if (assignmentId.isNotEmpty) {
           try {
-            final threads = await _apiService.getChatThreads();
+            final threads = await _apiService
+                .getChatThreads()
+                .timeout(const Duration(seconds: 10));
             for (final t in threads) {
               final thread = Map<String, dynamic>.from(t as Map);
               if (CoachThreadUtils.threadId(thread) == assignmentId) {
@@ -179,6 +203,14 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
             }
           } catch (_) {}
         }
+      }
+
+      if (primary.every((r) => r == null) && !hasSelectedCoach && coaches.isEmpty) {
+        finishTabError(
+          Exception('Unable to load data. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
       }
 
       if (mounted) {

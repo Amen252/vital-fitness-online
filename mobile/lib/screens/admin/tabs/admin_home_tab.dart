@@ -3,6 +3,7 @@ import '../../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../models/user_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../screens/admin_reports_screen.dart';
 
@@ -35,14 +36,25 @@ class AdminHomeTabState extends State<AdminHomeTab> {
       _errorMessage = null;
     });
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getAdminDashboardStats(),
         _apiService.getAdminTrainers(),
-      ]);
+      ], fallback: null, timeout: const Duration(seconds: 25));
       if (mounted) {
+        final stats = results[0] is Map
+            ? Map<String, dynamic>.from(results[0] as Map)
+            : null;
+        final coaches = results[1] is List
+            ? List<dynamic>.from(results[1] as List)
+            : <dynamic>[];
         setState(() {
-          _dashboardStats = results[0] as Map<String, dynamic>;
-          _coaches = results[1] as List<dynamic>;
+          if (stats != null) _dashboardStats = stats;
+          _coaches = coaches;
+          if (stats == null && coaches.isEmpty) {
+            _errorMessage = 'Unable to load data';
+          } else {
+            _errorMessage = null;
+          }
         });
       }
     } catch (e) {

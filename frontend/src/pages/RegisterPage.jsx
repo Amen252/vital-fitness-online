@@ -45,7 +45,7 @@ export default function RegisterPage() {
         result.user.must_change_password
           ? "/change-password"
           : "/member/coaches";
-      setTimeout(() => navigate(dest, { replace: true }), 800);
+      navigate(dest, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

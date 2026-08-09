@@ -15,7 +15,8 @@ async function auth(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
-    req.user = await User.findById(decoded.id);
+    // Cap Mongo wait so auth never leaves clients spinning until socket timeout.
+    req.user = await User.findById(decoded.id).maxTimeMS(8000);
 
     if (!req.user) {
       return res.status(401).json({ message: 'Authentication required' });

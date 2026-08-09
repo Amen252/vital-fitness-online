@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/async_load.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../widgets/profile_avatar.dart';
@@ -40,16 +41,23 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
   Future<void> _fetchData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await Future.wait([
+      final results = await waitIsolatedTimed<Object?>([
         _apiService.getCoachClasses(),
         _apiService.getSessions(),
-        _apiService.getCoachClients(),
-      ]);
+        _apiService.getCoachClients(light: true),
+      ], fallback: null);
+      if (results.every((r) => r == null)) {
+        finishTabError(
+          Exception('Unable to load classes. Please retry.'),
+          isRefresh: isRefresh,
+        );
+        return;
+      }
       if (mounted) {
         finishTabLoad(() {
-          _classes = List<dynamic>.from(results[0]);
-          _sessions = List<dynamic>.from(results[1]);
-          _clients = List<dynamic>.from(results[2]);
+          _classes = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
+          _sessions = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
+          _clients = results[2] is List ? List<dynamic>.from(results[2] as List) : <dynamic>[];
         });
       }
     } catch (e) {

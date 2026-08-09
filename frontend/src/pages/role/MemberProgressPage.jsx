@@ -51,7 +51,7 @@ export default function MemberProgressPage() {
     try {
       await logMemberWater(amount);
       toast.success(`Logged ${amount} ml water`);
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -70,7 +70,7 @@ export default function MemberProgressPage() {
     try {
       await logMemberWeight(weight);
       toast.success(`Weight updated to ${weight} kg`);
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -94,7 +94,7 @@ export default function MemberProgressPage() {
       });
       toast.success("Activity logged");
       setActivityCalories("");
-      await load();
+      void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
