@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../config/api_config.dart';
 import '../../utils/password_utils.dart';
 import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
@@ -22,25 +21,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
-  String _apiStatus = 'checking';
   String? _errorMessage;
 
   final _apiService = ApiService();
-
-  @override
-  void initState() {
-    super.initState();
-    _checkBackend();
-  }
-
-  Future<void> _checkBackend() async {
-    final status = await _apiService.getApiStatus();
-    if (mounted) {
-      setState(() {
-        _apiStatus = status;
-      });
-    }
-  }
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
@@ -190,45 +173,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        'Welcome back',
-                                        style: TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w700,
-                                          color: isDark
-                                              ? Colors.white
-                                              : CoachDashboardTheme.textPrimary,
-                                          letterSpacing: -0.2,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      _StatusChip(
-                                        online: _apiStatus == 'connected',
-                                        degraded: _apiStatus == 'degraded',
-                                        isDark: isDark,
-                                      ),
-                                    ],
+                                  Text(
+                                    'Welcome back',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark
+                                          ? Colors.white
+                                          : CoachDashboardTheme.textPrimary,
+                                      letterSpacing: -0.2,
+                                    ),
                                   ),
                                   const SizedBox(height: 18),
-
-                                  if (_apiStatus == 'offline') ...[
-                                    _AlertBanner(
-                                      message: ApiConfig.isLocalOverride
-                                          ? 'Cannot reach API at ${ApiConfig.baseUrl}.\nStart backend: cd backend && npm start'
-                                          : 'Cannot reach API at ${ApiConfig.baseUrl}.\nCheck internet, or wait ~30s if the server is waking up, then pull to retry.',
-                                      color: CoachDashboardTheme.warning,
-                                    ),
-                                    const SizedBox(height: 14),
-                                  ] else if (_apiStatus == 'degraded') ...[
-                                    _AlertBanner(
-                                      message:
-                                          'API is running but the database is unavailable.\nCheck MongoDB Atlas network access, then restart the backend.',
-                                      color: CoachDashboardTheme.warning,
-                                    ),
-                                    const SizedBox(height: 14),
-                                  ],
 
                                   if (_errorMessage != null) ...[
                                     _AlertBanner(
@@ -523,51 +479,6 @@ class _GlowOrb extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.online,
-    this.degraded = false,
-    required this.isDark,
-  });
-
-  final bool online;
-  final bool degraded;
-  final bool isDark;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = online
-        ? CoachDashboardTheme.success
-        : degraded
-            ? CoachDashboardTheme.warning
-            : CoachDashboardTheme.danger;
-    final label = online
-        ? 'API connected'
-        : degraded
-            ? 'API degraded'
-            : 'API offline';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white60 : CoachDashboardTheme.textSecondary,
-          ),
-        ),
-      ],
     );
   }
 }

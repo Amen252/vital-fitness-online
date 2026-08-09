@@ -27,9 +27,11 @@ class _CoachReportsTabState extends State<CoachReportsTab> {
     setState(() { _isLoading = true; _error = null; });
     try {
       final data = await _api.getCoachReports();
-      if (mounted) setState(() { _reports = data; _isLoading = false; });
+      if (mounted) setState(() { _reports = data; });
     } catch (e) {
-      if (mounted) setState(() { _error = ApiService.friendlyError(e); _isLoading = false; });
+      if (mounted) setState(() { _error = ApiService.friendlyError(e); });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

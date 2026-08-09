@@ -192,6 +192,7 @@ async function createFeedback(req, res) {
   const assignment = await CoachAssignment.findOne({
     _id: req.body.assignmentId,
     coach: req.user._id,
+    status: 'active',
   });
 
   if (!assignment) {
@@ -216,6 +217,7 @@ async function updateClientPlan(req, res) {
   const assignment = await CoachAssignment.findOne({
     _id: assignmentId,
     coach: req.user._id,
+    status: 'active',
   });
 
   if (!assignment) {
@@ -234,6 +236,7 @@ async function assignArticle(req, res) {
   const assignment = await CoachAssignment.findOne({
     _id: assignmentId,
     coach: req.user._id,
+    status: 'active',
   });
 
   if (!assignment) {
@@ -253,6 +256,7 @@ async function removeArticle(req, res) {
   const assignment = await CoachAssignment.findOne({
     _id: assignmentId,
     coach: req.user._id,
+    status: 'active',
   });
 
   if (!assignment) {
@@ -286,7 +290,7 @@ async function deleteAssignment(req, res) {
 }
 
 async function updateAssignment(req, res) {
-  const { status, note } = req.body;
+  const { status } = req.body;
   const assignment = await CoachAssignment.findOne({
     _id: req.params.id,
     coach: req.user._id,
@@ -296,10 +300,21 @@ async function updateAssignment(req, res) {
     return res.status(404).json({ message: 'Assignment not found' });
   }
 
-  if (status) assignment.status = status;
-  // Coaches can add private notes/nicknames if we extend the schema, 
-  // for now we stick to status.
-  
+  // Coaches may end an active link; they cannot reactivate ended assignments.
+  if (status !== undefined) {
+    const next = String(status);
+    if (next === 'active' && assignment.status !== 'active') {
+      return res.status(400).json({
+        message: 'Cannot reactivate an ended coaching assignment',
+        code: 'ASSIGNMENT_REACTIVATE_FORBIDDEN',
+      });
+    }
+    if (!['active', 'ended', 'pending'].includes(next)) {
+      return res.status(400).json({ message: 'Invalid assignment status' });
+    }
+    assignment.status = next;
+  }
+
   await assignment.save();
   return res.json(assignment);
 }
@@ -484,6 +499,7 @@ async function updateActivityStatus(req, res) {
     const assignment = await CoachAssignment.findOne({
       coach: req.user._id,
       user: activity.user,
+      status: 'active',
     });
     if (!assignment) return res.status(403).json({ message: 'Not authorized for this client' });
 
@@ -566,6 +582,18 @@ async function reviewWorkoutSubmission(req, res) {
     }
     if (completion.status !== 'pending_review') {
       return res.status(400).json({ message: 'This workout is not awaiting review' });
+    }
+
+    if (status === 'approved') {
+      const proofPhoto = String(completion.proofPhoto || '').trim();
+      const notes = String(completion.notes || '').trim();
+      const durationMinutes = Number(completion.durationMinutes);
+      if (!proofPhoto || !notes || !Number.isFinite(durationMinutes) || durationMinutes < 1) {
+        return res.status(400).json({
+          message: 'Cannot approve a workout that is missing photo, notes, or duration',
+          code: 'WORKOUT_PROOF_INCOMPLETE',
+        });
+      }
     }
 
     const note = String(feedback || '').trim();

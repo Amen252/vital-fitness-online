@@ -29,8 +29,9 @@ class AdminClassesTabState extends State<AdminClassesTab> {
   }
 
   Future<void> refresh() async {
+    final showFullLoader = _classes.isEmpty;
     setState(() {
-      _isLoading = true;
+      if (showFullLoader) _isLoading = true;
       _errorMessage = null;
     });
     try {
@@ -38,16 +39,16 @@ class AdminClassesTabState extends State<AdminClassesTab> {
       if (mounted) {
         setState(() {
           _classes = classes;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

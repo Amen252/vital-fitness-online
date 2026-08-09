@@ -71,16 +71,16 @@ class _CoachPublicProfileScreenState extends State<CoachPublicProfileScreen> {
         setState(() {
           _coach = coach;
           _reviewsData = reviews;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = e.toString().replaceAll('Exception: ', '');
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

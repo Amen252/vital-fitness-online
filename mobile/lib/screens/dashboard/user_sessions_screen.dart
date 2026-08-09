@@ -52,14 +52,14 @@ class _UserSessionsScreenState extends State<UserSessionsScreen>
       if (!mounted) return;
       setState(() {
         _sessions = rows.map((r) => Map<String, dynamic>.from(r as Map)).toList();
-        _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = ApiService.friendlyError(e);
-        _loading = false;
       });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

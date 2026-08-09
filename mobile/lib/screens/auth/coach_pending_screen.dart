@@ -134,7 +134,6 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
 
       if (user == null) {
         setState(() {
-          _isRefreshing = false;
           _errorMessage = 'Could not refresh status. Check your connection and try again.';
         });
         return;
@@ -147,7 +146,6 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
           _approvedUser = user;
           _currentUser = user;
           _certificateFiles = latest.certificates;
-          _isRefreshing = false;
           _errorMessage = null;
           _lastCheckedAt = checkedAt;
           _statusFeedback = 'Your application has been approved.';
@@ -175,7 +173,6 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         _currentUser = user;
         _approvedUser = null;
         _certificateFiles = latest.certificates;
-        _isRefreshing = false;
         _lastCheckedAt = checkedAt;
         _statusFeedback = 'Your application is still pending admin review.';
       });
@@ -186,9 +183,10 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isRefreshing = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 

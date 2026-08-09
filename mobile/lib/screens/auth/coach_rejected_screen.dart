@@ -75,7 +75,6 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
 
       if (user == null) {
         setState(() {
-          _isRefreshing = false;
           _errorMessage = 'Could not refresh status. Check your connection and try again.';
         });
         return;
@@ -99,7 +98,6 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
 
       setState(() {
         _currentUser = user;
-        _isRefreshing = false;
       });
       await _loadRejectionReason();
 
@@ -115,9 +113,10 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isRefreshing = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 

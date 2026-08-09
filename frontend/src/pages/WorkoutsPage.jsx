@@ -27,7 +27,8 @@ export default function WorkoutsPage({ embedded = false }) {
   const [error, setError] = useState("");
 
   async function load() {
-    setLoading(true);
+    const hasContent = overview != null || exercises != null;
+    if (!hasContent) setLoading(true);
     setError("");
     try {
       const [workouts, ex] = await Promise.all([
@@ -67,8 +68,8 @@ export default function WorkoutsPage({ embedded = false }) {
     }
   }
 
-  if (loading) return <Spinner />;
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (loading && overview == null && exercises == null) return <Spinner />;
+  if (error && overview == null && exercises == null) return <ErrorState message={error} onRetry={load} />;
 
   return (
     <div>

@@ -196,6 +196,13 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
       // Keep previous coach/request state on refresh failures so a network
       // blip does not wipe an assigned coach or pending request.
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      if (mounted && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 
@@ -789,10 +796,6 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
     try {
       await _apiService.cancelCoachRequest();
       if (!mounted) return;
-      setState(() {
-        _mutatingRequest = false;
-        _mutatingCoachId = null;
-      });
       // Restore discover list without blocking the withdraw success feedback.
       unawaited(_loadDiscoverCoaches());
       ScaffoldMessenger.of(context).showSnackBar(
@@ -805,12 +808,17 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
       if (!mounted) return;
       setState(() {
         _coachRequest = previousRequest;
-        _mutatingRequest = false;
-        _mutatingCoachId = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(ApiService.friendlyError(e))),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mutatingRequest = false;
+          _mutatingCoachId = null;
+        });
+      }
     }
   }
 
@@ -861,12 +869,17 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
       setState(() {
         _coachRequest = previousRequest;
         _allCoaches = previousCoaches;
-        _mutatingRequest = false;
-        _mutatingCoachId = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(ApiService.friendlyError(e))),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mutatingRequest = false;
+          _mutatingCoachId = null;
+        });
+      }
     }
   }
 

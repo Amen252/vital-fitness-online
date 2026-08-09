@@ -34,15 +34,15 @@ class _CoachAppointmentsTabState extends State<CoachAppointmentsTab> {
       if (!mounted) return;
       setState(() {
         _appointments = appts.map((a) => Map<String, dynamic>.from(a as Map)).toList();
-        _loading = false;
       });
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _loading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

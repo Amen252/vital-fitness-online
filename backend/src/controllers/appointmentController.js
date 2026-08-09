@@ -483,6 +483,18 @@ async function completeAppointment(req, res) {
       });
     }
 
+    const start = appointmentStart(appointment);
+    if (!start) {
+      return res.status(400).json({ message: 'Appointment has no scheduled time' });
+    }
+    const end = getEndTime(start, appointmentDuration(appointment));
+    if (Date.now() < end.getTime()) {
+      return res.status(400).json({
+        message: 'Cannot complete an appointment before its scheduled end time',
+        code: 'APPOINTMENT_NOT_ENDED_YET',
+      });
+    }
+
     const { coachNotes } = req.body;
     appointment.status = 'completed';
     appointment.completedAt = new Date();
@@ -528,6 +540,17 @@ async function startAppointment(req, res) {
     }
     if (!['approved', 'rescheduled', 'confirmed'].includes(appointment.status)) {
       return res.status(400).json({ message: 'Only approved appointments can be started' });
+    }
+
+    const start = appointmentStart(appointment);
+    if (!start) {
+      return res.status(400).json({ message: 'Appointment has no scheduled time' });
+    }
+    if (Date.now() < start.getTime()) {
+      return res.status(400).json({
+        message: 'Cannot start an appointment before its scheduled start time',
+        code: 'APPOINTMENT_NOT_STARTED_YET',
+      });
     }
 
     const { meetingLink, sessionMode } = req.body || {};

@@ -15,9 +15,17 @@ const {
   dateForMondayBasedDay,
   getPlannedMealTypes,
   getMealsForDate,
+  startOfLocalDay,
   MEAL_LABELS,
   DAY_NAMES,
 } = require('../utils/mealAdherenceUtils');
+const {
+  getWeekStart,
+  formatDateOnlyIso,
+  parseLocalDate,
+  toDateOnlyStorage,
+  calendarDateFromInstant,
+} = require('../utils/weeklyPlanUtils');
 const { USER_DISPLAY_SELECT, withDisplayName } = require('../utils/userDisplay');
 const { hasActiveAssignment } = require('../utils/coachVisibility');
 const {
@@ -248,7 +256,7 @@ function normalizeMealsArray(meals) {
   return [];
 }
 
-function normalizeDietDays(days) {
+function normalizeDietDays(days, weekStartDate = null) {
   const byDay = new Map();
   if (Array.isArray(days)) {
     for (const day of days) {
@@ -258,14 +266,38 @@ function normalizeDietDays(days) {
         dayOfWeek: dow,
         meals: normalizeMealsArray(day.meals),
         notes: day.notes || '',
+        date: day.date || null,
       });
     }
   }
-  return Array.from({ length: 7 }, (_, i) => byDay.get(i) || {
-    dayOfWeek: i,
-    meals: [],
-    notes: '',
+  const weekStart = weekStartDate ? getWeekStart(weekStartDate) : null;
+  return Array.from({ length: 7 }, (_, i) => {
+    const base = byDay.get(i) || { dayOfWeek: i, meals: [], notes: '', date: null };
+    if (!weekStart) return base;
+    const localMonday = parseLocalDate(weekStart);
+    const dayDate = new Date(localMonday);
+    dayDate.setDate(localMonday.getDate() + i);
+    return {
+      ...base,
+      dayOfWeek: i,
+      date: toDateOnlyStorage(dayDate),
+    };
   });
+}
+
+function resolveWeeklyStartDate(weekStartDate, fallback = new Date()) {
+  if (weekStartDate == null || weekStartDate === '') return getWeekStart(fallback);
+  return getWeekStart(weekStartDate);
+}
+
+/** Client-local "today" (midnight) for diet day lock checks. */
+function clientLocalToday(timezoneOffsetMinutes) {
+  if (timezoneOffsetMinutes == null || timezoneOffsetMinutes === '') {
+    return startOfLocalDay(new Date());
+  }
+  const offset = Number(timezoneOffsetMinutes);
+  if (!Number.isFinite(offset)) return startOfLocalDay(new Date());
+  return startOfLocalDay(calendarDateFromInstant(new Date(), offset));
 }
 
 function dayHasAllWeeklyMealTypes(meals) {
@@ -303,15 +335,25 @@ function validateWeeklyPlanStructure(weekDays, flatMeals = []) {
   return null;
 }
 
-function resolvePlanStructure({ planType, meals, days, targetDayOfWeek }) {
+function weeklyPlanHasAllSevenDays(structure) {
+  if (!structure || structure.planType !== 'weekly') return true;
+  const filled = (structure.days || []).filter((d) =>
+    (d.meals || []).some((m) => mealHasContent(m)),
+  ).length;
+  return filled >= 7;
+}
+
+function resolvePlanStructure({ planType, meals, days, targetDayOfWeek, weekStartDate }) {
   const type = planType === 'weekly' ? 'weekly' : 'single_day';
   if (type === 'weekly') {
-    const normalizedDays = normalizeDietDays(days);
+    const weekStart = resolveWeeklyStartDate(weekStartDate);
+    const normalizedDays = normalizeDietDays(days, weekStart);
     const flatMeals = normalizeMealsArray(meals).filter((m) => mealHasContent(m));
     let weekDays = Array.from({ length: 7 }, (_, i) => ({
       dayOfWeek: i,
       meals: (normalizedDays[i]?.meals || []).filter((m) => mealHasContent(m)),
       notes: normalizedDays[i]?.notes || '',
+      date: normalizedDays[i]?.date || null,
     }));
 
     const assignedCount = weekDays.filter((d) => d.meals.length).length;
@@ -330,6 +372,7 @@ function resolvePlanStructure({ planType, meals, days, targetDayOfWeek }) {
       days: weekDays,
       meals: templateMeals,
       targetDayOfWeek: null,
+      weekStartDate: weekStart,
     };
   }
   const normalizedMeals = normalizeMealsArray(meals);
@@ -353,6 +396,7 @@ function resolvePlanStructure({ planType, meals, days, targetDayOfWeek }) {
     days: [],
     meals: normalizedMeals,
     targetDayOfWeek: day,
+    weekStartDate: null,
   };
 }
 
@@ -366,10 +410,20 @@ function enrichDietPlan(plan, date = new Date()) {
   const dow = mondayBasedDayOfWeek(date);
   const target = obj.targetDayOfWeek != null ? Number(obj.targetDayOfWeek) : null;
   const rawDays = Array.isArray(obj.days) ? obj.days : [];
-  const daysOut = obj.planType === 'weekly' ? normalizeDietDays(rawDays) : rawDays;
+  const weekStart = obj.planType === 'weekly' && obj.weekStartDate
+    ? getWeekStart(obj.weekStartDate)
+    : null;
+  const daysOut = obj.planType === 'weekly'
+    ? normalizeDietDays(rawDays, weekStart || obj.weekStartDate || null).map((day) => ({
+      ...day,
+      date: day.date ? formatDateOnlyIso(day.date) : null,
+      dayName: DAY_NAMES[day.dayOfWeek] || '',
+    }))
+    : rawDays;
   return {
     ...obj,
     planType: obj.planType || 'single_day',
+    weekStartDate: weekStart ? formatDateOnlyIso(weekStart) : (obj.weekStartDate ? formatDateOnlyIso(obj.weekStartDate) : null),
     days: daysOut,
     meals: Array.isArray(obj.meals) ? obj.meals : [],
     targetDayOfWeek: Number.isFinite(target) ? target : null,
@@ -477,11 +531,15 @@ async function verifyCoachClient(coachId, clientId) {
 
 // --- User endpoints ---
 
-async function loadWeekCompletion(userId, refDate = new Date(), plan = null) {
-  const weekStart = dateForMondayBasedDay(0, refDate);
-  const weekEnd = dateForMondayBasedDay(6, refDate);
+async function loadWeekCompletion(userId, refDate = new Date(), plan = null, options = {}) {
+  const today = options.today || startOfLocalDay(refDate);
+  const weekAnchor = plan?.planType === 'weekly' && plan.weekStartDate
+    ? parseLocalDate(plan.weekStartDate)
+    : refDate;
+  const weekStart = dateForMondayBasedDay(0, weekAnchor);
+  const weekEnd = dateForMondayBasedDay(6, weekAnchor);
   if (!weekStart || !weekEnd) {
-    return buildWeekDayCompletionSummary([], refDate);
+    return buildWeekDayCompletionSummary([], weekAnchor, { today });
   }
   const endExclusive = new Date(weekEnd);
   endExclusive.setDate(endExclusive.getDate() + 1);
@@ -489,9 +547,9 @@ async function loadWeekCompletion(userId, refDate = new Date(), plan = null) {
     user: userId,
     date: { $gte: weekStart, $lt: endExclusive },
   }).lean();
-  const summary = buildWeekDayCompletionSummary(records, refDate);
+  const summary = buildWeekDayCompletionSummary(records, weekAnchor, { today });
   if (plan?.planType === 'weekly') {
-    return enrichWeekCompletionWithPlannedMeals(plan, summary, refDate);
+    return enrichWeekCompletionWithPlannedMeals(plan, summary, weekAnchor);
   }
   return summary;
 }
@@ -512,6 +570,14 @@ async function getUserAssignedDietPlan(req, res) {
 
     if (!plan) {
       return res.status(404).json({ message: 'No active diet plan found' });
+    }
+
+    // Coaches may only view plans they own (not another coach's active plan for the same client).
+    if (req.user.role === 'coach') {
+      const planCoachId = plan.coach?._id || plan.coach;
+      if (String(planCoachId) !== String(req.user._id)) {
+        return res.status(403).json({ message: 'This client\'s active diet plan is not yours' });
+      }
     }
 
     const today = startOfDay();
@@ -605,6 +671,7 @@ async function logUserAdherence(req, res) {
       dayCompleted,
       dayOfWeek,
       date: dateInput,
+      timezoneOffsetMinutes,
     } = req.body;
 
     const plan = await resolveUserDietPlan(req.user._id);
@@ -612,7 +679,9 @@ async function logUserAdherence(req, res) {
       return res.status(400).json({ message: 'No active diet plan assigned' });
     }
 
-    let targetDate = startOfDay();
+    const todayLocal = clientLocalToday(timezoneOffsetMinutes);
+
+    let targetDate = startOfDay(todayLocal);
     if (dateInput) {
       const raw = String(dateInput).trim();
       const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
@@ -627,9 +696,20 @@ async function logUserAdherence(req, res) {
         targetDate = startOfDay(parsed);
       }
     } else if (dayOfWeek != null && dayOfWeek !== '') {
-      const dated = dateForMondayBasedDay(Number(dayOfWeek));
+      const weekAnchor = plan.planType === 'weekly' && plan.weekStartDate
+        ? parseLocalDate(plan.weekStartDate)
+        : todayLocal;
+      const dated = dateForMondayBasedDay(Number(dayOfWeek), weekAnchor);
       if (!dated) return res.status(400).json({ message: 'Invalid dayOfWeek' });
       targetDate = startOfDay(dated);
+    }
+
+    // Future diet days stay locked until their calendar date arrives (client-local today).
+    if (targetDate.getTime() > todayLocal.getTime()) {
+      return res.status(400).json({
+        message: 'This diet day is locked until its date arrives.',
+        code: 'DIET_DAY_LOCKED',
+      });
     }
 
     const existing = await DietAdherence.findOne({ user: req.user._id, date: targetDate }).lean();
@@ -700,8 +780,8 @@ async function logUserAdherence(req, res) {
         });
       }
 
-      const weekCompletion = await loadWeekCompletion(req.user._id, targetDate, plan);
-      const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, targetDate);
+      const weekCompletion = await loadWeekCompletion(req.user._id, targetDate, plan, { today: todayLocal });
+      const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, todayLocal);
       return res.json({
         ...record.toObject(),
         nutrition,
@@ -784,9 +864,9 @@ async function logUserAdherence(req, res) {
     }
 
     const weekCompletion = plan.planType === 'weekly'
-      ? await loadWeekCompletion(req.user._id, new Date(), plan)
+      ? await loadWeekCompletion(req.user._id, todayLocal, plan, { today: todayLocal })
       : null;
-    const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, targetDate);
+    const todaySnapshot = await buildTodayProgressSnapshot(req.user._id, plan, todayLocal);
 
     return res.json({
       ...record.toObject(),
@@ -1064,6 +1144,7 @@ async function createOrUpdateDietPlan(req, res) {
       days,
       planType,
       targetDayOfWeek,
+      weekStartDate,
       dailyCalories,
       notes,
       status,
@@ -1081,9 +1162,12 @@ async function createOrUpdateDietPlan(req, res) {
       return res.status(400).json({ message: 'Provide either clientId or fitnessClassId, not both' });
     }
 
-    const structure = resolvePlanStructure({ planType, meals, days, targetDayOfWeek });
+    const structure = resolvePlanStructure({ planType, meals, days, targetDayOfWeek, weekStartDate });
     if (structure.error) {
       return res.status(400).json({ message: structure.error });
+    }
+    if (structure.planType === 'weekly' && !structure.weekStartDate) {
+      return res.status(400).json({ message: 'Select a Start Date for the weekly diet plan.' });
     }
 
     const resolvedGoal = GOALS.includes(goal) ? goal : 'maintenance';
@@ -1092,6 +1176,12 @@ async function createOrUpdateDietPlan(req, res) {
     const resolvedCalories = caloriesCheck.value;
 
     if (shouldNotify) {
+      if (!weeklyPlanHasAllSevenDays(structure)) {
+        return res.status(400).json({
+          message: 'Complete all seven days (Monday–Sunday) before activating a weekly diet plan.',
+          code: 'WEEKLY_DAYS_INCOMPLETE',
+        });
+      }
       const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
       const mealTimeCheck = validateActivePlanMealTimes(structure);
       if (mealTimeCheck?.error) {
@@ -1124,6 +1214,7 @@ async function createOrUpdateDietPlan(req, res) {
       plan.meals = structure.meals;
       plan.days = structure.days;
       plan.targetDayOfWeek = structure.targetDayOfWeek;
+      plan.weekStartDate = structure.planType === 'weekly' ? structure.weekStartDate : null;
       plan.markModified('days');
       plan.markModified('meals');
       plan.dailyCalories = resolvedCalories;
@@ -1171,6 +1262,7 @@ async function createOrUpdateDietPlan(req, res) {
           meals: structure.meals,
           days: structure.days,
           targetDayOfWeek: structure.targetDayOfWeek,
+          weekStartDate: structure.planType === 'weekly' ? structure.weekStartDate : null,
           dailyCalories: resolvedCalories,
           notes: notes || '',
           status: resolvedStatus,
@@ -1212,6 +1304,7 @@ async function createOrUpdateDietPlan(req, res) {
         meals: structure.meals,
         days: structure.days,
         targetDayOfWeek: structure.targetDayOfWeek,
+        weekStartDate: structure.planType === 'weekly' ? structure.weekStartDate : null,
         dailyCalories: resolvedCalories,
         notes: notes || '',
         status: resolvedStatus,
@@ -1255,6 +1348,7 @@ async function updateDietPlanById(req, res) {
       days,
       planType,
       targetDayOfWeek,
+      weekStartDate,
       dailyCalories,
       notes,
       status,
@@ -1262,18 +1356,31 @@ async function updateDietPlanById(req, res) {
     } = req.body;
     if (title) plan.title = title;
     if (goal && GOALS.includes(goal)) plan.goal = goal;
-    if (planType !== undefined || meals !== undefined || days !== undefined || targetDayOfWeek !== undefined) {
+    if (
+      planType !== undefined
+      || meals !== undefined
+      || days !== undefined
+      || targetDayOfWeek !== undefined
+      || weekStartDate !== undefined
+    ) {
       const structure = resolvePlanStructure({
         planType: planType || plan.planType || 'single_day',
         meals: meals !== undefined ? meals : plan.meals,
         days: days !== undefined ? days : plan.days,
         targetDayOfWeek: targetDayOfWeek !== undefined ? targetDayOfWeek : plan.targetDayOfWeek,
+        weekStartDate: weekStartDate !== undefined ? weekStartDate : plan.weekStartDate,
       });
       if (structure.error) {
         return res.status(400).json({ message: structure.error });
       }
       const nextStatus = status ? normalizeStatus(status) : plan.status;
       if (nextStatus === 'active') {
+        if (!weeklyPlanHasAllSevenDays(structure)) {
+          return res.status(400).json({
+            message: 'Complete all seven days (Monday–Sunday) before activating a weekly diet plan.',
+            code: 'WEEKLY_DAYS_INCOMPLETE',
+          });
+        }
         const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
         const mealTimeCheck = validateActivePlanMealTimes(structure);
         if (mealTimeCheck?.error) {
@@ -1284,6 +1391,7 @@ async function updateDietPlanById(req, res) {
       plan.meals = structure.meals;
       plan.days = structure.days;
       plan.targetDayOfWeek = structure.targetDayOfWeek;
+      plan.weekStartDate = structure.planType === 'weekly' ? structure.weekStartDate : null;
       plan.markModified('days');
       plan.markModified('meals');
     }
@@ -1299,12 +1407,19 @@ async function updateDietPlanById(req, res) {
 
     const becomingActive = plan.status === 'active' && previousStatus !== 'active';
     if (becomingActive) {
-      const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
-      const mealTimeCheck = validateActivePlanMealTimes({
+      const activateStructure = {
         planType: plan.planType,
         meals: plan.meals,
         days: plan.days,
-      });
+      };
+      if (!weeklyPlanHasAllSevenDays(activateStructure)) {
+        return res.status(400).json({
+          message: 'Complete all seven days (Monday–Sunday) before activating a weekly diet plan.',
+          code: 'WEEKLY_DAYS_INCOMPLETE',
+        });
+      }
+      const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
+      const mealTimeCheck = validateActivePlanMealTimes(activateStructure);
       if (mealTimeCheck?.error) {
         return res.status(400).json({ message: mealTimeCheck.error });
       }
@@ -1356,6 +1471,22 @@ async function sendDietPlanAgain(req, res) {
     if (!plan) return res.status(404).json({ message: 'Diet plan not found' });
 
     if (plan.status !== 'active') {
+      const activateStructure = {
+        planType: plan.planType,
+        meals: plan.meals,
+        days: plan.days,
+      };
+      if (!weeklyPlanHasAllSevenDays(activateStructure)) {
+        return res.status(400).json({
+          message: 'Complete all seven days (Monday–Sunday) before activating a weekly diet plan.',
+          code: 'WEEKLY_DAYS_INCOMPLETE',
+        });
+      }
+      const { validateActivePlanMealTimes } = require('../utils/mealReminderUtils');
+      const mealTimeCheck = validateActivePlanMealTimes(activateStructure);
+      if (mealTimeCheck?.error) {
+        return res.status(400).json({ message: mealTimeCheck.error, code: 'MEAL_TIME_REQUIRED' });
+      }
       await supersedePlansForActivation(req.user._id, plan, plan._id);
       plan.status = 'active';
       plan.assignedAt = new Date();

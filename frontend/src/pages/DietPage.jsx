@@ -22,7 +22,8 @@ export default function DietPage({ embedded = false }) {
   const [status, setStatus] = useState("all");
 
   async function load() {
-    setLoading(true);
+    const hasContent = plans.length > 0 || adherence != null;
+    if (!hasContent) setLoading(true);
     setError("");
     try {
       const [planData, adherenceData] = await Promise.all([
@@ -123,10 +124,10 @@ export default function DietPage({ embedded = false }) {
         />
       )}
 
-      {loading ? <Spinner /> : null}
-      {error ? <ErrorState message={error} onRetry={load} /> : null}
+      {loading && plans.length === 0 && !adherence ? <Spinner /> : null}
+      {error && plans.length === 0 && !adherence ? <ErrorState message={error} onRetry={load} /> : null}
 
-      {!loading && !error ? (
+      {(!loading || plans.length > 0 || adherence) && (!error || plans.length > 0 || adherence) ? (
         <>
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <StatCard

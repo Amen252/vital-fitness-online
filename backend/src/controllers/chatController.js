@@ -7,8 +7,10 @@ async function findAccessibleAssignment(assignmentId, user) {
   const query = { _id: assignmentId };
   if (user.role === 'coach') {
     query.coach = user._id;
+    query.status = 'active';
   } else if (user.role === 'user') {
     query.user = user._id;
+    query.status = 'active';
   }
   // Admins have unrestricted access (no additional filter in query)
 
@@ -18,9 +20,9 @@ async function findAccessibleAssignment(assignmentId, user) {
 async function listThreads(req, res) {
   let query = {};
   if (req.user.role === 'coach') {
-    query = { coach: req.user._id };
+    query = { coach: req.user._id, status: 'active' };
   } else if (req.user.role === 'user') {
-    query = { user: req.user._id };
+    query = { user: req.user._id, status: 'active' };
   }
   // Admin query stays empty to fetch all assignments
 

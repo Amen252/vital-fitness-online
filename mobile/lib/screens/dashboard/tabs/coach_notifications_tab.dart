@@ -29,16 +29,16 @@ class _CoachNotificationsTabState extends State<CoachNotificationsTab> {
       if (mounted) {
         setState(() {
           _notifications = notifications;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = e.toString();
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

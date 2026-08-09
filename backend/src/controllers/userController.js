@@ -173,6 +173,12 @@ async function updateProfile(req, res) {
       });
     }
 
+    // Display name — allowed for all roles (does not change login username/email).
+    if (body.full_name !== undefined || body.fullName !== undefined || body.name !== undefined) {
+      const nextName = String(body.full_name ?? body.fullName ?? body.name ?? '').trim();
+      if (nextName) user.full_name = nextName;
+    }
+
     if (user.role === 'coach') {
       if (!user.coachData) user.coachData = {};
       if (body.bio !== undefined) user.coachData.bio = String(body.bio || '');

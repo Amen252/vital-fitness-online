@@ -135,16 +135,23 @@ async function resolveCertificateFiles(input, { userId, expectedName } = {}) {
         err.code = 'INVALID_CERTIFICATES';
         throw err;
       }
-      const mimeType = typeof item === 'object' && item?.mimeType
-        ? String(item.mimeType)
-        : (dataUrl.toLowerCase().includes('.pdf') ? 'application/pdf' : 'image/jpeg');
-      // Already-saved certificates skip OCR; newly supplied CDN URLs are checked after upload path.
-      if (
-        nameCheckEnabled
-        && !ownedUrls.has(dataUrl)
-        && !String(mimeType).includes('pdf')
-        && !dataUrl.toLowerCase().endsWith('.pdf')
-      ) {
+      const urlLooksPdf = dataUrl.toLowerCase().includes('.pdf');
+      // Prefer URL shape over client-supplied mimeType (clients can falsely claim application/pdf).
+      const mimeType = urlLooksPdf
+        ? 'application/pdf'
+        : (typeof item === 'object' && item?.mimeType && !String(item.mimeType).includes('pdf')
+          ? String(item.mimeType)
+          : 'image/jpeg');
+      // Already-saved certificates skip OCR; newly supplied CDN image URLs must pass name check.
+      // Never skip OCR because the client labeled an image URL as PDF.
+      if (nameCheckEnabled && !ownedUrls.has(dataUrl)) {
+        if (urlLooksPdf || String(mimeType).includes('pdf')) {
+          const err = new Error(
+            `Certificate #${i + 1} must be a JPG or PNG photo that clearly shows your first and last name.`,
+          );
+          err.code = 'CERTIFICATE_NAME_REQUIRED';
+          throw err;
+        }
         await assertCertificateImageShowsName(dataUrl, {
           expectedName,
           index: i + 1,

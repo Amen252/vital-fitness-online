@@ -41,19 +41,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         setState(() {
           _notifications = notifs;
           _errorMessage = null;
-          _isLoading = false;
-          _isRefreshing = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isRefreshing = false;
-          if (!isRefresh) {
+        if (!isRefresh) {
+          setState(() {
             _errorMessage = ApiService.friendlyError(e);
-          }
-        });
+          });
+        }
         if (isRefresh) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -62,6 +58,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           );
         }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isRefreshing = false;
+        });
       }
     }
   }

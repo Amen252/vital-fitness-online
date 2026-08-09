@@ -116,9 +116,14 @@ async function isMealAlreadyCompleted(userId, mealType, dayStart) {
   return Boolean(row?.followed);
 }
 
+let dietReminderJobRunning = false;
+
 async function processDietMealReminders() {
   if (!isDatabaseConnected()) return;
+  if (dietReminderJobRunning) return;
+  dietReminderJobRunning = true;
 
+  try {
   const now = new Date();
   const todayKey = localDateKey(now);
   const hm = localHm(now);
@@ -182,15 +187,26 @@ async function processDietMealReminders() {
           continue;
         }
 
-        await Notification.create({
-          user: userId,
-          message: payload.message,
-          type: payload.type,
-          data: payload.data,
-        });
+        // Reserve before write to reduce duplicate races within the same process.
         sentKeys.add(dedupeKey);
+        try {
+          await Notification.create({
+            user: userId,
+            message: payload.message,
+            type: payload.type,
+            data: payload.data,
+          });
+        } catch (createErr) {
+          if (createErr?.code !== 11000) {
+            sentKeys.delete(dedupeKey);
+            throw createErr;
+          }
+        }
       }
     }
+  }
+  } finally {
+    dietReminderJobRunning = false;
   }
 }
 

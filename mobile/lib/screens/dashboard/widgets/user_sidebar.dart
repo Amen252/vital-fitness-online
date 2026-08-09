@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../l10n/app_localizations.dart';
 import '../../../models/user_model.dart';
 import 'coach_home/coach_dashboard_theme.dart';
 
 class UserSidebar extends StatelessWidget {
   final User user;
-  final VoidCallback onOpenSchedule;
   final VoidCallback onOpenAppointments;
   final VoidCallback onOpenSessions;
   final VoidCallback onOpenWorkouts;
@@ -15,7 +13,6 @@ class UserSidebar extends StatelessWidget {
   const UserSidebar({
     super.key,
     required this.user,
-    required this.onOpenSchedule,
     required this.onOpenAppointments,
     required this.onOpenSessions,
     required this.onOpenWorkouts,
@@ -30,7 +27,6 @@ class UserSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final l10n = AppLocalizations.of(context);
     final initial = user.name.isNotEmpty ? user.name[0].toUpperCase() : 'U';
 
     return Drawer(
@@ -94,13 +90,6 @@ class UserSidebar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _drawerLabel('TOOLS', isDark),
-                _buildDrawerPush(
-                  context,
-                  Icons.fitness_center_rounded,
-                  l10n.schedule,
-                  isDark,
-                  () => _push(context, onOpenSchedule),
-                ),
                 _buildDrawerPush(
                   context,
                   Icons.event_available_rounded,

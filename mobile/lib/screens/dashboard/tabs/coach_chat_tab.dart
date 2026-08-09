@@ -39,7 +39,6 @@ class _CoachChatTabState extends State<CoachChatTab> {
         setState(() {
           _threads = results[0] as List<dynamic>;
           _coachUser = results[1] as User?;
-          _isLoading = false;
         });
         widget.onUnreadChanged?.call();
       }
@@ -47,9 +46,10 @@ class _CoachChatTabState extends State<CoachChatTab> {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -202,17 +202,17 @@ class _ChatThreadScreenState extends State<_ChatThreadScreen> {
       if (mounted) {
         setState(() {
           _messages = thread;
-          _isLoading = false;
         });
         _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load messages: ${ApiService.friendlyError(e)}')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -240,17 +240,17 @@ class _ChatThreadScreenState extends State<_ChatThreadScreen> {
         setState(() {
           _messages.add(msg);
           _messageController.clear();
-          _isSending = false;
         });
         _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSending = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to send: ${ApiService.friendlyError(e)}')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSending = false);
     }
   }
 

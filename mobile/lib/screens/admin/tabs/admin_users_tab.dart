@@ -31,8 +31,9 @@ class AdminUsersTabState extends State<AdminUsersTab> {
   }
 
   Future<void> refresh() async {
+    final showFullLoader = _users.isEmpty;
     setState(() {
-      _isLoading = true;
+      if (showFullLoader) _isLoading = true;
       _errorMessage = null;
     });
     try {
@@ -41,16 +42,16 @@ class AdminUsersTabState extends State<AdminUsersTab> {
         setState(() {
           _users = List.from(users).where((u) => (u['role'] as String? ?? '') == 'user').toList();
           _applyFilters();
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

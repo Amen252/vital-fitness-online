@@ -137,6 +137,14 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
     } catch (e) {
       if (!mounted || seq != _loadSeq) return;
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      // Stale responses must not clear a newer in-flight load.
+      if (mounted && seq == _loadSeq && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 

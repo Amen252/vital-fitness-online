@@ -70,6 +70,13 @@ class UserProgressTabState extends State<UserProgressTab> with SingleTickerProvi
       }
     } catch (e) {
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      if (mounted && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 

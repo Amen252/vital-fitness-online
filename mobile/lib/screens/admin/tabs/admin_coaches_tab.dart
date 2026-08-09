@@ -35,8 +35,9 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
   }
 
   Future<void> refresh() async {
+    final showFullLoader = _coaches.isEmpty && _applications.isEmpty;
     setState(() {
-      _isLoading = true;
+      if (showFullLoader) _isLoading = true;
       _errorMessage = null;
     });
     try {
@@ -51,16 +52,16 @@ class AdminCoachesTabState extends State<AdminCoachesTab> {
               .where((coach) => (coach['role'] as String? ?? '') == 'coach')
               .toList();
           _applyCoachFilters();
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

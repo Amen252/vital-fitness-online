@@ -25,7 +25,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
     with WidgetsBindingObserver {
   final ApiService _api = ApiService();
   late Map<String, dynamic> _classData;
-  bool _isLoading = false;
+  bool _actionBusy = false;
 
   @override
   void initState() {
@@ -216,16 +216,14 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
 
     if (selected == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _actionBusy = true);
     try {
       final updated = await _api.enrollInCoachClass(
         _classData['_id']?.toString() ?? '',
         selected,
       );
-      setState(() {
-        _classData = updated;
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _classData = updated);
       await _refreshClass();
       widget.onUpdated();
       if (mounted) {
@@ -237,7 +235,6 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
         );
       }
     } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -246,6 +243,8 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
     }
   }
 
@@ -381,7 +380,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
     );
     if (selected == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _actionBusy = true);
     try {
       await _api.changeClientGroup(
         userId,
@@ -392,26 +391,23 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
       final match = classes.cast<dynamic>().where(
         (c) => (c as Map)['_id']?.toString() == currentId,
       );
-      if (mounted) {
-        setState(() {
-          if (match.isNotEmpty) {
-            _classData = Map<String, dynamic>.from(match.first as Map);
-          }
-          _isLoading = false;
-        });
-        await _refreshClass();
-        if (!mounted) return;
-        widget.onUpdated();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$name moved to another group'),
-            backgroundColor: CoachDashboardTheme.success,
-          ),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        if (match.isNotEmpty) {
+          _classData = Map<String, dynamic>.from(match.first as Map);
+        }
+      });
+      await _refreshClass();
+      if (!mounted) return;
+      widget.onUpdated();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$name moved to another group'),
+          backgroundColor: CoachDashboardTheme.success,
+        ),
+      );
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ApiService.friendlyError(e)),
@@ -419,6 +415,8 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
     }
   }
 
@@ -591,17 +589,21 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
       ],
       floatingActionButton: _enrolled.length < _capacity
           ? FloatingActionButton.extended(
-              onPressed: _isLoading ? null : _enrollClient,
-              icon: const Icon(Icons.person_add_rounded),
-              label: const Text('Add to Class'),
+              onPressed: _actionBusy ? null : _enrollClient,
+              icon: _actionBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.person_add_rounded),
+              label: Text(_actionBusy ? 'Working…' : 'Add to Class'),
               backgroundColor: CoachDashboardTheme.primary,
               foregroundColor: Colors.white,
               elevation: 0,
             )
           : null,
-      body: _isLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator())
-          : RefreshIndicator(
+      body: RefreshIndicator(
               onRefresh: _refreshClass,
               child: ListView(
                 physics: dashboardScrollPhysics,
@@ -733,7 +735,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
                                   Icons.swap_horiz_rounded,
                                   color: CoachDashboardTheme.primary,
                                 ),
-                                onPressed: _isLoading
+                                onPressed: _actionBusy
                                     ? null
                                     : () => _moveClient(id, name),
                               ),

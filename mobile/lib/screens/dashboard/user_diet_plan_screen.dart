@@ -3,6 +3,7 @@ import 'widgets/coach_home/coach_dashboard_theme.dart';
 import '../../models/diet_plan_model.dart';
 import '../../models/diet_today_progress_model.dart';
 import '../../services/api_service.dart';
+import '../../utils/date_utils.dart';
 import '../../widgets/diet_progress_panel.dart';
 import '../../widgets/scrollable_body.dart';
 
@@ -30,6 +31,9 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   final Map<String, DateTime?> _mealCompletedAt = {};
   final Map<int, bool> _dayCompleted = {};
   final Map<int, DateTime?> _dayCompletedAt = {};
+  final Map<int, DateTime?> _dayDates = {};
+  final Map<int, bool> _dayCanCheckIn = {};
+  final Map<int, bool> _dayIsFuture = {};
   final Map<int, List<Map<String, dynamic>>> _dayMealAdherence = {};
   List<DietPlan> _history = [];
   List<Map<String, dynamic>> _adherenceHistory = [];
@@ -60,6 +64,9 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
 
   Future<void> refresh() => _load(silent: false);
 
+  /// Background refresh used when returning to this tab — keeps content visible.
+  Future<void> refreshQuietly() => _load(silent: true);
+
   @override
   void dispose() {
     _tabs.removeListener(_onTabChanged);
@@ -68,7 +75,9 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent && mounted) setState(() => _loading = true);
+    // Only show full-screen loader on the first load (no plan/progress yet).
+    final hasContent = _plan != null || _today.mealsPlanned > 0 || _error.isNotEmpty;
+    if (!silent && !hasContent && mounted) setState(() => _loading = true);
     final browseDayBeforeLoad = _browseDay;
     try {
       final planResult = await _api.getDietPlan();
@@ -118,6 +127,9 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           _mealCompletedAt.clear();
           _dayCompleted.clear();
           _dayCompletedAt.clear();
+          _dayDates.clear();
+          _dayCanCheckIn.clear();
+          _dayIsFuture.clear();
           _dayMealAdherence.clear();
           final mealAdherence = adherence?['mealAdherence'] as List<dynamic>? ??
               (todayJson?['mealAdherence'] as List<dynamic>? ?? []);
@@ -153,6 +165,13 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
               _dayCompleted[dow] = day['completed'] == true;
               _dayCompletedAt[dow] =
                   DateTime.tryParse(day['completedAt']?.toString() ?? '');
+              _dayDates[dow] = parseApiDateOnly(
+                    day['dateOnly']?.toString() ?? day['date']?.toString(),
+                  ) ??
+                  _plan?.dateForDayOfWeek(dow);
+              final canCheck = day['canCheckIn'] != false && day['isFuture'] != true;
+              _dayCanCheckIn[dow] = canCheck;
+              _dayIsFuture[dow] = day['isFuture'] == true || day['isUpcoming'] == true;
               _dayMealAdherence[dow] = (day['mealAdherence'] as List<dynamic>? ?? [])
                   .whereType<Map>()
                   .map((e) => Map<String, dynamic>.from(e))
@@ -162,18 +181,19 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           } else {
             _completedDays = 0;
             _daysPlanned = 7;
+            _seedDayDatesFromPlan();
           }
           _error = '';
-          _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _loading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -195,15 +215,65 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
             .whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
-        _historyLoading = false;
       });
     } catch (_) {
+    } finally {
       if (mounted) setState(() => _historyLoading = false);
     }
   }
 
+  void _seedDayDatesFromPlan() {
+    if (_plan == null || !_plan!.isWeekly) return;
+    final today = dateOnly(DateTime.now());
+    for (var i = 0; i < 7; i++) {
+      final d = _plan!.dateForDayOfWeek(i);
+      _dayDates[i] = d;
+      if (d == null) {
+        _dayCanCheckIn[i] = i <= DietDay.mondayBasedDayOfWeek();
+        _dayIsFuture[i] = i > DietDay.mondayBasedDayOfWeek();
+      } else {
+        final day = dateOnly(d);
+        _dayCanCheckIn[i] = !day.isAfter(today);
+        _dayIsFuture[i] = day.isAfter(today);
+      }
+    }
+  }
+
+  DateTime? _dateForDay(int dayOfWeek) =>
+      _dayDates[dayOfWeek] ?? _plan?.dateForDayOfWeek(dayOfWeek);
+
+  String _dayAndDateLabel(int dayOfWeek) {
+    final d = _dateForDay(dayOfWeek);
+    if (d == null) return DietDay.dayNames[dayOfWeek.clamp(0, 6)];
+    return DietDay(
+      dayOfWeek: dayOfWeek,
+      date: d,
+    ).dayAndDateLabel;
+  }
+
+  Map<String, dynamic> _adherenceMetaForDay(int dayOfWeek) {
+    final meta = <String, dynamic>{
+      'dayOfWeek': dayOfWeek,
+      'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+    };
+    final d = _dateForDay(dayOfWeek);
+    if (d != null) meta['date'] = formatDateOnly(d);
+    return meta;
+  }
+
   Future<void> _toggleDay(int dayOfWeek, bool value) async {
     if (_plan == null || !_plan!.isWeekly || _savingMeal) return;
+    if (!(_dayCanCheckIn[dayOfWeek] ?? !_isFutureDay(dayOfWeek))) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This day is locked until its date arrives.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
     final previous = _dayCompleted[dayOfWeek] ?? false;
     final previousAt = _dayCompletedAt[dayOfWeek];
     final previousCompletedDays = _completedDays;
@@ -217,7 +287,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
 
     try {
       final result = await _api.logDietAdherence({
-        'dayOfWeek': dayOfWeek,
+        ..._adherenceMetaForDay(dayOfWeek),
         'dayCompleted': value,
       });
       if (!mounted) return;
@@ -241,17 +311,14 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                 .toList();
           }
           _hydrateMealsForBrowseDay();
-          _savingMeal = false;
         });
-      } else {
-        setState(() => _savingMeal = false);
       }
       await _load(silent: true);
       widget.onDietDataChanged?.call();
       if (mounted && value) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${DietDay.dayNames[dayOfWeek]} marked complete.'),
+            content: Text('${_dayAndDateLabel(dayOfWeek)} marked complete.'),
             duration: const Duration(seconds: 1),
           ),
         );
@@ -262,7 +329,6 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           _dayCompleted[dayOfWeek] = previous;
           _dayCompletedAt[dayOfWeek] = previousAt;
           _completedDays = previousCompletedDays;
-          _savingMeal = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -271,6 +337,8 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _savingMeal = false);
     }
   }
 
@@ -292,9 +360,10 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
       final payload = <String, dynamic>{
         'mealType': type,
         'followed': value,
+        'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
       };
       if (_plan?.isWeekly == true) {
-        payload['dayOfWeek'] = _browseDay;
+        payload.addAll(_adherenceMetaForDay(_browseDay));
       }
       final result = await _api.logDietAdherence(payload);
 
@@ -364,7 +433,6 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
             fatsConsumed: (nutrition?['fats'] as num?)?.toInt(),
           );
         }
-        _savingMeal = false;
       });
 
       // Full silent reload keeps water/workouts/daily goal in sync with DB.
@@ -388,7 +456,6 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           _mealFollowed[type] = previous;
           _mealCompletedAt[type] = previousCompletedAt;
           _today = previousToday;
-          _savingMeal = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -397,6 +464,8 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _savingMeal = false);
     }
   }
 
@@ -431,17 +500,30 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   int get _todayDow =>
       _plan?.todayDayOfWeek ?? DietDay.mondayBasedDayOfWeek();
 
+  bool _isFutureDay(int dayOfWeek) {
+    if (_dayIsFuture[dayOfWeek] == true) return true;
+    final d = _dateForDay(dayOfWeek);
+    if (d == null) return false;
+    return dateOnly(d).isAfter(dateOnly(DateTime.now()));
+  }
+
   bool get _canCheckInToday {
     if (_plan == null) return false;
-    if (_plan!.isWeekly) return true;
+    if (_plan!.isWeekly) {
+      // Always use the device's local calendar day to avoid timezone unlock races.
+      return !_isFutureDay(_todayDow);
+    }
     if (_plan!.targetDayOfWeek == null) return true;
     return _plan!.targetDayOfWeek == _todayDow;
   }
 
   /// Meal check-ins apply to the selected weekly day (or today for single-day).
+  /// Future calendar days stay locked until their date arrives.
   bool get _canCheckInForBrowseDay {
     if (_plan == null) return false;
-    if (_plan!.isWeekly) return true;
+    if (_plan!.isWeekly) {
+      return !_isFutureDay(_browseDay);
+    }
     return _canCheckInToday;
   }
 
@@ -554,7 +636,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           ],
         ),
       ),
-      body: _loading && _tabs.index != 2
+      body: _loading && _plan == null && _error.isEmpty && _tabs.index != 2
           ? const ScrollableCenter(child: CircularProgressIndicator())
           : TabBarView(
               controller: _tabs,
@@ -606,7 +688,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                         isDark: isDark,
                         onRefresh: () => _load(silent: true),
                         progressTitle: _plan!.isWeekly
-                            ? 'Meal progress · ${DietDay.dayNames[_browseDay]}'
+                            ? 'Meal progress · ${_dayAndDateLabel(_browseDay)}'
                             : 'Meal progress · today',
                       ),
                 _buildHistoryTab(isDark),
@@ -798,7 +880,9 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   }
 
   Widget _buildPlanTab(bool isDark) {
-    final dayName = DietDay.dayNames[_browseDay.clamp(0, 6)];
+    final dayName = _plan!.isWeekly
+        ? _dayAndDateLabel(_browseDay)
+        : DietDay.dayNames[_browseDay.clamp(0, 6)];
     final meals = _orderedPlannedMealTypes();
 
     return ListView(
@@ -1024,7 +1108,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
 
   Widget _daySelector(bool isDark) {
     return SizedBox(
-      height: 76,
+      height: 92,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: 7,
@@ -1033,6 +1117,8 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
           final selected = _browseDay == i;
           final done = _dayCompleted[i] == true;
           final isToday = i == _todayDow;
+          final locked = _isFutureDay(i);
+          final dayDate = _dateForDay(i);
           return Material(
             color: selected
                 ? CoachDashboardTheme.primary
@@ -1042,14 +1128,16 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
               borderRadius: BorderRadius.circular(14),
               onTap: () => _selectBrowseDay(i),
               child: Container(
-                width: 64,
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                width: 72,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color: selected
                         ? CoachDashboardTheme.primary
-                        : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+                        : (isToday
+                            ? CoachDashboardTheme.accent.withValues(alpha: 0.7)
+                            : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB))),
                   ),
                 ),
                 child: Column(
@@ -1059,23 +1147,38 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                       DietDay.dayNames[i].substring(0, 3),
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 13,
+                        fontSize: 12,
                         color: selected
                             ? Colors.white
                             : (isDark ? Colors.white70 : Colors.black87),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dayDate != null ? '${dayDate.month}/${dayDate.day}' : '—',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: selected
+                            ? Colors.white70
+                            : (isDark ? Colors.white54 : Colors.black54),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Icon(
                       done
                           ? Icons.check_circle
-                          : (isToday ? Icons.today_rounded : Icons.circle_outlined),
+                          : (locked
+                              ? Icons.lock_outline_rounded
+                              : (isToday ? Icons.today_rounded : Icons.circle_outlined)),
                       size: 16,
                       color: selected
                           ? Colors.white
                           : (done
                               ? const Color(0xFF10B981)
-                              : (isDark ? Colors.white38 : Colors.black38)),
+                              : (locked
+                                  ? (isDark ? Colors.white30 : Colors.black26)
+                                  : (isDark ? Colors.white38 : Colors.black38))),
                     ),
                   ],
                 ),
@@ -1152,10 +1255,14 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: completed ? 'Mark incomplete' : 'Mark complete',
+                    tooltip: !_canCheckInForBrowseDay
+                        ? 'Locked until this day’s date'
+                        : (completed ? 'Mark incomplete' : 'Mark complete'),
                     onPressed: canToggle ? () => _toggleMeal(type, !completed) : null,
                     icon: Icon(
-                      completed ? Icons.check_circle : Icons.circle_outlined,
+                      !_canCheckInForBrowseDay
+                          ? Icons.lock_outline_rounded
+                          : (completed ? Icons.check_circle : Icons.circle_outlined),
                       color: completed
                           ? const Color(0xFF10B981)
                           : (isDark ? Colors.white38 : Colors.black38),
@@ -1305,19 +1412,28 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
 
   Widget _markDayCompleteTile(bool isDark) {
     final done = _dayCompleted[_browseDay] == true;
+    final locked = !_canCheckInForBrowseDay;
+    final label = _dayAndDateLabel(_browseDay);
     return Container(
       decoration: CoachDashboardTheme.cardDecoration(isDark),
       child: CheckboxListTile(
         value: done,
-        onChanged: _savingMeal ? null : (v) => _toggleDay(_browseDay, v ?? false),
+        onChanged: (_savingMeal || locked)
+            ? null
+            : (v) => _toggleDay(_browseDay, v ?? false),
         controlAffinity: ListTileControlAffinity.leading,
         activeColor: const Color(0xFF10B981),
+        secondary: locked
+            ? Icon(Icons.lock_outline_rounded, color: isDark ? Colors.white38 : Colors.black38)
+            : null,
         title: Text(
-          'Mark ${DietDay.dayNames[_browseDay]} complete',
+          locked ? '$label · Locked' : 'Mark $label complete',
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(
-          done ? 'Day checked off' : 'Optional — mark when you finish the day',
+          locked
+              ? 'Check-in unlocks on this day’s date'
+              : (done ? 'Day checked off' : 'Optional — mark when you finish the day'),
           style: CoachDashboardTheme.bodyMuted(isDark),
         ),
       ),
@@ -1411,19 +1527,33 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                       dense: true,
                       onTap: () => _selectBrowseDay(i),
                       leading: Icon(
-                        _dayCompleted[i] == true ? Icons.check_circle : Icons.circle_outlined,
+                        _dayCompleted[i] == true
+                            ? Icons.check_circle
+                            : (_isFutureDay(i)
+                                ? Icons.lock_outline_rounded
+                                : (i == _todayDow
+                                    ? Icons.today_rounded
+                                    : Icons.circle_outlined)),
                         color: _dayCompleted[i] == true
                             ? const Color(0xFF10B981)
-                            : (isDark ? Colors.white38 : Colors.black38),
+                            : (i == _todayDow
+                                ? CoachDashboardTheme.accent
+                                : (isDark ? Colors.white38 : Colors.black38)),
                       ),
                       title: Text(
-                        DietDay.dayNames[i],
+                        _dayAndDateLabel(i),
                         style: TextStyle(
                           fontWeight: _browseDay == i ? FontWeight.w800 : FontWeight.w500,
                         ),
                       ),
                       subtitle: Text(
-                        _weeklyDayMealSummary(i),
+                        _dayCompleted[i] == true
+                            ? 'Completed'
+                            : (_isFutureDay(i)
+                                ? 'Upcoming · locked'
+                                : (i == _todayDow
+                                    ? 'Today · ${_weeklyDayMealSummary(i)}'
+                                    : _weeklyDayMealSummary(i))),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: CoachDashboardTheme.bodyMuted(isDark).copyWith(fontSize: 11),

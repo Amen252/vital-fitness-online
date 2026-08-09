@@ -41,7 +41,11 @@ async function requireApprovedCoach(req, res, next) {
       });
     }
 
-    return next();
+    // Deny unknown / missing approval instead of fail-open.
+    return res.status(403).json({
+      message: 'Coach approval required before using coach features.',
+      code: 'COACH_NOT_APPROVED',
+    });
   } catch (error) {
     console.error('[AUTH] requireApprovedCoach:', error.message);
     return res.status(500).json({ message: 'Unable to verify coach approval' });

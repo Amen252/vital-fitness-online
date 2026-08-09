@@ -55,12 +55,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         setState(() {
           _messages = msgs;
-          _isLoading = false;
         });
         if (!silent) _scrollToBottom();
       }
     } catch (_) {
-      if (mounted && !silent) setState(() => _isLoading = false);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

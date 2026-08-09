@@ -1,9 +1,23 @@
-const { isDataUrl, isHttpUrl } = require('./imageKit');
+const { isDataUrl, isHttpUrl, getConfig } = require('./imageKit');
+
+function isAllowedProofPhotoUrl(url) {
+  if (isDataUrl(url)) return true;
+  if (!isHttpUrl(url)) return false;
+  try {
+    const { urlEndpoint } = getConfig();
+    if (!urlEndpoint) return false;
+    const endpointHost = new URL(urlEndpoint).hostname.toLowerCase();
+    const fileHost = new URL(url).hostname.toLowerCase();
+    return Boolean(endpointHost) && fileHost === endpointHost;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Validate workout completion proof payload.
  * proofPhoto may be a base64 data URL (uploaded to ImageKit by the controller)
- * or an existing https ImageKit/CDN URL.
+ * or an existing https URL on this deployment's ImageKit host only.
  * @returns {{ ok: true, notes: string, durationMinutes: number, proofPhoto: string } | { ok: false, message: string }}
  */
 function validateWorkoutProof(body = {}) {
@@ -23,8 +37,11 @@ function validateWorkoutProof(body = {}) {
   if (durationMinutes > 24 * 60) {
     return { ok: false, message: 'Duration looks invalid' };
   }
-  if (!proofPhoto || !(isDataUrl(proofPhoto) || isHttpUrl(proofPhoto))) {
-    return { ok: false, message: 'A workout photo is required (PNG, JPEG, WebP, or GIF)' };
+  if (!proofPhoto || !isAllowedProofPhotoUrl(proofPhoto)) {
+    return {
+      ok: false,
+      message: 'A workout photo is required. Upload a PNG, JPEG, WebP, or GIF from the app.',
+    };
   }
 
   return { ok: true, notes, durationMinutes, proofPhoto };

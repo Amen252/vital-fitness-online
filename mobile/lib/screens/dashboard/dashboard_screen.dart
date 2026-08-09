@@ -44,6 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final GlobalKey<UserDietPlanScreenState> _dietTabKey = GlobalKey<UserDietPlanScreenState>();
   late final GlobalKey<UserProgressTabState> _progressTabKey;
   final GlobalKey<UserSettingsTabState> _settingsTabKey = GlobalKey<UserSettingsTabState>();
+  final GlobalKey _coachesTabKey = GlobalKey();
   List<Widget>? _tabs;
 
   static const _navIcons = [
@@ -96,11 +97,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onTabSelected(int index) {
+    final wasIndex = _currentIndex;
     setState(() => _currentIndex = index);
+    // Soft background refresh only when re-selecting a tab (not on first paint).
+    if (index == wasIndex) return;
     if (index == 0) {
       _homeTabKey.currentState?.refresh();
     } else if (index == 1) {
-      _dietTabKey.currentState?.refresh();
+      _dietTabKey.currentState?.refreshQuietly();
     } else if (index == 2) {
       _progressTabKey.currentState?.refreshFromParent();
     } else if (index == 3) {
@@ -146,7 +150,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Widget> _createTabs() {
     final myAppState = MyApp.of(context);
     final isDark = myAppState?.isDark ?? false;
-    final toggleTheme = myAppState?.toggleTheme ?? (bool _) {};
+    Future<void> toggleTheme(bool value) async {
+      final app = MyApp.of(context);
+      if (app != null) {
+        await app.toggleTheme(value);
+      }
+    }
 
     return [
       HomeTab(
@@ -159,7 +168,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       UserDietPlanScreen(key: _dietTabKey, onDietDataChanged: _onDietDataChanged),
       UserProgressTab(key: _progressTabKey, user: _currentUser),
-      UserCoachesTab(user: _currentUser, onUnreadChanged: _loadUnreadCoachMessages),
+      UserCoachesTab(key: _coachesTabKey, user: _currentUser, onUnreadChanged: _loadUnreadCoachMessages),
       UserSettingsTab(
         key: _settingsTabKey,
         user: _currentUser,
@@ -181,7 +190,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: CoachDashboardTheme.homeBackground(isDark),
       drawer: UserSidebar(
         user: _currentUser,
-        onOpenSchedule: () => _openSection(_scheduleScreen()),
         onOpenAppointments: () => _openSection(const UserAppointmentsScreen()),
         onOpenSessions: () => _openSection(const UserSessionsScreen()),
         onOpenWorkouts: _openWorkouts,

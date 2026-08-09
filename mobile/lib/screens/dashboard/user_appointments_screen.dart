@@ -82,13 +82,14 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       _loading = true;
       _error = null;
     });
+    String? coachId;
+    var days = <String>{};
     try {
       final coaching = await _api.getUserCoaching();
       final appts = await _api.getUserAppointments();
 
-      String? coachId;
       String coachName = 'your coach';
-      final days = <String>{};
+      days = <String>{};
 
       if (coaching != null && coaching['coach'] != null) {
         final coach = Map<String, dynamic>.from(coaching['coach'] as Map);
@@ -116,20 +117,20 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         _coachProfile = coaching != null && coaching['coach'] != null ? Map<String, dynamic>.from((coaching['coach'] as Map)['profile'] ?? {}) : null;
         _appointmentDays = days;
         _appointments = appts.map((a) => Map<String, dynamic>.from(a as Map)).toList();
-        _loading = false;
       });
-
-      // Auto-select the first appointment day that still has bookable times.
-      if (coachId != null && days.isNotEmpty) {
-        await _autoSelectFirstBookableDay();
-      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _loading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+
+    // Auto-select the first appointment day that still has bookable times.
+    if (mounted && coachId != null && days.isNotEmpty) {
+      await _autoSelectFirstBookableDay();
     }
   }
 
@@ -171,7 +172,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       if (data['isWorkingDay'] == false) {
         setState(() {
           _slots = [];
-          _slotsLoading = false;
         });
         return false;
       }
@@ -185,17 +185,19 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       final allSlots = _parseSlots(data['slots'] as List?);
       setState(() {
         _slots = allSlots;
-        _slotsLoading = false;
       });
       return allSlots.any(_slotIsAvailable);
     } catch (e) {
       if (mounted && requestSeq == _availabilityRequestSeq) {
-        setState(() => _slotsLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
       return false;
+    } finally {
+      if (mounted && requestSeq == _availabilityRequestSeq) {
+        setState(() => _slotsLoading = false);
+      }
     }
   }
 

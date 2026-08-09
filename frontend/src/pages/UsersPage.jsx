@@ -161,9 +161,9 @@ export default function UsersPage() {
           </Button>
         }
       />
-      {loading ? <Spinner label="Loading users…" /> : null}
-      {error ? <ErrorState message={error} onRetry={reload} /> : null}
-      {!loading && !error ? (
+      {loading && !users?.length ? <Spinner label="Loading users…" /> : null}
+      {error && !users?.length ? <ErrorState message={error} onRetry={reload} /> : null}
+      {(!loading || users?.length) && (!error || users?.length) ? (
         <DataTable
           columns={columns}
           rows={users}

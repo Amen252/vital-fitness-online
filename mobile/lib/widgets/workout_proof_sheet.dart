@@ -103,34 +103,40 @@ class _WorkoutProofSheetState extends State<_WorkoutProofSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black26,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white24 : Colors.black26,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
+                    child: Text(
+                      'Mark workout complete',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
                       ),
                     ),
                   ),
-                  IconButton(
+                  TextButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.close_rounded, color: isDark ? Colors.white54 : Colors.black45),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary,
+                      ),
+                    ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Mark workout complete',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
-                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -254,6 +260,14 @@ class _WorkoutProofSheetState extends State<_WorkoutProofSheet> {
                     _canSubmit ? 'Submit completion' : 'Complete all required fields',
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                   ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
                 ),
               ),
             ],

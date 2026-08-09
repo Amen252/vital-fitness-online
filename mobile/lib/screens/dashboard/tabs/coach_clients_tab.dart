@@ -24,9 +24,9 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
   final ApiService _apiService = ApiService();
   int _selectedView = 0;
   int _pendingRequestCount = 0;
+  bool _requestsViewMounted = false;
   List<dynamic> _clients = [];
   List<dynamic> _filteredClients = [];
-  String _statusFilter = 'all';
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -38,7 +38,10 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
 
   void openRequestsTab() {
     if (!mounted) return;
-    setState(() => _selectedView = 1);
+    setState(() {
+      _selectedView = 1;
+      _requestsViewMounted = true;
+    });
   }
 
   int get pendingRequestCount => _pendingRequestCount;
@@ -57,19 +60,29 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
       final clients = await _apiService.getCoachClients();
       final requests = await _apiService.getCoachRequests();
       if (mounted) {
+        final firstLoad = !tabHasLoadedOnce;
         finishTabLoad(() {
           final pendingCount = List<dynamic>.from(requests).length;
           _clients = List<dynamic>.from(clients);
           _filteredClients = List<dynamic>.from(clients);
           _pendingRequestCount = pendingCount;
-          if (pendingCount > 0 && _selectedView == 0) {
+          // Only auto-open Requests on the first load (avoids remounting the panel on every refresh).
+          if (firstLoad && pendingCount > 0 && _selectedView == 0) {
             _selectedView = 1;
+            _requestsViewMounted = true;
           }
         });
         widget.onPendingCountChanged?.call();
       }
     } catch (e) {
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      if (mounted && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 
@@ -80,21 +93,9 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
         final userMap = c['user'] is Map ? Map<dynamic, dynamic>.from(c['user'] as Map) : null;
         final name = ApiService.displayName(userMap).toLowerCase();
         final identity = ApiService.displayIdentity(userMap).toLowerCase();
-        final needsAction = c['snapshot']?['analysis']?['isActionRequired'] == true;
-
-        final matchesSearch = query.isEmpty || name.contains(query) || identity.contains(query);
-        final matchesFilter = _statusFilter == 'all'
-            || (_statusFilter == 'action' && needsAction)
-            || (_statusFilter == 'track' && !needsAction);
-
-        return matchesSearch && matchesFilter;
+        return query.isEmpty || name.contains(query) || identity.contains(query);
       }).toList();
     });
-  }
-
-  void _setFilter(String filter) {
-    setState(() => _statusFilter = filter);
-    _filterClients();
   }
 
   @override
@@ -130,56 +131,50 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                       child: _buildViewSwitcher(isDark),
                     ),
-                    if (_selectedView == 0) ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                        child: TextField(
-                          controller: _searchController,
-                          decoration: CoachDashboardTheme.searchDecoration(isDark: isDark, hint: 'Search clients...'),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
+                    Expanded(
+                      child: IndexedStack(
+                        index: _selectedView,
+                        children: [
+                          Column(
                             children: [
-                              _filterChip('All', 'all', isDark),
-                              const SizedBox(width: 8),
-                              _filterChip('Needs Action', 'action', isDark),
-                              const SizedBox(width: 8),
-                              _filterChip('On Track', 'track', isDark),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                child: TextField(
+                                  controller: _searchController,
+                                  decoration: CoachDashboardTheme.searchDecoration(isDark: isDark, hint: 'Search clients...'),
+                                ),
+                              ),
+                              Expanded(
+                                child: _filteredClients.isEmpty
+                                    ? CoachDashboardTheme.emptyState(
+                                        icon: Icons.group_off_rounded,
+                                        message: 'No clients found.',
+                                        isDark: isDark,
+                                      )
+                                    : ListView.builder(
+                                        physics: dashboardScrollPhysics,
+                                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                                        itemCount: _filteredClients.length,
+                                        itemBuilder: (context, index) {
+                                          final client = _filteredClients[index];
+                                          return _ClientCard(client: client, isDark: isDark, onRefresh: () => _fetchClients(isRefresh: true));
+                                        },
+                                      ),
+                              ),
                             ],
                           ),
-                        ),
+                          _requestsViewMounted
+                              ? CoachRequestsPanel(
+                                  onRequestHandled: () {
+                                    _fetchClients(isRefresh: true);
+                                    widget.onPendingCountChanged?.call();
+                                    widget.onClientsChanged?.call();
+                                  },
+                                )
+                              : const SizedBox.shrink(),
+                        ],
                       ),
-                      Expanded(
-                        child: _filteredClients.isEmpty
-                            ? CoachDashboardTheme.emptyState(
-                                icon: Icons.group_off_rounded,
-                                message: 'No clients found.',
-                                isDark: isDark,
-                              )
-                            : ListView.builder(
-                                physics: dashboardScrollPhysics,
-                                padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-                                itemCount: _filteredClients.length,
-                                itemBuilder: (context, index) {
-                                  final client = _filteredClients[index];
-                                  return _ClientCard(client: client, isDark: isDark, onRefresh: () => _fetchClients(isRefresh: true));
-                                },
-                              ),
-                      ),
-                    ] else
-                      Expanded(
-                        child: CoachRequestsPanel(
-                          onRequestHandled: () {
-                            _fetchClients(isRefresh: true);
-                            widget.onPendingCountChanged?.call();
-                            widget.onClientsChanged?.call();
-                          },
-                        ),
-                      ),
+                    ),
                   ],
                 ),
     );
@@ -195,7 +190,16 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
       child: Row(
         children: [
           _viewButton(isDark: isDark, label: 'My Clients', count: _clients.length, selected: _selectedView == 0, onTap: () => setState(() => _selectedView = 0)),
-          _viewButton(isDark: isDark, label: 'Requests', count: _pendingRequestCount, selected: _selectedView == 1, onTap: () => setState(() => _selectedView = 1)),
+          _viewButton(
+            isDark: isDark,
+            label: 'Requests',
+            count: _pendingRequestCount,
+            selected: _selectedView == 1,
+            onTap: () => setState(() {
+              _selectedView = 1;
+              _requestsViewMounted = true;
+            }),
+          ),
         ],
       ),
     );
@@ -243,14 +247,6 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
     );
   }
 
-  Widget _filterChip(String label, String value, bool isDark) {
-    return CoachDashboardTheme.filterChip(
-      label: label,
-      selected: _statusFilter == value,
-      isDark: isDark,
-      onTap: () => _setFilter(value),
-    );
-  }
 }
 
 class _ClientCard extends StatelessWidget {
@@ -265,26 +261,6 @@ class _ClientCard extends StatelessWidget {
     final userMap = client['user'] is Map ? Map<dynamic, dynamic>.from(client['user'] as Map) : null;
     final name = ApiService.displayName(userMap, fallback: 'Client');
     final identity = ApiService.displayIdentity(userMap);
-    final snapshot = client['snapshot'] ?? {};
-    final analysis = snapshot['analysis'] ?? {};
-
-    final rawScore = analysis['healthScore'];
-    final healthScore = rawScore is num ? rawScore.round().toString() : null;
-    final isActionRequired = analysis['isActionRequired'] == true;
-    final isNewClient = analysis['isNewClient'] == true || healthScore == null;
-
-    final Color badgeColor;
-    final String badgeLabel;
-    if (isActionRequired) {
-      badgeColor = CoachDashboardTheme.danger;
-      badgeLabel = healthScore != null ? 'Score: $healthScore' : 'Needs review';
-    } else if (isNewClient) {
-      badgeColor = CoachDashboardTheme.primary;
-      badgeLabel = 'New';
-    } else {
-      badgeColor = CoachDashboardTheme.success;
-      badgeLabel = 'Score: $healthScore';
-    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -334,44 +310,9 @@ class _ClientCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: badgeColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        badgeLabel,
-                        style: TextStyle(
-                          color: badgeColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    if (isActionRequired) ...[
-                      const SizedBox(height: 6),
-                      const Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded, color: CoachDashboardTheme.warning, size: 14),
-                          SizedBox(width: 4),
-                          Text('Needs action', style: TextStyle(color: CoachDashboardTheme.warning, fontSize: 10)),
-                        ],
-                      ),
-                    ] else if (isNewClient) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'Getting started',
-                        style: TextStyle(
-                          color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ],
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: isDark ? Colors.white38 : Colors.black38,
                 ),
               ],
             ),

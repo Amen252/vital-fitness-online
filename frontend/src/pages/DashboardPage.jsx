@@ -106,7 +106,7 @@ export default function DashboardPage() {
     return "amber";
   }
 
-  if (loading) {
+  if (loading && !stats) {
     return (
       <div>
         <PageHeader

@@ -1,14 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import '../../../models/user_model.dart';
 import '../../../models/progress_model.dart';
 import '../../../models/activity_log_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/diet_meal_reminder.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/animations/animations.dart';
 import '../user_diet_plan_screen.dart';
-import '../../../utils/share_helpers.dart';
-import '../invite_friends_screen.dart';
 
 class HomeTab extends StatefulWidget {
   final User user;
@@ -42,11 +43,17 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
   num? _heartRate;
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _hasLoadedOnce = false;
   String? _errorMessage;
+  int _loadSeq = 0;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
+  Timer? _mealReminderTicker;
+  /// Bumps so the next-meal card recomputes as local time advances.
+  int _mealTick = 0;
 
   static const _mealOrder = ['breakfast', 'lunch', 'dinner', 'snacks'];
+  static const _homeLoadTimeout = Duration(seconds: 12);
 
   @override
   void initState() {
@@ -54,10 +61,16 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 650));
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _fetchAll();
+    _mealReminderTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _dietPlan == null) return;
+      setState(() => _mealTick++);
+    });
   }
 
   @override
   void dispose() {
+    _loadSeq++;
+    _mealReminderTicker?.cancel();
     _animController.dispose();
     super.dispose();
   }
@@ -65,68 +78,89 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
   Future<void> refresh({bool showFeedback = false}) =>
       _fetchAll(isRefresh: true, showFeedback: showFeedback);
 
+  Future<T?> _safe<T>(Future<T> Function() run) async {
+    try {
+      return await run();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _fetchAll({bool isRefresh = false, bool showFeedback = false}) async {
-    final hadData = _progressData != null || _dietToday != null;
+    final seq = ++_loadSeq;
+    final hadData = _progressData != null || _dietToday != null || _dietPlan != null;
 
     if (!isRefresh && !hadData) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+          _hasLoadedOnce = false;
+          _errorMessage = null;
+        });
+      }
     } else if (isRefresh) {
-      setState(() {
-        _errorMessage = null;
-        _isRefreshing = true;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = null;
+          _isRefreshing = true;
+        });
+      }
     }
 
     try {
-      final results = await Future.wait([
-        _apiService.getProgress().then<ProgressData?>((v) => v).catchError((_) => null),
-        _apiService.getUserCoaching().catchError((_) => null),
-        _apiService.getUserDietProgress(days: 7).then<Map<String, dynamic>?>((v) => v).catchError((_) => null),
-        _apiService.getUserWorkoutSchedules().then<Map<String, dynamic>?>((v) => v).catchError((_) => null),
-        _apiService.getUserWorkoutProgress(days: 30).then<Map<String, dynamic>?>((v) => v).catchError((_) => null),
-        _apiService.getUserDashboard().catchError((_) => null),
-      ]);
+      final results = await Future.wait<dynamic>([
+        _safe(() => _apiService.getProgress()),
+        _safe(() => _apiService.getUserCoaching()),
+        _safe(() => _apiService.getUserDietProgress(days: 7)),
+        _safe(() => _apiService.getDietPlan()),
+        _safe(() => _apiService.getUserWorkoutSchedules()),
+        _safe(() => _apiService.getUserWorkoutProgress(days: 30)),
+        _safe(() => _apiService.getUserDashboard()),
+      ]).timeout(_homeLoadTimeout);
 
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
 
       final progress = results[0] as ProgressData?;
+      final coaching = results[1] as Map<String, dynamic>?;
       final dietPayload = results[2] as Map<String, dynamic>?;
-      final schedules = results[3] as Map<String, dynamic>?;
-      final workoutProgress = results[4] as Map<String, dynamic>?;
-      final userDash = results[5] as Map<String, dynamic>?;
-
-      if (progress == null && dietPayload == null && !hadData) {
-        throw Exception('Unable to load dashboard data');
-      }
+      final dietPlanPayload = results[3] as Map<String, dynamic>?;
+      final schedules = results[4] as Map<String, dynamic>?;
+      final workoutProgress = results[5] as Map<String, dynamic>?;
+      final userDash = results[6] as Map<String, dynamic>?;
 
       final dietToday = dietPayload?['today'] is Map
           ? Map<String, dynamic>.from(dietPayload!['today'] as Map)
-          : null;
-      final dietPlan = dietPayload?['plan'] is Map
-          ? Map<String, dynamic>.from(dietPayload!['plan'] as Map)
-          : null;
+          : (dietPlanPayload?['today'] is Map
+              ? Map<String, dynamic>.from(dietPlanPayload!['today'] as Map)
+              : null);
+      // Prefer /diet/plan (active assigned plan) so reminder times stay in sync.
+      final dietPlan = dietPlanPayload?['plan'] is Map
+          ? Map<String, dynamic>.from(dietPlanPayload!['plan'] as Map)
+          : (dietPayload?['plan'] is Map
+              ? Map<String, dynamic>.from(dietPayload!['plan'] as Map)
+              : null);
 
       final todayWorkouts = _parseTodayWorkouts(schedules);
       final summary = workoutProgress?['summary'] as Map<String, dynamic>?;
       final workoutPct = (summary?['completionPercent'] as num?)?.toInt() ?? 0;
-
       final steps = _extractTodaySteps(userDash);
       final hr = _extractHeartRate(userDash, progress);
 
+      // Always leave the spinner — show dashboard even when APIs return empty.
       setState(() {
         if (progress != null) _progressData = progress;
-        _coachingData = results[1] as Map<String, dynamic>?;
-        if (dietToday != null) _dietToday = dietToday;
-        if (dietPlan != null) _dietPlan = dietPlan;
+        _coachingData = coaching;
+        _dietToday = dietToday;
+        _dietPlan = dietPlan; // null clears reminder when plan is inactive/replaced
         _todayWorkouts = todayWorkouts;
         _workoutCompletionPercent = workoutPct.clamp(0, 100);
         _stepsToday = steps;
         _heartRate = hr;
+        _hasLoadedOnce = true;
+        _errorMessage = null;
         _isLoading = false;
         _isRefreshing = false;
+        _mealTick++;
       });
 
       if (!hadData && !isRefresh) {
@@ -147,7 +181,7 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       final message = ApiService.friendlyError(e);
       if (hadData) {
         setState(() {
@@ -164,10 +198,22 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
           );
         }
       } else {
+        // First load failed — leave spinner and show retry UI.
         setState(() {
           _errorMessage = message;
+          _hasLoadedOnce = true;
           _isLoading = false;
           _isRefreshing = false;
+          _animController.value = 1.0;
+        });
+      }
+    } finally {
+      if (mounted && seq == _loadSeq && (_isLoading || _isRefreshing)) {
+        setState(() {
+          _isLoading = false;
+          _isRefreshing = false;
+          _hasLoadedOnce = true;
+          if (_animController.value == 0) _animController.value = 1.0;
         });
       }
     }
@@ -330,6 +376,20 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
         _ => type.isEmpty ? 'Meal' : type,
       };
 
+  List<DietMealReminderItem> get _todayMealReminders {
+    // Read _mealTick so the card recomputes as local time advances.
+    final tick = _mealTick;
+    assert(tick >= 0);
+    return buildTodayMealReminders(planJson: _dietPlan, todayJson: _dietToday);
+  }
+
+  DietMealReminderItem? get _nextMealReminder => nextMealReminder(_todayMealReminders);
+
+  bool get _allMealsDoneToday {
+    final items = _todayMealReminders;
+    return items.isNotEmpty && items.every((m) => m.completed);
+  }
+
   String _greeting() {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
@@ -472,11 +532,14 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     }
   }
 
+  bool get _hasContent =>
+      _progressData != null || _dietToday != null || _dietPlan != null || _todayWorkouts.isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final showInitialLoading = _isLoading && _progressData == null && _dietToday == null;
-    final showInitialError = _errorMessage != null && _progressData == null && _dietToday == null;
+    final showInitialLoading = _isLoading && !_hasLoadedOnce;
+    final showInitialError = !_isLoading && _errorMessage != null && !_hasContent;
 
     return Scaffold(
       backgroundColor: CoachDashboardTheme.homeBackground(isDark),
@@ -511,6 +574,15 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
                                 _sectionLabel(isDark, 'Quick actions'),
                                 const SizedBox(height: 8),
                                 _buildQuickActions(isDark),
+                                if (_dietPlan != null &&
+                                    (_nextMealReminder != null ||
+                                        _allMealsDoneToday ||
+                                        _todayMealReminders.isNotEmpty)) ...[
+                                  const SizedBox(height: 16),
+                                  _sectionLabel(isDark, 'Diet reminder'),
+                                  const SizedBox(height: 8),
+                                  _buildDietReminderCard(isDark),
+                                ],
                                 const SizedBox(height: 16),
                                 _sectionLabel(isDark, "Today's diet plan"),
                                 const SizedBox(height: 8),
@@ -523,8 +595,6 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
                                 _sectionLabel(isDark, 'Insights'),
                                 const SizedBox(height: 8),
                                 _buildInsightsCard(isDark),
-                                const SizedBox(height: 12),
-                                _buildShareCard(isDark),
                               ]),
                             ),
                           ),
@@ -847,6 +917,185 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     );
   }
 
+  Widget _buildDietReminderCard(bool isDark) {
+    final next = _nextMealReminder;
+    final reminders = _todayMealReminders;
+
+    if (reminders.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: CoachDashboardTheme.cardDecoration(isDark),
+        child: Row(
+          children: [
+            Icon(Icons.schedule_rounded, color: isDark ? Colors.white38 : Colors.black38),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No meal times on today’s plan yet.',
+                style: CoachDashboardTheme.bodyMuted(isDark),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_allMealsDoneToday || next == null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: _openDiet,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: CoachDashboardTheme.cardDecoration(isDark),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: CoachDashboardTheme.success.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.check_circle_rounded, color: CoachDashboardTheme.success),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'All meals complete',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'Great work — see you at the next meal day.',
+                        style: CoachDashboardTheme.bodyMuted(isDark).copyWith(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: isDark ? Colors.white38 : Colors.black38),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final accent = next.status == DietMealReminderStatus.due
+        ? CoachDashboardTheme.warning
+        : CoachDashboardTheme.primary;
+    final whenLabel = next.status == DietMealReminderStatus.due ? 'Due now' : 'Today';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _openDiet,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          decoration: CoachDashboardTheme.cardDecoration(isDark).copyWith(
+            border: Border.all(
+              color: next.status == DietMealReminderStatus.due
+                  ? accent.withValues(alpha: 0.45)
+                  : (isDark ? const Color(0xFF2A2F3D) : const Color(0xFFE5E7EB)),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(_mealTypeIcon(next.type), color: accent, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Next Meal',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                        color: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      next.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      formatMealClock(next.reminderTime),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: accent,
+                      ),
+                    ),
+                    Text(
+                      whenLabel,
+                      style: CoachDashboardTheme.bodyMuted(isDark).copyWith(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      next.statusLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Icon(Icons.chevron_right_rounded, color: isDark ? Colors.white38 : Colors.black38),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _mealTypeIcon(String type) => switch (type) {
+        'breakfast' => Icons.free_breakfast_rounded,
+        'lunch' => Icons.lunch_dining_rounded,
+        'dinner' => Icons.dinner_dining_rounded,
+        'snacks' => Icons.cookie_rounded,
+        _ => Icons.restaurant_rounded,
+      };
+
   Widget _buildDietSection(bool isDark) {
     final meals = _todayMeals;
     final ordered = <Map<String, dynamic>>[];
@@ -893,7 +1142,15 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
           else
             ...ordered.map((m) {
               final done = m['completed'] == true;
-              final label = m['label']?.toString() ?? _mealLabel(m['type']?.toString() ?? '');
+              final type = m['type']?.toString() ?? '';
+              final label = m['label']?.toString() ?? _mealLabel(type);
+              final reminder = _todayMealReminders.cast<DietMealReminderItem?>().firstWhere(
+                    (r) => r?.type == type,
+                    orElse: () => null,
+                  );
+              final timeLabel = reminder != null
+                  ? formatMealClock(reminder.reminderTime)
+                  : null;
               return ListTile(
                 dense: true,
                 leading: Icon(
@@ -901,7 +1158,20 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
                   color: done ? CoachDashboardTheme.success : Colors.grey,
                 ),
                 title: Text(label, style: TextStyle(fontWeight: FontWeight.w600, decoration: done ? TextDecoration.lineThrough : null)),
-                subtitle: Text(done ? 'Completed' : 'Not completed', style: TextStyle(fontSize: 11, color: done ? CoachDashboardTheme.success : CoachDashboardTheme.danger)),
+                subtitle: Text(
+                  [
+                    if (timeLabel != null) timeLabel,
+                    done ? 'Completed' : (reminder?.statusLabel ?? 'Not completed'),
+                  ].join(' · '),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: done
+                        ? CoachDashboardTheme.success
+                        : (reminder?.status == DietMealReminderStatus.due
+                            ? CoachDashboardTheme.warning
+                            : CoachDashboardTheme.danger),
+                  ),
+                ),
                 onTap: _openDiet,
               );
             }),
@@ -1043,47 +1313,6 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _buildShareCard(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: CoachDashboardTheme.cardDecoration(isDark),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Share your wins', style: CoachDashboardTheme.sectionTitle(isDark).copyWith(fontSize: 14)),
-          const SizedBox(height: 4),
-          Text('Create a branded card or invite a friend.', style: CoachDashboardTheme.bodyMuted(isDark)),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => shareVitalCard(context, type: 'progress'),
-                icon: const Icon(Icons.ios_share_rounded, size: 18),
-                label: const Text('Share'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => shareVitalCard(context, type: 'weekly'),
-                icon: const Icon(Icons.calendar_view_week_rounded, size: 18),
-                label: const Text('Weekly'),
-              ),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const InviteFriendsScreen()),
-                  );
-                },
-                style: FilledButton.styleFrom(backgroundColor: CoachDashboardTheme.primary),
-                icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                label: const Text('Invite'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _StatTile {

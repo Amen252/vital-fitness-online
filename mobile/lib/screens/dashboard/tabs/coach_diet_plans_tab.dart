@@ -5,6 +5,7 @@ import '../../../models/diet_plan_completion_model.dart';
 import '../../../models/diet_plan_model.dart';
 import '../../../models/diet_today_progress_model.dart';
 import '../../../services/api_service.dart';
+import '../../../utils/date_utils.dart';
 import '../../../widgets/diet_progress_panel.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
@@ -160,7 +161,6 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     _mainTabs = TabController(length: 2, vsync: this);
     _mainTabs.addListener(_onMainTabChanged);
     _load();
-    _loadCompletions();
   }
 
   void _onMainTabChanged() {
@@ -179,8 +179,9 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
   }
 
   Future<void> _loadCompletions() async {
+    final showFullLoader = _completions.isEmpty;
     setState(() {
-      _completionLoading = true;
+      if (showFullLoader) _completionLoading = true;
       _completionError = '';
     });
     try {
@@ -192,16 +193,16 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
             .toList();
         _completedCount = (data['completedCount'] as num?)?.toInt() ?? 0;
         _notCompletedCount = (data['notCompletedCount'] as num?)?.toInt() ?? 0;
-        _completionLoading = false;
         _ensureNewGroupsCollapsed(_completions);
       });
     } catch (e) {
       if (mounted) {
         setState(() {
           _completionError = ApiService.friendlyError(e);
-          _completionLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _completionLoading = false);
     }
   }
 
@@ -214,8 +215,9 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
   }
 
   Future<void> _load({int? page}) async {
+    final showFullLoader = _plans.isEmpty;
     setState(() {
-      _loading = true;
+      if (showFullLoader) _loading = true;
       _error = '';
       if (page != null) _page = page;
     });
@@ -234,10 +236,11 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
             .map((p) => DietPlan.fromJson(_asJsonMap(p)))
             .toList();
         _totalPages = (data['totalPages'] as num?)?.toInt() ?? 1;
-        _loading = false;
       });
     } catch (e) {
-      if (mounted) setState(() { _error = ApiService.friendlyError(e); _loading = false; });
+      if (mounted) setState(() { _error = ApiService.friendlyError(e); });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -1278,6 +1281,8 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
   String _goal = 'maintenance';
   String _planType = 'single_day'; // single_day | weekly
   int? _singleDayIndex; // single_day: which weekday is checked
+  /// Weekly: Monday of the plan week — each day gets a calendar date from this.
+  DateTime _weekStartDate = defaultWeekStartForNewPlan();
   /// Weekly: one meal template in bucket 0; which weekdays receive that template.
   final Set<int> _weeklySelectedDays = <int>{};
 
@@ -1386,7 +1391,11 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
 
   Future<void> _refreshProgress() async {
     if (widget.createMode) return;
-    setState(() => _progressLoading = true);
+    final showFullLoader =
+        _progressMealTypes.isEmpty && _groupMembers.isEmpty && _clientWeekDays.isEmpty;
+    setState(() {
+      if (showFullLoader) _progressLoading = true;
+    });
     try {
       if (_plan?.clientId != null) {
         final data = await _api.getClientDietProgress(
@@ -1403,8 +1412,10 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           });
         }
       }
-    } catch (_) {}
-    if (mounted) setState(() => _progressLoading = false);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _progressLoading = false);
+    }
   }
 
   @override
@@ -1445,7 +1456,8 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
 
   Future<void> _load() async {
     if (widget.planId != null) {
-      setState(() => _loading = true);
+      final showFullLoader = _plan == null;
+      if (showFullLoader) setState(() => _loading = true);
       try {
         final planJson = await _api.getDietPlanById(widget.planId!);
         _plan = DietPlan.fromJson(planJson);
@@ -1460,8 +1472,10 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           final progressData = await _api.getGroupDietProgress(_plan!.fitnessClassId!);
           _applyProgressData(Map<String, dynamic>.from(progressData as Map));
         }
-      } catch (_) {}
-      if (mounted) setState(() => _loading = false);
+      } catch (_) {
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
       return;
     }
 
@@ -1470,7 +1484,8 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
       return;
     }
 
-    setState(() => _loading = true);
+    final showFullLoader = _plan == null;
+    if (showFullLoader) setState(() => _loading = true);
     try {
       final results = await Future.wait([
         _isGroup
@@ -1487,8 +1502,8 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
         _applyPlan(_plan!);
       }
       _applyProgressData(progressJson);
-      if (mounted) setState(() => _loading = false);
-    } catch (e) {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -1501,6 +1516,11 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     _planType = plan.isWeekly ? 'weekly' : 'single_day';
     _weeklySelectedDays.clear();
     _singleDayIndex = plan.targetDayOfWeek ?? DietDay.mondayBasedDayOfWeek();
+    if (plan.weekStartDate != null) {
+      _weekStartDate = dateOnly(mondayOf(plan.weekStartDate!));
+    } else {
+      _weekStartDate = defaultWeekStartForNewPlan();
+    }
     for (final bucket in _dayBuckets) {
       bucket.clear();
     }
@@ -1525,12 +1545,25 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     }
   }
 
+  Future<void> _pickWeekStartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: dateOnly(_weekStartDate),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      helpText: 'Select weekly plan start date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _weekStartDate = dateOnly(mondayOf(picked)));
+  }
+
   void _togglePlanType(String type) {
     if (_planType == type) return;
     setState(() {
       _planType = type;
       final today = DietDay.mondayBasedDayOfWeek();
       if (type == 'weekly') {
+        _weekStartDate = defaultWeekStartForNewPlan();
         if (_weeklySelectedDays.isEmpty) {
           _weeklySelectedDays.addAll(List.generate(7, (i) => i));
         }
@@ -1578,8 +1611,8 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
     if (missingTimes.isNotEmpty) {
       issues.add('Meal times required for reminders: ${missingTimes.join(', ')}.');
     }
-    if (_weeklySelectedDays.isEmpty) {
-      issues.add('Select at least one day (or use Select All Days).');
+    if (_weeklySelectedDays.length < 7) {
+      issues.add('Select all seven days (Monday–Sunday) before sending. Use Select All Days.');
     }
     if (issues.isEmpty) return true;
 
@@ -1687,17 +1720,21 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
           setState(() => _saving = false);
           return;
         }
+        final weekStart = dateOnly(mondayOf(_weekStartDate));
         final templateMeals = _dayBuckets[0].buildMeals().map((m) => m.toJson()).toList();
         final daysPayload = <Map<String, dynamic>>[];
         for (var i = 0; i < 7; i++) {
+          final dayDate = weekDayDate(weekStart, i);
           daysPayload.add({
             'dayOfWeek': i,
+            'date': formatDateOnly(dayDate),
             'meals': _weeklySelectedDays.contains(i) ? templateMeals : <Map<String, dynamic>>[],
           });
         }
         payload['days'] = daysPayload;
         payload['meals'] = templateMeals;
         payload['planType'] = 'weekly';
+        payload['weekStartDate'] = formatDateOnly(weekStart);
       } else {
         if (_singleDayIndex == null) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2074,6 +2111,23 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          _coachFormSectionHeader(
+            isDark,
+            step: '2b',
+            title: 'Start date',
+            subtitle: 'Week runs Monday–Sunday from the selected start',
+          ),
+          OutlinedButton.icon(
+            onPressed: readOnly ? null : _pickWeekStartDate,
+            icon: const Icon(Icons.calendar_month_rounded),
+            label: Text('Week of ${formatWeekRange(_weekStartDate)}'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Dates are assigned automatically: Mon–Sun for this week.',
+            style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+          ),
         ],
         if ((_planType == 'single_day' && _singleDayIndex != null) || _planType == 'weekly') ...[
           const SizedBox(height: 16),
@@ -2164,7 +2218,7 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
                     activeColor: CoachDashboardTheme.primary,
                     value: _weeklySelectedDays.contains(i),
                     title: Text(
-                      DietDay.dayNames[i],
+                      '${DietDay.dayNames[i]} — ${DateFormat('MMMM d').format(weekDayDate(_weekStartDate, i))}',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: _weeklySelectedDays.contains(i) ? FontWeight.w700 : FontWeight.w500,
@@ -2194,9 +2248,9 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
             subtitle: 'Save as draft or send the plan to the assignee',
           ),
           const SizedBox(height: 20),
-          if (_planType == 'weekly' && (!_weeklyTemplateComplete || _weeklySelectedDays.isEmpty)) ...[
+          if (_planType == 'weekly' && (!_weeklyTemplateComplete || !_allWeeklyDaysSelected)) ...[
             Text(
-              'Complete Breakfast, Lunch, Dinner & Snacks once, then select at least one day (or Select All Days).',
+              'Complete Breakfast, Lunch, Dinner & Snacks, then select all seven days (or Select All Days) before sending.',
               style: TextStyle(
                 fontSize: 12,
                 color: CoachDashboardTheme.warning.withValues(alpha: 0.95),
@@ -2209,7 +2263,11 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
             width: double.infinity,
             child: ElevatedButton(
               style: CoachDashboardTheme.primaryButtonStyle(),
-              onPressed: _saving ? null : () => _save(status: 'active'),
+              onPressed: (_saving ||
+                      (_planType == 'weekly' &&
+                          (!_weeklyTemplateComplete || !_allWeeklyDaysSelected)))
+                  ? null
+                  : () => _save(status: 'active'),
               child: _saving
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                   : Text(widget.createMode ? 'Create & Send Plan' : 'Save & Send Plan'),
@@ -2876,30 +2934,6 @@ class _MealEssentialFields extends StatelessWidget {
                 keyboardType: TextInputType.number,
                 onChanged: readOnly ? null : (_) => _edited(),
                 decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Protein (g)'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: form.carbs,
-                readOnly: readOnly,
-                keyboardType: TextInputType.number,
-                onChanged: readOnly ? null : (_) => _edited(),
-                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Carbs (g)'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: form.fats,
-                readOnly: readOnly,
-                keyboardType: TextInputType.number,
-                onChanged: readOnly ? null : (_) => _edited(),
-                decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Fat (g)'),
               ),
             ),
           ],

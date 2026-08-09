@@ -48,16 +48,16 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
       if (mounted) {
         setState(() {
           _classData = data;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -68,7 +68,6 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
       if (mounted) {
         setState(() {
           _classData = result;
-          _isJoining = false;
         });
         widget.onUpdated?.call();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -80,11 +79,12 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isJoining = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e))),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isJoining = false);
     }
   }
 

@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { getErrorMessage } from "../api/client";
-import { API_HEALTH_URL } from "../config/apiConfig";
 import { BrandMark, Button } from "../components/ui";
 import { useTheme } from "../theme/ThemeContext";
 import {
@@ -25,17 +24,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [apiStatus, setApiStatus] = useState("checking");
   const [isLocked, setIsLocked] = useState(false);
-
-  useEffect(() => {
-    fetch(API_HEALTH_URL)
-      .then((r) => r.json())
-      .then((data) =>
-        setApiStatus(data?.status === "ok" ? "connected" : "degraded"),
-      )
-      .catch(() => setApiStatus("offline"));
-  }, []);
 
   if (!loading && user) {
     if (user.must_change_password) {
@@ -66,24 +55,6 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   }
-
-  const statusDot =
-    apiStatus === "connected"
-      ? "bg-[var(--vf-success)]"
-      : apiStatus === "degraded"
-        ? "bg-[var(--vf-warning)]"
-        : apiStatus === "offline"
-          ? "bg-[var(--vf-danger)]"
-          : "bg-[var(--vf-muted)]";
-
-  const statusLabel =
-    apiStatus === "connected"
-      ? "API connected"
-      : apiStatus === "degraded"
-        ? "API up, database unavailable"
-        : apiStatus === "offline"
-          ? "API offline"
-          : "Checking API…";
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8 sm:px-6">
@@ -122,15 +93,9 @@ export default function LoginPage() {
 
         <div className="rounded-2xl border border-white/25 bg-[var(--vf-surface)]/95 p-5 shadow-[0_20px_50px_rgba(15,28,46,0.28)] backdrop-blur-xl sm:p-6">
           <div className="vf-login-stagger">
-            <div className="flex items-center justify-between gap-3">
-              <h1 className="text-lg font-bold tracking-tight text-[var(--vf-text)]">
-                Welcome back
-              </h1>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--vf-muted)]">
-                <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
-                {statusLabel}
-              </span>
-            </div>
+            <h1 className="text-lg font-bold tracking-tight text-[var(--vf-text)]">
+              Welcome back
+            </h1>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
               <label
@@ -204,7 +169,7 @@ export default function LoginPage() {
                 id="login-btn"
                 className="mt-1 w-full !rounded-xl !py-2.5 text-sm transition duration-200"
                 size="md"
-                disabled={submitting || apiStatus === "offline"}
+                disabled={submitting}
               >
                 {submitting ? "Signing in…" : "Sign In"}
               </Button>

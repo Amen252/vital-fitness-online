@@ -34,7 +34,9 @@ function getMealsForDate(plan, date = new Date(), options = {}) {
   const dow = Number.isFinite(Number(options.dayOfWeek))
     ? Number(options.dayOfWeek)
     : mondayBasedDayOfWeek(date);
-  if (plan.planType === 'weekly' && Array.isArray(plan.days) && plan.days.length) {
+  if (plan.planType === 'weekly') {
+    // Weekly plans must use days[]; never fall back to flat meals (avoids wrong-day reminders).
+    if (!Array.isArray(plan.days) || !plan.days.length) return [];
     const day = plan.days.find((d) => Number(d.dayOfWeek) === dow);
     return Array.isArray(day?.meals) ? day.meals : [];
   }
@@ -195,32 +197,51 @@ function isDayCompletedRecord(record) {
   return false;
 }
 
+function sameLocalCalendarDay(a, b) {
+  const left = startOfLocalDay(a);
+  const right = startOfLocalDay(b);
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
 /**
- * Build Mon–Sun completion status for the week containing `refDate`.
+ * Build Mon–Sun completion status for the week containing `weekRefDate`.
  * Uses DietAdherence rows keyed by calendar date.
+ * `options.today` is the client's/local "today" used for isToday / future locks.
  */
-function buildWeekDayCompletionSummary(adherenceRecords = [], refDate = new Date()) {
+function buildWeekDayCompletionSummary(adherenceRecords = [], weekRefDate = new Date(), options = {}) {
   const byTime = new Map();
   for (const record of adherenceRecords || []) {
     const key = startOfLocalDay(record.date).getTime();
     byTime.set(key, record);
   }
 
+  const today = startOfLocalDay(options.today || new Date());
   const days = [];
   let completedDays = 0;
   for (let i = 0; i < 7; i += 1) {
-    const date = dateForMondayBasedDay(i, refDate);
+    const date = dateForMondayBasedDay(i, weekRefDate);
     const record = byTime.get(date.getTime());
     const completed = isDayCompletedRecord(record);
     if (completed) completedDays += 1;
+    const isToday = sameLocalCalendarDay(date, today);
+    const isFuture = date.getTime() > today.getTime();
+    const isPast = date.getTime() < today.getTime();
     days.push({
       dayOfWeek: i,
       dayName: DAY_NAMES[i],
       date: date.toISOString(),
+      dateOnly: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
       completed,
       completedAt: completed ? (record?.completedAt || null) : null,
       adherencePercent: record?.adherencePercent || (completed ? 100 : 0),
-      isToday: mondayBasedDayOfWeek(refDate) === i,
+      isToday,
+      isFuture,
+      isPast,
+      isUpcoming: isFuture,
+      canCheckIn: !isFuture,
+      status: completed ? 'completed' : (isToday ? 'current' : (isFuture ? 'upcoming' : 'past')),
       mealAdherence: record?.mealAdherence || [],
     });
   }
@@ -239,7 +260,7 @@ function buildWeekDayCompletionSummary(adherenceRecords = [], refDate = new Date
 function enrichWeekCompletionWithPlannedMeals(plan, weekSummary, refDate = new Date()) {
   if (!plan || plan.planType !== 'weekly' || !weekSummary?.days) return weekSummary;
   const days = weekSummary.days.map((day) => {
-    const date = dateForMondayBasedDay(day.dayOfWeek, refDate);
+    const date = day.date ? startOfLocalDay(day.date) : dateForMondayBasedDay(day.dayOfWeek, refDate);
     const plannedTypes = getPlannedMealTypes(plan, date);
     const adherenceMap = new Map((day.mealAdherence || []).map((m) => [m.type, m]));
     const mealAdherence = plannedTypes.map((type) => {
@@ -276,4 +297,5 @@ module.exports = {
   isDayCompletedRecord,
   buildWeekDayCompletionSummary,
   enrichWeekCompletionWithPlannedMeals,
+  sameLocalCalendarDay,
 };

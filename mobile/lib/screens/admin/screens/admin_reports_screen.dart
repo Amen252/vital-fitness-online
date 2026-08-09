@@ -46,16 +46,16 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
         setState(() {
           _stats = results[0] as Map<String, dynamic>;
           _coaches = results[1] as List<dynamic>;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

@@ -31,16 +31,16 @@ class _AdminActivityScreenState extends State<AdminActivityScreen> {
       if (mounted) {
         setState(() {
           _pending = data['pendingLogs'] as List<dynamic>? ?? [];
-          _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _loading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

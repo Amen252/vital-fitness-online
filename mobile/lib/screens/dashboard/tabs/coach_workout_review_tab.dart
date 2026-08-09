@@ -27,25 +27,28 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    final showFullLoader = _pending.isEmpty;
+    if (mounted) {
+      setState(() {
+        if (showFullLoader) _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final data = await _api.getPendingWorkoutSubmissions();
       if (mounted) {
         setState(() {
           _pending = data;
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

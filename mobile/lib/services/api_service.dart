@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show SocketException;
 
@@ -36,9 +37,19 @@ class ApiService {
       final response = await http
           .get(Uri.parse(ApiConfig.healthUrl))
           .timeout(ApiConfig.healthTimeout);
-      if (response.statusCode == 200) return 'connected';
       if (response.statusCode == 503) return 'degraded';
-      return 'offline';
+      if (response.statusCode != 200) return 'offline';
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map &&
+            body['database'] != null &&
+            body['database'].toString() != 'connected') {
+          return 'degraded';
+        }
+      } catch (_) {
+        // Non-JSON health body still means the API process responded.
+      }
+      return 'connected';
     } catch (_) {
       return 'offline';
     }
@@ -123,6 +134,20 @@ class ApiService {
     return headers;
   }
 
+
+  /// Shared request timeout so loading indicators cannot hang forever.
+  Future<http.Response> _send(
+    Future<http.Response> future, {
+    Duration? timeout,
+  }) {
+    return future.timeout(
+      timeout ?? ApiConfig.requestTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Request timed out. Please check your connection and try again.',
+      ),
+    );
+  }
+
   Future<void> _saveToken(String token) async {
     _token = token;
     final prefs = await SharedPreferences.getInstance();
@@ -140,7 +165,7 @@ class ApiService {
   Future<User> login(String email, String password) async {
     try {
       final identity = PasswordUtils.normalizeEmail(email);
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/auth/login'),
         headers: _headers(),
         body: jsonEncode({
@@ -149,7 +174,7 @@ class ApiService {
           'email': identity,
           'password': password,
         }),
-      );
+      ));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -178,7 +203,7 @@ class ApiService {
     String? fitnessGoal,
   }) async {
     try {
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/auth/register'),
         headers: _headers(),
         body: jsonEncode({
@@ -201,7 +226,7 @@ class ApiService {
               ].contains(fitnessGoal))
             'fitness_goal': fitnessGoal,
         }),
-      );
+      ));
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -228,11 +253,11 @@ class ApiService {
   /// Returns the generic server message.
   Future<String> forgotPassword(String email) async {
     try {
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/auth/forgot-password'),
         headers: _headers(),
         body: jsonEncode({'email': PasswordUtils.normalizeEmail(email)}),
-      );
+      ));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['message']?.toString() ??
@@ -252,7 +277,7 @@ class ApiService {
     required String newPassword,
   }) async {
     try {
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/auth/reset-password'),
         headers: _headers(),
         body: jsonEncode({
@@ -260,7 +285,7 @@ class ApiService {
           'code': code.trim(),
           'newPassword': newPassword,
         }),
-      );
+      ));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['message']?.toString() ?? 'Password has been reset.';
@@ -276,10 +301,10 @@ class ApiService {
     if (_token == null) return null;
 
     try {
-      final response = await http.get(
+      final response = await _send(http.get(
         Uri.parse('$baseUrl/auth/me'),
         headers: _headers(),
-      );
+      ));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -298,6 +323,7 @@ class ApiService {
   // --- Profile Updates ---
 
   Future<Profile> updateProfile({
+    String? fullName,
     int? age,
     double? heightCm,
     double? weightKg,
@@ -313,10 +339,11 @@ class ApiService {
     int? yearsExperience,
     List<String>? certifications,
   }) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/user/profile'),
       headers: _headers(),
       body: jsonEncode({
+        if (fullName != null) 'full_name': fullName.trim(),
         if (age != null) 'age': age,
         if (heightCm != null) 'heightCm': heightCm,
         if (weightKg != null) 'weightKg': weightKg,
@@ -332,7 +359,7 @@ class ApiService {
         if (yearsExperience != null) 'yearsExperience': yearsExperience,
         if (certifications != null) 'certifications': certifications,
       }),
-    );
+    ));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -351,11 +378,11 @@ class ApiService {
   /// Uploads (or clears) the profile photo. [dataUrl] should be a
   /// base64 image data URL, or an empty string to remove the photo.
   Future<Profile> updateProfilePhoto(String dataUrl) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/user/profile/photo'),
       headers: _headers(),
       body: jsonEncode({'photo': dataUrl}),
-    );
+    ));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       return Profile.fromJson(data['profile'] as Map<String, dynamic>);
@@ -367,14 +394,14 @@ class ApiService {
     required String currentPassword,
     required String newPassword,
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/auth/change-password'),
       headers: _headers(),
       body: jsonEncode({
         'currentPassword': currentPassword,
         'newPassword': newPassword,
       }),
-    );
+    ));
 
     if (response.statusCode != 200) {
       throw Exception(_parseError(response));
@@ -384,10 +411,10 @@ class ApiService {
   // --- Daily Progress ---
 
   Future<ProgressData> getProgress() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/progress'),
       headers: _headers(),
-    );
+    ));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -400,10 +427,26 @@ class ApiService {
 
   /// Existing user dashboard aggregate (assignments, dailyTrackings, etc.).
   Future<Map<String, dynamic>?> getUserDashboard() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/dashboard/user'),
       headers: _headers(),
-    );
+    ));
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic>) return body;
+      if (body is Map) return Map<String, dynamic>.from(body);
+      return null;
+    }
+    if (response.statusCode == 404) return null;
+    throw Exception(_parseError(response));
+  }
+
+  /// Existing coach dashboard aggregate (assigned clients, dailyTrackings, workout logs).
+  Future<Map<String, dynamic>?> getCoachDashboard() async {
+    final response = await _send(http.get(
+      Uri.parse('$baseUrl/dashboard/coach'),
+      headers: _headers(),
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body is Map<String, dynamic>) return body;
@@ -422,7 +465,7 @@ class ApiService {
     required double caloriesBurned,
     List<WorkoutSet>? sets,
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/activity/log'),
       headers: _headers(),
       body: jsonEncode({
@@ -431,7 +474,7 @@ class ApiService {
         'caloriesBurned': caloriesBurned,
         if (sets != null) 'sets': sets.map((s) => s.toJson()).toList(),
       }),
-    );
+    ));
 
     if (response.statusCode == 201) {
       final data = jsonDecode(response.body);
@@ -445,11 +488,11 @@ class ApiService {
   // --- Log Hydration ---
 
   Future<bool> logWater(double amountMl) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/water/log'),
       headers: _headers(),
       body: jsonEncode({'amountMl': amountMl.toInt()}),
-    );
+    ));
 
     if (response.statusCode == 201 || response.statusCode == 200) return true;
     throw Exception(_parseError(response));
@@ -464,7 +507,7 @@ class ApiService {
     double carbs = 0,
     double fats = 0,
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/diet/log'),
       headers: _headers(),
       body: jsonEncode({
@@ -474,7 +517,7 @@ class ApiService {
         'carbs': carbs.toInt(),
         'fats': fats.toInt(),
       }),
-    );
+    ));
 
     if (response.statusCode == 201 || response.statusCode == 200) return true;
     throw Exception(_parseError(response));
@@ -483,10 +526,10 @@ class ApiService {
   // --- Coach Endpoints ---
 
   Future<List<dynamic>> getCoaches() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/trainers'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;
     } else {
@@ -495,10 +538,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getPublicCoach(String id) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/trainers/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -507,10 +550,10 @@ class ApiService {
 
   /// Returns `{ reviews: [...], myReview: {...}|null, averageRating, numReviews }`.
   Future<Map<String, dynamic>> getCoachReviews(String coachId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/trainers/$coachId/reviews'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -522,11 +565,11 @@ class ApiService {
     required int rating,
     String comment = '',
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/trainers/$coachId/reviews'),
       headers: _headers(),
       body: jsonEncode({'rating': rating, 'comment': comment}),
-    );
+    ));
     if (response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -534,10 +577,10 @@ class ApiService {
   }
 
   Future<void> deleteCoachReview(String coachId) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/user/trainers/$coachId/reviews'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) {
       throw Exception(_parseError(response));
     }
@@ -596,7 +639,7 @@ class ApiService {
     List<Map<String, dynamic>> certificateFiles = const [],
   }) async {
     try {
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/auth/register-coach'),
         headers: _headers(),
         body: jsonEncode({
@@ -619,7 +662,7 @@ class ApiService {
           'appointmentDurationMinutes': appointmentDurationMinutes,
           'certificateFiles': certificateFiles,
         }),
-      );
+      ));
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -643,7 +686,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/admin/users',
     ).replace(queryParameters: params);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200) {
       return asItemList(jsonDecode(response.body))
           .where((u) => u is Map && (u['role'] as String? ?? '') == 'user')
@@ -654,10 +697,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getAdminUserDetail(String userId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/users/$userId/detail'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     }
@@ -665,10 +708,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getAdminTrainers() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/trainers'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return asItemList(jsonDecode(response.body))
           .where((c) => c is Map && (c['role'] as String? ?? '') == 'coach')
@@ -678,10 +721,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getCoachClients() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/clients'),
       headers: _headers(),
-    );
+    ));
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;
@@ -691,10 +734,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getCoachSchedules() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/schedules'),
       headers: _headers(),
-    );
+    ));
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;
@@ -704,10 +747,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getSessions() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/session'),
       headers: _headers(),
-    );
+    ));
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;
@@ -719,11 +762,11 @@ class ApiService {
   // --- New Coach/Dashboard Methods ---
 
   Future<Map<String, dynamic>> createSession(Map<String, dynamic> data) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/session'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -732,11 +775,11 @@ class ApiService {
     String sessionId,
     String status,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$sessionId/status'),
       headers: _headers(),
       body: jsonEncode({'status': status}),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -747,7 +790,7 @@ class ApiService {
     String? sessionMode,
     String? meetingLink,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/confirm'),
       headers: _headers(),
       body: jsonEncode({
@@ -755,7 +798,7 @@ class ApiService {
         if (sessionMode != null) 'sessionMode': sessionMode,
         if (meetingLink != null) 'meetingLink': meetingLink,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -766,14 +809,14 @@ class ApiService {
     String date, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/reschedule'),
       headers: _headers(),
       body: jsonEncode({
         'date': date,
         if (coachNotes != null) 'coachNotes': coachNotes,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -784,14 +827,14 @@ class ApiService {
     String? meetingLink,
     String? sessionMode,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/start'),
       headers: _headers(),
       body: jsonEncode({
         if (meetingLink != null) 'meetingLink': meetingLink,
         if (sessionMode != null) 'sessionMode': sessionMode,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -802,14 +845,14 @@ class ApiService {
     String? meetingLink,
     String? sessionMode,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/meeting-link'),
       headers: _headers(),
       body: jsonEncode({
         if (meetingLink != null) 'meetingLink': meetingLink,
         if (sessionMode != null) 'sessionMode': sessionMode,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -819,11 +862,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/complete'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -833,11 +876,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/cancel'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -848,14 +891,14 @@ class ApiService {
     String? coachNotes,
     String? notes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id/notes'),
       headers: _headers(),
       body: jsonEncode({
         if (coachNotes != null) 'coachNotes': coachNotes,
         if (notes != null) 'notes': notes,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -865,21 +908,21 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/session/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> deleteSession(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/session/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -890,11 +933,11 @@ class ApiService {
     required String file,
     String name = 'Attachment',
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/session/$id/attachments'),
       headers: _headers(),
       body: jsonEncode({'file': file, 'name': name}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -904,11 +947,11 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/session/$id/follow-up'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -917,10 +960,10 @@ class ApiService {
   // --- Appointments ---
 
   Future<List<dynamic>> getCoachAppointments() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/appointments'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -929,11 +972,11 @@ class ApiService {
   Future<Map<String, dynamic>> createCoachAppointment(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/appointments'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201) {
       final body = jsonDecode(response.body);
       if (body is Map<String, dynamic>) return body;
@@ -946,11 +989,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/approve'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -960,11 +1003,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/reject'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -975,14 +1018,14 @@ class ApiService {
     String dateTime, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/reschedule'),
       headers: _headers(),
       body: jsonEncode({
         'dateTime': dateTime,
         if (coachNotes != null) 'coachNotes': coachNotes,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -992,11 +1035,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/complete'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1006,21 +1049,21 @@ class ApiService {
     String id,
     String coachNotes,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/notes'),
       headers: _headers(),
       body: jsonEncode({'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getUserAppointments() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/appointments'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1029,11 +1072,11 @@ class ApiService {
   Future<Map<String, dynamic>> requestAppointment(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/appointments/request'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1044,7 +1087,7 @@ class ApiService {
     String coachId,
     String date,
   ) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/appointments/availability').replace(
         queryParameters: {
           'coachId': coachId,
@@ -1053,7 +1096,7 @@ class ApiService {
         },
       ),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1065,7 +1108,7 @@ class ApiService {
     required String time,
     String notes = '',
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/appointments/book'),
       headers: _headers(),
       body: jsonEncode({
@@ -1075,17 +1118,17 @@ class ApiService {
         'notes': notes,
         'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
       }),
-    );
+    ));
     if (response.statusCode == 201)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> cancelUserAppointment(String id) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/user/appointments/$id/cancel'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1095,11 +1138,11 @@ class ApiService {
     String id, {
     String? coachNotes,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/cancel'),
       headers: _headers(),
       body: jsonEncode({if (coachNotes != null) 'coachNotes': coachNotes}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1110,14 +1153,14 @@ class ApiService {
     String? meetingLink,
     String? sessionMode,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/start'),
       headers: _headers(),
       body: jsonEncode({
         if (meetingLink != null) 'meetingLink': meetingLink,
         if (sessionMode != null) 'sessionMode': sessionMode,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1128,14 +1171,14 @@ class ApiService {
     String? meetingLink,
     String? sessionMode,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/appointments/$id/meeting-link'),
       headers: _headers(),
       body: jsonEncode({
         if (meetingLink != null) 'meetingLink': meetingLink,
         if (sessionMode != null) 'sessionMode': sessionMode,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1146,11 +1189,11 @@ class ApiService {
     required String file,
     String name = 'Attachment',
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/appointments/$id/attachments'),
       headers: _headers(),
       body: jsonEncode({'file': file, 'name': name}),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1160,11 +1203,11 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/appointments/$id/follow-up'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1173,21 +1216,21 @@ class ApiService {
   Future<Map<String, dynamic>> createExercisePlan(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/exercise-plans'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> createDietPlan(Map<String, dynamic> data) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/diet-plans'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -1229,10 +1272,10 @@ class ApiService {
       params['assigneeType'] = assigneeType;
     }
 
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/diet-plans').replace(queryParameters: params),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body is List) {
@@ -1253,40 +1296,40 @@ class ApiService {
   }) async {
     final params = <String, String>{};
     if (status.isNotEmpty && status != 'all') params['status'] = status;
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse(
         '$baseUrl/coach/diet-plans/completions',
       ).replace(queryParameters: params.isEmpty ? null : params),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getDietPlanById(String planId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/diet-plans/$planId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
   }
 
   Future<void> archiveDietPlan(String planId) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/diet-plans/$planId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> sendDietPlanAgain(String planId) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/diet-plans/$planId/send'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     throw Exception(_parseError(response));
@@ -1298,10 +1341,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>?> getGroupDietPlan(String classId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/diet-plans/groups/$classId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body == null) return null;
@@ -1314,30 +1357,30 @@ class ApiService {
     String classId, {
     int days = 14,
   }) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse(
         '$baseUrl/coach/diet-plans/groups/$classId/progress?days=$days',
       ),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> sendGroupMealReminders(String classId) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/diet-plans/groups/$classId/reminders'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>?> getClientDietPlan(String clientId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/diet-plans/client/$clientId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body == null) return null;
@@ -1350,11 +1393,11 @@ class ApiService {
     String planId,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/diet-plans/$planId'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -1366,12 +1409,12 @@ class ApiService {
   }) async {
     final params = <String, String>{'days': '$days'};
     if (planId != null && planId.isNotEmpty) params['planId'] = planId;
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse(
         '$baseUrl/coach/diet-plans/client/$clientId/progress',
       ).replace(queryParameters: params),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -1380,29 +1423,29 @@ class ApiService {
     String clientId,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/diet-plans/client/$clientId/adherence'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> sendMealReminders(String clientId) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/diet-plans/client/$clientId/reminders'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>?> getDietPlan() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/diet/plan'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body is Map<String, dynamic>) return body;
@@ -1415,10 +1458,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getUserDietPlanHistory() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/diet/plan-history'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body is Map) return List<dynamic>.from(body['plans'] as List? ?? []);
@@ -1429,19 +1472,19 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getDietHistory() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/diet/history'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getUserDietProgress({int days = 14}) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/diet/progress?days=$days'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -1449,50 +1492,50 @@ class ApiService {
   Future<Map<String, dynamic>> logDietAdherence(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/diet/adherence'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> createSchedule(Map<String, dynamic> data) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/schedules'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getExerciseLibrary() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/exercises'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getExercisePlans(String clientId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/exercise-plans/client/$clientId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getGroupExercisePlans(String classId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/exercise-plans/groups/$classId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1502,21 +1545,21 @@ class ApiService {
     String planId,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/exercise-plans/$planId'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteExercisePlan(String planId) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/exercise-plans/$planId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
@@ -1524,40 +1567,40 @@ class ApiService {
     String clientId, {
     int days = 30,
   }) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse(
         '$baseUrl/coach/exercise-plans/client/$clientId/progress?days=$days',
       ),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getGroupWorkoutProgress(String classId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/exercise-plans/groups/$classId/progress'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> sendWorkoutReminder(String planId) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/exercise-plans/$planId/reminder'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getUserExercisePlans() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/workouts'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1569,7 +1612,7 @@ class ApiService {
     required int durationMinutes,
     required String proofPhoto,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/user/workouts/$planId/complete'),
       headers: _headers(),
       body: jsonEncode({
@@ -1577,37 +1620,37 @@ class ApiService {
         'durationMinutes': durationMinutes,
         'proofPhoto': proofPhoto,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getUserWorkoutProgress({int days = 30}) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/workouts/progress?days=$days'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getWorkoutTemplates() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/workout-templates'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<String>> getWorkoutPresets() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/workout-presets'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body is Map && body['presets'] is List) {
@@ -1629,11 +1672,11 @@ class ApiService {
   Future<Map<String, dynamic>> createWorkoutTemplate(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/workout-templates'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1643,21 +1686,21 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/workout-templates/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteWorkoutTemplate(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/workout-templates/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
@@ -1671,7 +1714,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/coach/workout-schedules',
     ).replace(queryParameters: params.isEmpty ? null : params);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1680,11 +1723,11 @@ class ApiService {
   Future<Map<String, dynamic>> createWorkoutSchedule(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/workout-schedules'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1694,21 +1737,21 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/workout-schedules/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteWorkoutSchedule(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/workout-schedules/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
@@ -1725,7 +1768,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/user/workout-schedules',
     ).replace(queryParameters: params);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -1742,7 +1785,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/coach/weekly-workout-plans',
     ).replace(queryParameters: params.isEmpty ? null : params);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1751,11 +1794,11 @@ class ApiService {
   Future<Map<String, dynamic>> createWeeklyWorkoutPlan(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/weekly-workout-plans'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1765,21 +1808,21 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/weekly-workout-plans/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteWeeklyWorkoutPlan(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/weekly-workout-plans/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
@@ -1801,7 +1844,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/user/workout-schedules/weekly',
     ).replace(queryParameters: params);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1813,7 +1856,7 @@ class ApiService {
     required int durationMinutes,
     required String proofPhoto,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/user/workout-schedules/$scheduleId/complete'),
       headers: _headers(),
       body: jsonEncode({
@@ -1821,17 +1864,17 @@ class ApiService {
         'durationMinutes': durationMinutes,
         'proofPhoto': proofPhoto,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getPendingWorkoutSubmissions() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/workout-submissions/pending'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1843,7 +1886,7 @@ class ApiService {
     required String status,
     String feedback = '',
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/workout-submissions/$id/review'),
       headers: _headers(),
       body: jsonEncode({
@@ -1851,17 +1894,17 @@ class ApiService {
         'status': status,
         'feedback': feedback,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getPendingActivities() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/activities/pending'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -1871,31 +1914,31 @@ class ApiService {
     String activityId,
     String status,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/activities/$activityId/status'),
       headers: _headers(),
       body: jsonEncode({'status': status}),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getCoachClasses() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/classes'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getCoachClass(String id) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/classes/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1904,11 +1947,11 @@ class ApiService {
   Future<Map<String, dynamic>> createCoachClass(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/classes'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -1919,21 +1962,21 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/coach/classes/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteCoachClass(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/classes/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
@@ -1941,11 +1984,11 @@ class ApiService {
     String classId,
     String studentId,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/classes/$classId/enroll'),
       headers: _headers(),
       body: jsonEncode({'studentId': studentId}),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1955,10 +1998,10 @@ class ApiService {
     String classId,
     String userId,
   ) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/coach/classes/$classId/enroll/$userId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1970,24 +2013,24 @@ class ApiService {
     String? classId,
     String? fromClassId,
   }) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/clients/$clientId/group'),
       headers: _headers(),
       body: jsonEncode({
         'classId': classId,
         if (fromClassId != null) 'fromClassId': fromClassId,
       }),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getCoachClientDetail(String clientId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/clients/$clientId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -1998,50 +2041,50 @@ class ApiService {
     String studentId,
     bool present,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/classes/$classId/attendance'),
       headers: _headers(),
       body: jsonEncode({'studentId': studentId, 'present': present}),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> getCoachReports() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/reports'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> sendFeedback(Map<String, dynamic> data) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/coach/feedback'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 201) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getNotifications() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/notifications'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<List<dynamic>> getChatThreads() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/chat/threads'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2053,7 +2096,7 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/chat/threads/$threadId',
     ).replace(queryParameters: markRead ? null : {'markRead': 'false'});
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2062,11 +2105,11 @@ class ApiService {
     String threadId,
     String body,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/chat/message'),
       headers: _headers(),
       body: jsonEncode({'assignmentId': threadId, 'body': body}),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201)
       return jsonDecode(response.body);
     throw Exception(_parseError(response));
@@ -2076,31 +2119,31 @@ class ApiService {
     String messageId,
     String body,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/chat/message/$messageId'),
       headers: _headers(),
       body: jsonEncode({'body': body}),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteChatMessage(String messageId) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/chat/message/$messageId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   // --- User Coaching & Classes ---
 
   Future<Map<String, dynamic>?> getUserCoaching() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/coaching'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body == null) return null;
@@ -2112,10 +2155,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>?> getMyCoachRequest() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/coach-request'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body == null) return null;
@@ -2125,10 +2168,10 @@ class ApiService {
   }
 
   Future<void> cancelCoachRequest() async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/user/coach-request'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return;
     throw Exception(_parseError(response));
   }
@@ -2137,14 +2180,14 @@ class ApiService {
     required String coachId,
     String? message,
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/coach-request'),
       headers: _headers(),
       body: jsonEncode({
         'coachId': coachId,
         if (message != null && message.isNotEmpty) 'message': message,
       }),
-    );
+    ));
     if (response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2152,10 +2195,10 @@ class ApiService {
   }
 
   Future<List<dynamic>> getCoachRequests() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/coach/requests'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as List<dynamic>;
     }
@@ -2170,11 +2213,11 @@ class ApiService {
     if (classId != null && classId.isNotEmpty) {
       body['classId'] = classId;
     }
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/requests/$id/approve'),
       headers: _headers(),
       body: jsonEncode(body),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2182,10 +2225,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> rejectCoachRequest(String id) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/coach/requests/$id/reject'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2194,10 +2237,10 @@ class ApiService {
 
   Future<List<dynamic>> getUserClasses() async {
     try {
-      final response = await http.get(
+      final response = await _send(http.get(
         Uri.parse('$baseUrl/user/classes'),
         headers: _headers(),
-      );
+      ));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as List<dynamic>;
       }
@@ -2209,10 +2252,10 @@ class ApiService {
 
   Future<List<dynamic>> getAvailableClasses() async {
     try {
-      final response = await http.get(
+      final response = await _send(http.get(
         Uri.parse('$baseUrl/user/classes/available'),
         headers: _headers(),
-      );
+      ));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as List<dynamic>;
       }
@@ -2223,10 +2266,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getUserClassDetail(String classId) async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/classes/$classId'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2234,10 +2277,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> joinUserClass(String classId) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/classes/$classId/join'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2246,10 +2289,10 @@ class ApiService {
 
   Future<List<dynamic>> getUserSessions() async {
     try {
-      final response = await http.get(
+      final response = await _send(http.get(
         Uri.parse('$baseUrl/session'),
         headers: _headers(),
-      );
+      ));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as List<dynamic>;
       }
@@ -2260,30 +2303,30 @@ class ApiService {
   }
 
   Future<List<dynamic>> getUserNotifications() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/notifications'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<void> markUserNotificationRead(String notificationId) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/user/notifications/$notificationId/read'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   // --- Admin Endpoints ---
 
   Future<Map<String, dynamic>> getAdminDashboardStats() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/dashboard'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
@@ -2292,10 +2335,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getAdminStatistics() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/statistics'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
@@ -2306,10 +2349,10 @@ class ApiService {
   // --- Admin Class Management ---
 
   Future<List<dynamic>> getAdminClasses() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/classes'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
@@ -2318,11 +2361,11 @@ class ApiService {
   Future<Map<String, dynamic>> createAdminClass(
     Map<String, dynamic> data,
   ) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/admin/classes'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201)
       return jsonDecode(response.body);
     throw Exception(_parseError(response));
@@ -2332,47 +2375,47 @@ class ApiService {
     String id,
     Map<String, dynamic> data,
   ) async {
-    final response = await http.put(
+    final response = await _send(http.put(
       Uri.parse('$baseUrl/admin/classes/$id'),
       headers: _headers(),
       body: jsonEncode(data),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<void> deleteAdminClass(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/admin/classes/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   // --- Admin User Management ---
 
   Future<void> deleteUser(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/admin/users/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   Future<void> deleteCoach(String id) async {
-    final response = await http.delete(
+    final response = await _send(http.delete(
       Uri.parse('$baseUrl/admin/trainers/$id'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode != 200) throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> updateUserRole(String id, String role) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/users/$id/role'),
       headers: _headers(),
       body: jsonEncode({'role': role}),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2383,7 +2426,7 @@ class ApiService {
     required String password,
     String role = 'user',
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/admin/users'),
       headers: _headers(),
       body: jsonEncode({
@@ -2392,7 +2435,7 @@ class ApiService {
         'password': password,
         'role': role,
       }),
-    );
+    ));
     if (response.statusCode == 201) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2405,11 +2448,11 @@ class ApiService {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (email != null) body['email'] = email;
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/users/$id'),
       headers: _headers(),
       body: jsonEncode(body),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2418,11 +2461,11 @@ class ApiService {
     String id,
     String status,
   ) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/users/$id/status'),
       headers: _headers(),
       body: jsonEncode({'status': status}),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
@@ -2432,11 +2475,11 @@ class ApiService {
     required String message,
     required String target,
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/admin/notifications'),
       headers: _headers(),
       body: jsonEncode({'title': title, 'message': message, 'target': target}),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2444,38 +2487,38 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getAdminExercises() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/admin/exercises'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> approveAdminExercise(String id) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/exercises/$id/approve'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> rejectAdminExercise(String id) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/exercises/$id/reject'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) return jsonDecode(response.body);
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>?> getMyCoachApplication() async {
-    final response = await http.get(
+    final response = await _send(http.get(
       Uri.parse('$baseUrl/user/coach-application'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       if (body == null) return null;
@@ -2500,7 +2543,7 @@ class ApiService {
     int appointmentDurationMinutes = 60,
     List<Map<String, dynamic>> certificateFiles = const [],
   }) async {
-    final response = await http.post(
+    final response = await _send(http.post(
       Uri.parse('$baseUrl/user/coach-application'),
       headers: _headers(),
       body: jsonEncode({
@@ -2519,7 +2562,7 @@ class ApiService {
         'appointmentDurationMinutes': appointmentDurationMinutes,
         'certificateFiles': certificateFiles,
       }),
-    );
+    ));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -2530,28 +2573,28 @@ class ApiService {
     final uri = Uri.parse(
       '$baseUrl/admin/coach-applications',
     ).replace(queryParameters: status != null ? {'status': status} : null);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _send(http.get(uri, headers: _headers()));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as List<dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> approveCoachApplication(String id) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/coach-applications/$id/approve'),
       headers: _headers(),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
   }
 
   Future<Map<String, dynamic>> rejectCoachApplication(String id, {String reason = ''}) async {
-    final response = await http.patch(
+    final response = await _send(http.patch(
       Uri.parse('$baseUrl/admin/coach-applications/$id/reject'),
       headers: _headers(),
       body: jsonEncode({'reason': reason}),
-    );
+    ));
     if (response.statusCode == 200)
       return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception(_parseError(response));
@@ -2573,7 +2616,7 @@ class ApiService {
     String? level,
   }) async {
     try {
-      final response = await http.post(
+      final response = await _send(http.post(
         Uri.parse('$baseUrl/share/cards'),
         headers: _headers(),
         body: jsonEncode({
@@ -2581,7 +2624,7 @@ class ApiService {
           if (title != null && title.isNotEmpty) 'title': title,
           if (level != null && level.isNotEmpty) 'level': level,
         }),
-      );
+      ));
       if (response.statusCode == 201) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
@@ -2594,10 +2637,10 @@ class ApiService {
 
   Future<Map<String, dynamic>> getMyInvite() async {
     try {
-      final response = await http.get(
+      final response = await _send(http.get(
         Uri.parse('$baseUrl/share/invite'),
         headers: _headers(),
-      );
+      ));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }

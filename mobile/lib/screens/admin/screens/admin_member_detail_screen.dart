@@ -41,16 +41,16 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
       if (mounted) {
         setState(() {
           _detail = data;
-          _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
-          _loading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

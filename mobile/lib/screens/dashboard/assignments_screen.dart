@@ -74,14 +74,17 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
         setState(() {
           _workouts = merged;
           _progress = progress;
-          _isLoading = false;
-          _isRefreshing = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _error = ApiService.friendlyError(e);
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
           _isLoading = false;
           _isRefreshing = false;
         });

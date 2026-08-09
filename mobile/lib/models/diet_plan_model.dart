@@ -98,32 +98,81 @@ class DietMeal {
 
 class DietDay {
   final int dayOfWeek; // 0 = Monday
+  final DateTime? date;
   final List<DietMeal> meals;
   final String notes;
 
   const DietDay({
     required this.dayOfWeek,
+    this.date,
     this.meals = const [],
     this.notes = '',
   });
 
-  factory DietDay.fromJson(Map<String, dynamic> json) => DietDay(
-        dayOfWeek: (json['dayOfWeek'] as num?)?.toInt() ?? 0,
-        meals: (json['meals'] as List<dynamic>? ?? [])
-            .map((m) => DietMeal.fromJson(Map<String, dynamic>.from(m as Map)))
-            .toList(),
-        notes: json['notes']?.toString() ?? '',
-      );
+  factory DietDay.fromJson(Map<String, dynamic> json) {
+    DateTime? parsedDate;
+    final rawDate = json['date'] ?? json['dateOnly'];
+    if (rawDate != null) {
+      final s = rawDate.toString();
+      final datePart = s.contains('T') ? s.split('T').first : s.trim();
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(datePart)) {
+        final parts = datePart.split('-').map(int.parse).toList();
+        parsedDate = DateTime(parts[0], parts[1], parts[2]);
+      } else {
+        parsedDate = DateTime.tryParse(s);
+        if (parsedDate != null) {
+          parsedDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+        }
+      }
+    }
+    return DietDay(
+      dayOfWeek: (json['dayOfWeek'] as num?)?.toInt() ?? 0,
+      date: parsedDate,
+      meals: (json['meals'] as List<dynamic>? ?? [])
+          .map((m) => DietMeal.fromJson(Map<String, dynamic>.from(m as Map)))
+          .toList(),
+      notes: json['notes']?.toString() ?? '',
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'dayOfWeek': dayOfWeek,
+        if (date != null)
+          'date':
+              '${date!.year.toString().padLeft(4, '0')}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}',
         'meals': meals.map((m) => m.toJson()).toList(),
         'notes': notes,
       };
 
   static const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  static const monthNames = [
+    '',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
 
   String get dayName => dayNames[dayOfWeek.clamp(0, 6)];
+
+  /// e.g. "Monday, August 10"
+  String get dayAndDateLabel {
+    if (date == null) return dayName;
+    return '$dayName, ${monthNames[date!.month]} ${date!.day}';
+  }
+
+  String get shortDateLabel {
+    if (date == null) return '';
+    return '${date!.month}/${date!.day}';
+  }
 
   static int mondayBasedDayOfWeek([DateTime? date]) {
     final d = date ?? DateTime.now();
@@ -141,6 +190,7 @@ class DietPlan {
   final String planType; // single_day | weekly
   final int? targetDayOfWeek; // single_day: which weekday
   final String? targetDayName;
+  final DateTime? weekStartDate;
   final List<DietMeal> meals;
   final List<DietDay> days;
   final List<DietMeal> todaysMeals;
@@ -166,6 +216,7 @@ class DietPlan {
     this.planType = 'single_day',
     this.targetDayOfWeek,
     this.targetDayName,
+    this.weekStartDate,
     this.meals = const [],
     this.days = const [],
     this.todaysMeals = const [],
@@ -181,6 +232,16 @@ class DietPlan {
     this.coach,
     this.fitnessClass,
   });
+
+  /// Calendar date for a Monday-based day index within this weekly plan.
+  DateTime? dateForDayOfWeek(int dayOfWeek) {
+    for (final d in days) {
+      if (d.dayOfWeek == dayOfWeek && d.date != null) return d.date;
+    }
+    if (weekStartDate == null) return null;
+    final start = DateTime(weekStartDate!.year, weekStartDate!.month, weekStartDate!.day);
+    return start.add(Duration(days: dayOfWeek.clamp(0, 6)));
+  }
 
   bool get isGroupPlan => fitnessClassId != null || fitnessClass != null;
   bool get isWeekly => planType == 'weekly';
@@ -212,6 +273,20 @@ class DietPlan {
     final todays = (json['todaysMeals'] as List<dynamic>? ?? [])
         .map((m) => DietMeal.fromJson(Map<String, dynamic>.from(m as Map)))
         .toList();
+
+    DateTime? weekStart;
+    final rawWeek = json['weekStartDate']?.toString();
+    if (rawWeek != null && rawWeek.isNotEmpty) {
+      final datePart = rawWeek.contains('T') ? rawWeek.split('T').first : rawWeek.trim();
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(datePart)) {
+        final parts = datePart.split('-').map(int.parse).toList();
+        weekStart = DateTime(parts[0], parts[1], parts[2]);
+      } else {
+        final parsed = DateTime.tryParse(rawWeek);
+        if (parsed != null) weekStart = DateTime(parsed.year, parsed.month, parsed.day);
+      }
+    }
+
     return DietPlan(
       id: json['_id']?.toString(),
       coachId: json['coach'] is Map ? json['coach']['_id']?.toString() : json['coach']?.toString(),
@@ -224,6 +299,7 @@ class DietPlan {
       planType: json['planType']?.toString() == 'weekly' ? 'weekly' : 'single_day',
       targetDayOfWeek: (json['targetDayOfWeek'] as num?)?.toInt(),
       targetDayName: json['targetDayName']?.toString(),
+      weekStartDate: weekStart,
       meals: meals,
       days: days,
       todaysMeals: todays,
@@ -289,9 +365,12 @@ class DietPlan {
         'planType': planType,
         'dailyCalories': dailyCalories,
         'notes': notes,
-        if (isWeekly)
-          'days': days.map((d) => d.toJson()).toList()
-        else ...{
+        if (isWeekly) ...{
+          'days': days.map((d) => d.toJson()).toList(),
+          if (weekStartDate != null)
+            'weekStartDate':
+                '${weekStartDate!.year.toString().padLeft(4, '0')}-${weekStartDate!.month.toString().padLeft(2, '0')}-${weekStartDate!.day.toString().padLeft(2, '0')}',
+        } else ...{
           'meals': meals.map((m) => m.toJson()).toList(),
           if (targetDayOfWeek != null) 'targetDayOfWeek': targetDayOfWeek,
         },

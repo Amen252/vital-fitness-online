@@ -38,16 +38,40 @@ app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/api/health', async (req, res) => {
-  const { pingDatabase, scheduleConnectionRetry } = require('./config/db');
+  const {
+    pingDatabase,
+    scheduleConnectionRetry,
+    isDatabaseConnected,
+  } = require('./config/db');
   const databaseName = req.app.get('databaseName') || '';
-  let dbReady = !!req.app.get('dbReady');
+  let dbReady = !!req.app.get('dbReady') || isDatabaseConnected();
 
-  // readyState can stay "connected" after Atlas IP/TLS drops — verify with a ping.
+  // Verify with a ping, but never mark DB offline on a slow ping alone —
+  // Atlas on flaky DNS often exceeds ~1s and that was flipping the app to "degraded".
   if (dbReady) {
-    dbReady = await pingDatabase();
-    if (!dbReady) {
-      req.app.set('dbReady', false);
-      scheduleConnectionRetry(req.app);
+    try {
+      const result = await Promise.race([
+        pingDatabase().then((ok) => ({ done: true, ok: Boolean(ok) })),
+        new Promise((resolve) => setTimeout(() => resolve({ done: false }), 2500)),
+      ]);
+      if (result.done) {
+        dbReady = result.ok;
+        if (!dbReady) {
+          req.app.set('dbReady', false);
+          scheduleConnectionRetry(req.app);
+        } else {
+          req.app.set('dbReady', true);
+        }
+      } else {
+        // Timed out — trust mongoose readyState instead of forcing unavailable.
+        dbReady = isDatabaseConnected() || !!req.app.get('dbReady');
+      }
+    } catch {
+      dbReady = isDatabaseConnected();
+      if (!dbReady) {
+        req.app.set('dbReady', false);
+        scheduleConnectionRetry(req.app);
+      }
     }
   }
 

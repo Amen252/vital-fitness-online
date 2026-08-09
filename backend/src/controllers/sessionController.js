@@ -234,13 +234,23 @@ exports.updateSessionStatus = async (req, res) => {
       if (req.user.role === 'user') {
         return res.status(403).json({ message: 'Only coaches can start or complete sessions' });
       }
-      if (!sessionStartReached(session)) {
+      if (status === 'in_progress' && !sessionStartReached(session)) {
         return res.status(400).json({
-          message: status === 'completed'
-            ? 'Cannot complete a 1-on-1 session before its scheduled start time'
-            : 'Cannot start a 1-on-1 session before its scheduled start time',
+          message: 'Cannot start a 1-on-1 session before its scheduled start time',
           code: 'SESSION_NOT_STARTED_YET',
         });
+      }
+      if (status === 'completed' && !sessionEndReached(session)) {
+        return res.status(400).json({
+          message: 'Cannot complete a 1-on-1 session before its scheduled end time',
+          code: 'SESSION_NOT_ENDED_YET',
+        });
+      }
+      if (status === 'completed' && !['confirmed', 'rescheduled', 'in_progress'].includes(session.status)) {
+        return res.status(400).json({ message: 'Only active sessions can be completed' });
+      }
+      if (status === 'in_progress' && !['confirmed', 'rescheduled'].includes(session.status)) {
+        return res.status(400).json({ message: 'Only confirmed sessions can be started' });
       }
     }
 
@@ -329,6 +339,15 @@ function sessionStartReached(session, now = new Date()) {
   return now.getTime() >= start.getTime();
 }
 
+function sessionEndReached(session, now = new Date()) {
+  const start = new Date(session.date);
+  if (Number.isNaN(start.getTime())) return false;
+  const duration = Number(session.durationMinutes);
+  const minutes = Number.isFinite(duration) && duration > 0 ? duration : 60;
+  const end = new Date(start.getTime() + minutes * 60 * 1000);
+  return now.getTime() >= end.getTime();
+}
+
 exports.startSession = async (req, res) => {
   try {
     const session = await Session.findById(req.params.id);
@@ -414,10 +433,10 @@ exports.completeSession = async (req, res) => {
     if (!['confirmed', 'rescheduled', 'in_progress'].includes(session.status)) {
       return res.status(400).json({ message: 'Only active sessions can be completed' });
     }
-    if (!sessionStartReached(session)) {
+    if (!sessionEndReached(session)) {
       return res.status(400).json({
-        message: 'Cannot complete a 1-on-1 session before its scheduled start time',
-        code: 'SESSION_NOT_STARTED_YET',
+        message: 'Cannot complete a 1-on-1 session before its scheduled end time',
+        code: 'SESSION_NOT_ENDED_YET',
       });
     }
 

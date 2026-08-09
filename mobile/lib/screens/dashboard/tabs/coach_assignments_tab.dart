@@ -69,6 +69,13 @@ class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerPr
       }
     } catch (e) {
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      if (mounted && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 

@@ -32,14 +32,14 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
       if (!mounted) return;
       setState(() {
         _invite = invite;
-        _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = ApiService.friendlyError(e);
-        _loading = false;
       });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

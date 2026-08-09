@@ -162,11 +162,11 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
       if (mounted) {
         setState(() {
           _templates = list;
-          _loadingTemplates = false;
           _workoutTemplateId ??= list.isNotEmpty ? _templateId(Map<String, dynamic>.from(list.first as Map)) : null;
         });
       }
     } catch (_) {
+    } finally {
       if (mounted) setState(() => _loadingTemplates = false);
     }
   }
@@ -354,55 +354,54 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
     }
 
     setState(() => _submitting = true);
-    if (widget.existingPlan != null && _originalWeekStart != null && !_sameDay(_weekStart, _originalWeekStart!)) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Reschedule week?'),
-          content: const Text('Changing the week will cancel existing schedule entries and create new ones for the selected week.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reschedule')),
-          ],
-        ),
-      );
-      if (confirm != true) {
-        if (mounted) setState(() => _submitting = false);
-        return;
-      }
-    }
-
-    final workoutTitle = _selectedWorkout?['title']?.toString() ?? 'Weekly Workout Plan';
-    final payload = <String, dynamic>{
-      'title': _titleController.text.trim().isEmpty ? workoutTitle : _titleController.text.trim(),
-      'workoutTemplateId': _workoutTemplateId,
-      'weekStartDate': _fmtDate(_weekStart),
-      'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
-      'reminderEnabled': _reminderEnabled,
-      'reminderMinutesBefore': _reminderMinutes,
-      'days': List.generate(7, (i) {
-        final day = _days[i];
-        final exercises = _exercisesForDay(i);
-        final hasWorkout = day.enabled && !day.offDay && exercises.isNotEmpty;
-        return {
-          'dayOfWeek': i,
-          'enabled': hasWorkout,
-          'offDay': day.offDay,
-          if (hasWorkout) 'workoutTemplateId': _workoutTemplateId,
-          if (hasWorkout) 'exercises': exercises,
-          'startTime': _fmt(day.start),
-          'endTime': _fmt(day.end),
-          'notes': day.notes,
-        };
-      }),
-    };
-    if (_assignToGroup) {
-      payload['fitnessClassId'] = _classId;
-    } else {
-      payload['clientId'] = _clientId;
-    }
-
     try {
+      if (widget.existingPlan != null && _originalWeekStart != null && !_sameDay(_weekStart, _originalWeekStart!)) {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Reschedule week?'),
+            content: const Text('Changing the week will cancel existing schedule entries and create new ones for the selected week.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reschedule')),
+            ],
+          ),
+        );
+        if (confirm != true) {
+          return;
+        }
+      }
+
+      final workoutTitle = _selectedWorkout?['title']?.toString() ?? 'Weekly Workout Plan';
+      final payload = <String, dynamic>{
+        'title': _titleController.text.trim().isEmpty ? workoutTitle : _titleController.text.trim(),
+        'workoutTemplateId': _workoutTemplateId,
+        'weekStartDate': _fmtDate(_weekStart),
+        'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+        'reminderEnabled': _reminderEnabled,
+        'reminderMinutesBefore': _reminderMinutes,
+        'days': List.generate(7, (i) {
+          final day = _days[i];
+          final exercises = _exercisesForDay(i);
+          final hasWorkout = day.enabled && !day.offDay && exercises.isNotEmpty;
+          return {
+            'dayOfWeek': i,
+            'enabled': hasWorkout,
+            'offDay': day.offDay,
+            if (hasWorkout) 'workoutTemplateId': _workoutTemplateId,
+            if (hasWorkout) 'exercises': exercises,
+            'startTime': _fmt(day.start),
+            'endTime': _fmt(day.end),
+            'notes': day.notes,
+          };
+        }),
+      };
+      if (_assignToGroup) {
+        payload['fitnessClassId'] = _classId;
+      } else {
+        payload['clientId'] = _clientId;
+      }
+
       if (widget.existingPlan != null) {
         await widget.apiService.updateWeeklyWorkoutPlan(widget.existingPlan!['_id'].toString(), payload);
       } else {
@@ -413,9 +412,10 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
       widget.onSaved().catchError((_) {});
     } catch (e) {
       if (mounted) {
-        setState(() => _submitting = false);
         _err(ApiService.friendlyError(e));
       }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -453,9 +453,10 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _submitting = false);
         _err(ApiService.friendlyError(e));
       }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 

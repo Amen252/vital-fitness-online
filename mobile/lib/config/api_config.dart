@@ -92,7 +92,11 @@ class ApiConfig {
     return '$scheme://$_authority';
   }
 
-  /// Health / cold-start timeout. Render free tier often needs >3s to wake.
+  /// Health / cold-start timeout. Local Mongo can be slow; Render free tier needs longer wakes.
   static Duration get healthTimeout =>
-      isLocalOverride ? const Duration(seconds: 5) : const Duration(seconds: 45);
+      isLocalOverride ? const Duration(seconds: 15) : const Duration(seconds: 45);
+
+  /// Default timeout for authenticated API calls (prevents infinite loading).
+  static Duration get requestTimeout =>
+      isLocalOverride ? const Duration(seconds: 30) : const Duration(seconds: 45);
 }

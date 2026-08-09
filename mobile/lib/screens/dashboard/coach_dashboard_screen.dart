@@ -90,6 +90,7 @@ class _CoachDashboardScreenState extends State<CoachDashboardScreen> {
 
   void _onTabSelected(int index) {
     setState(() => _currentIndex = index);
+    // Soft refresh (isRefresh) keeps existing content visible — no full-screen spinner.
     if (index == 0) {
       _homeTabKey.currentState?.refresh();
     } else if (index == 1) {
@@ -254,7 +255,7 @@ class _CoachDashboardScreenState extends State<CoachDashboardScreen> {
                 _buildDrawerPush(Icons.task_alt_rounded, 'Workout Review', const CoachWorkoutReviewTab(), isDark),
                 const SizedBox(height: 8),
                 _drawerLabel('INSIGHTS', isDark),
-                _buildDrawerPush(Icons.show_chart_rounded, 'Progress Tracking', const CoachProgressTab(), isDark),
+                _buildDrawerPush(Icons.show_chart_rounded, 'Client Progress', const CoachProgressTab(), isDark),
                 _buildDrawerPush(Icons.analytics_rounded, 'Reports', const CoachReportsTab(), isDark),
                 const SizedBox(height: 8),
                 _drawerLabel('GENERAL', isDark),

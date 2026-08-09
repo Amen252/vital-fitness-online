@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const CoachAssignment = require('./models/CoachAssignment');
+const User = require('./models/User');
 const app = require('./app');
 const connectDB = require('./config/db');
 const {
@@ -63,7 +64,7 @@ process.once('SIGUSR2', () => {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
 
   if (!token) {
@@ -71,7 +72,21 @@ io.use((socket, next) => {
   }
 
   try {
-    socket.user = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    const user = await User.findById(decoded.id).select('_id role status must_change_password');
+    if (!user) {
+      return next(new Error('Unauthorized'));
+    }
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return next(new Error('Unauthorized'));
+    }
+    if (user.must_change_password) {
+      return next(new Error('Unauthorized'));
+    }
+    socket.user = {
+      id: String(user._id),
+      role: user.role,
+    };
     return next();
   } catch (error) {
     return next(new Error('Unauthorized'));
@@ -88,8 +103,10 @@ io.on('connection', (socket) => {
     const query = { _id: assignmentId };
     if (socket.user.role === 'coach') {
       query.coach = socket.user.id;
+      query.status = 'active';
     } else if (socket.user.role === 'user') {
       query.user = socket.user.id;
+      query.status = 'active';
     }
     // Admins bypass role check
 

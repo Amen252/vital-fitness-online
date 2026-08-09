@@ -26,8 +26,9 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
   }
 
   Future<void> _load() async {
+    final showFullLoader = _requests.isEmpty;
     setState(() {
-      _isLoading = true;
+      if (showFullLoader) _isLoading = true;
       _errorMessage = null;
     });
     try {
@@ -35,16 +36,16 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
       if (mounted) {
         setState(() {
           _requests = List<dynamic>.from(requests);
-          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = e.toString().replaceAll('Exception: ', '');
-          _isLoading = false;
         });
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

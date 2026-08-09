@@ -54,6 +54,13 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
       }
     } catch (e) {
       finishTabError(e, isRefresh: isRefresh);
+    } finally {
+      if (mounted && (tabIsLoading || tabIsRefreshing)) {
+        setState(() {
+          tabIsLoading = false;
+          tabIsRefreshing = false;
+        });
+      }
     }
   }
 

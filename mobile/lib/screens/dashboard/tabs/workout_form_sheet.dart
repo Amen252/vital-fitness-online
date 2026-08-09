@@ -84,6 +84,7 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
   final _customExerciseController = TextEditingController();
 
   bool _isSubmitting = false;
+  bool _libraryLoading = true;
   String _level = 'Beginner';
   List<dynamic> _exerciseLibrary = [];
   final Set<String> _selectedLibrary = {};
@@ -116,10 +117,15 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
   }
 
   Future<void> _loadLibrary() async {
+    setState(() => _libraryLoading = true);
     try {
       final lib = await widget.apiService.getExerciseLibrary();
       if (mounted) setState(() => _exerciseLibrary = lib);
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _exerciseLibrary = []);
+    } finally {
+      if (mounted) setState(() => _libraryLoading = false);
+    }
   }
 
   void _addFromLibrary(String name) {
@@ -189,11 +195,12 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ApiService.friendlyError(e)), backgroundColor: CoachDashboardTheme.danger),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -270,8 +277,10 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
                     const SizedBox(height: 20),
                     Text('Exercise library', style: CoachDashboardTheme.sectionTitle(isDark)),
                     const SizedBox(height: 8),
-                    if (_exerciseLibrary.isEmpty)
-                      Text('Loading...', style: TextStyle(color: isDark ? Colors.white54 : Colors.grey))
+                    if (_libraryLoading)
+                      Text('Loading exercises…', style: TextStyle(color: isDark ? Colors.white54 : Colors.grey))
+                    else if (_exerciseLibrary.isEmpty)
+                      Text('No library exercises yet — add custom ones below.', style: TextStyle(color: isDark ? Colors.white54 : Colors.grey))
                     else
                       Wrap(
                         spacing: 6,

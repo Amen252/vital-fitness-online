@@ -62,9 +62,9 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
         _clientData = {..._clientData, ...detail};
         _groups = _parseGroups(detail['groups']);
         _availableClasses = classes;
-        _loadingGroups = false;
       });
     } catch (_) {
+    } finally {
       if (mounted) setState(() => _loadingGroups = false);
     }
   }
@@ -83,7 +83,6 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
       if (!mounted) return;
       setState(() {
         _groups = _parseGroups(result['groups']);
-        _updatingGroup = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -93,13 +92,14 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _updatingGroup = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(ApiService.friendlyError(e)),
           backgroundColor: CoachDashboardTheme.danger,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _updatingGroup = false);
     }
   }
 
@@ -343,7 +343,7 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
                 Expanded(
                   child: _ActionButton(
                     icon: Icons.show_chart_rounded,
-                    label: 'Progress',
+                    label: 'Client Progress',
                     color: CoachDashboardTheme.success,
                     onTap: () {
                       Navigator.push(

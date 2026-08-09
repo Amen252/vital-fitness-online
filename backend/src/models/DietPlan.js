@@ -24,6 +24,8 @@ const mealSchema = new mongoose.Schema({
 
 const dietDaySchema = new mongoose.Schema({
   dayOfWeek: { type: Number, required: true, min: 0, max: 6 }, // 0 = Monday
+  /** Calendar date for this weekday within the plan week (derived from weekStartDate). */
+  date: { type: Date, default: null },
   meals: [mealSchema],
   notes: { type: String, default: '' },
 }, { _id: true });
@@ -46,6 +48,11 @@ const dietPlanSchema = new mongoose.Schema({
   },
   /** For single_day plans: which weekday (0=Mon…6=Sun) this plan targets */
   targetDayOfWeek: { type: Number, min: 0, max: 6, default: null },
+  /**
+   * Weekly plans only: Monday of the plan week (date-only UTC noon storage).
+   * Each days[].date is derived from this — one Weekly Diet Plan, not 7 separate plans.
+   */
+  weekStartDate: { type: Date, default: null },
   meals: [mealSchema],
   days: [dietDaySchema],
   dailyCalories: { type: Number, required: true, min: 1 },

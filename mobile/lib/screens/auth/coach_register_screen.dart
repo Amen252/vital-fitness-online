@@ -1295,7 +1295,6 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
 
       if (!mounted) return;
       setState(() {
-        _validatingCertificates = false;
         if (additions.isNotEmpty) {
           _certificates.addAll(additions);
           _errorMessage = lastError;
@@ -1306,9 +1305,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       });
     } catch (e) {
       if (mounted) {
-        setState(() => _validatingCertificates = false);
         _showError('Could not pick certificates. Try again.');
       }
+    } finally {
+      if (mounted) setState(() => _validatingCertificates = false);
     }
   }
 

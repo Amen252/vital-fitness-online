@@ -160,9 +160,10 @@ class _WorkoutScheduleFormSheetState extends State<WorkoutScheduleFormSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSubmitting = false);
         _showError(ApiService.friendlyError(e));
       }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

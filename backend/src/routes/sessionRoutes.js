@@ -17,6 +17,7 @@ const {
 } = require('../controllers/sessionController');
 const auth = require('../middleware/auth');
 const roles = require('../middleware/roles');
+const requireApprovedCoach = require('../middleware/requireApprovedCoach');
 
 const router = express.Router();
 
@@ -26,16 +27,22 @@ router.get('/', auth, getSessions);
 router.patch('/:id/status', auth, updateSessionStatus);
 
 // Additive 1-on-1 coach/member actions (Session collection only)
-router.patch('/:id/confirm', auth, roles('coach'), confirmSession);
-router.patch('/:id/reschedule', auth, roles('coach'), rescheduleSession);
-router.patch('/:id/start', auth, roles('coach'), startSession);
-router.patch('/:id/meeting-link', auth, roles('coach'), updateMeetingLink);
-router.patch('/:id/complete', auth, roles('coach'), completeSession);
-router.patch('/:id/cancel', auth, roles('user', 'coach'), cancelSession);
-router.patch('/:id/notes', auth, roles('coach'), updateSessionNotes);
-router.patch('/:id', auth, roles('coach'), updateSession);
-router.delete('/:id', auth, roles('coach', 'admin'), deleteSession);
-router.post('/:id/attachments', auth, roles('coach'), addSessionAttachment);
-router.post('/:id/follow-up', auth, roles('coach'), createFollowUpSession);
+router.patch('/:id/confirm', auth, roles('coach'), requireApprovedCoach, confirmSession);
+router.patch('/:id/reschedule', auth, roles('coach'), requireApprovedCoach, rescheduleSession);
+router.patch('/:id/start', auth, roles('coach'), requireApprovedCoach, startSession);
+router.patch('/:id/meeting-link', auth, roles('coach'), requireApprovedCoach, updateMeetingLink);
+router.patch('/:id/complete', auth, roles('coach'), requireApprovedCoach, completeSession);
+router.patch('/:id/cancel', auth, roles('user', 'coach'), (req, res, next) => {
+  if (req.user.role === 'user') return next();
+  return requireApprovedCoach(req, res, next);
+}, cancelSession);
+router.patch('/:id/notes', auth, roles('coach'), requireApprovedCoach, updateSessionNotes);
+router.patch('/:id', auth, roles('coach'), requireApprovedCoach, updateSession);
+router.delete('/:id', auth, roles('coach', 'admin'), (req, res, next) => {
+  if (req.user.role === 'admin') return next();
+  return requireApprovedCoach(req, res, next);
+}, deleteSession);
+router.post('/:id/attachments', auth, roles('coach'), requireApprovedCoach, addSessionAttachment);
+router.post('/:id/follow-up', auth, roles('coach'), requireApprovedCoach, createFollowUpSession);
 
 module.exports = router;
