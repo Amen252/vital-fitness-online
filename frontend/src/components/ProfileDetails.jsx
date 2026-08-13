@@ -47,8 +47,7 @@ export default function ProfileDetails({ profile, extras = [] }) {
             >
               View photo
             </a>
-          ),
-        }
+          ) }
       : null,
     { label: "Phone", value: profile.phone },
     { label: "Location", value: profile.location },
@@ -62,8 +61,7 @@ export default function ProfileDetails({ profile, extras = [] }) {
     {
       label: "Specialization",
       value: formatList(profile.specialization),
-      fullWidth: true,
-    },
+      fullWidth: true },
     { label: "Working days", value: formatList(profile.workingDays) },
     { label: "Appointment days", value: formatList(profile.appointmentDays) },
     {
@@ -71,20 +69,17 @@ export default function ProfileDetails({ profile, extras = [] }) {
       value:
         profile.workingHoursStart || profile.workingHoursEnd
           ? `${profile.workingHoursStart || "—"} – ${profile.workingHoursEnd || "—"}`
-          : null,
-    },
+          : null },
     {
       label: "Appointment duration",
       value:
         profile.appointmentDurationMinutes != null
           ? `${profile.appointmentDurationMinutes} min`
-          : null,
-    },
+          : null },
     {
       label: "Day availability",
       value: formatDayAvailability(profile.dayAvailability),
-      fullWidth: true,
-    },
+      fullWidth: true },
     { label: "Bio", value: profile.bio, fullWidth: true },
     ...extras,
   ].filter(Boolean);

@@ -20,7 +20,7 @@ void main() async {
   // Never block app launch on a hung /auth/me — show login if session check fails.
   User? initialUser;
   try {
-    initialUser = await apiService.getMe().timeout(const Duration(seconds: 15));
+    initialUser = await apiService.getMe().timeout(const Duration(seconds: 8));
   } catch (_) {
     initialUser = null;
   }

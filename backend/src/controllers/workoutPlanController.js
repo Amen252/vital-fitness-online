@@ -453,7 +453,7 @@ async function sendWorkoutReminder(req, res) {
 
     await notifyUsers(
       targetIds,
-      `Workout reminder: "${plan.title}" is waiting for you. Don't forget to complete it!`,
+      `Workout reminder: "${plan.title}" is ready. Don't forget to complete it!`,
       'reminder',
     );
 

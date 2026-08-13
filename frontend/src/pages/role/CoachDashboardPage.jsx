@@ -2,7 +2,7 @@ import { CalendarDays, Dumbbell, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { getErrorMessage } from "../../api/client";
-import { Button, Card, Spinner } from "../../components/ui";
+import { Button, Card } from "../../components/ui";
 import { formatWhen } from "./roleHelpers";
 
 export async function fetchCoachDashboard() {
@@ -54,7 +54,7 @@ export default function CoachDashboardPage() {
         <p className="mt-2 text-white/85">Welcome back. Your coaching workspace is ready.</p>
       </div>
 
-      {loading ? <div className="mt-5"><Spinner label="Loading coach data…" /></div> : null}
+      
       {!loading && error ? (
         <div className="mt-5 space-y-3">
           <p className="text-sm text-[var(--vf-danger)]">{error}</p>

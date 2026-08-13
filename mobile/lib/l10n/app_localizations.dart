@@ -34,13 +34,15 @@ class AppLocalizations {
 
   static AppLocalizations of(BuildContext context) {
     final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
-    assert(l10n != null, 'AppLocalizations not found in context');
-    return l10n!;
+    if (l10n != null) return l10n;
+    // Fallback so a missing delegate never red-screens the app.
+    return AppLocalizations(Localizations.maybeLocaleOf(context) ?? const Locale('en'));
   }
 
   static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
 
-  String _t(Map<String, String> values) => values[locale.languageCode] ?? values['en']!;
+  String _t(Map<String, String> values) =>
+      values[locale.languageCode] ?? values['en'] ?? values.values.first;
 
   String get appTitle => _t({
         'en': 'VitalFitness',

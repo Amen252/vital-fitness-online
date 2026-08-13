@@ -4,6 +4,7 @@ import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../dashboard/widgets/coach_home/coach_dashboard_theme.dart';
 import '../widgets/admin_management_widgets.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class AdminMemberDetailScreen extends StatefulWidget {
   final String userId;
@@ -82,9 +83,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -95,7 +94,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> {
                     ],
                   ),
                 )
-              : RefreshIndicator(
+              : SilentRefreshIndicator(
                   onRefresh: _load,
                   color: CoachDashboardTheme.primary,
                   child: ScrollableBody(

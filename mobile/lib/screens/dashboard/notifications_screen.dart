@@ -278,10 +278,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: const SizedBox.shrink(),
                               )
                             : const Icon(Icons.check_circle_outline_rounded),
-                        label: Text(completing ? 'Saving…' : 'Mark meal completed'),
+                        label: Text('Mark meal completed'),
                       ),
                     const SizedBox(height: 8),
                     TextButton(
@@ -390,19 +390,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           IconButton(
             tooltip: 'Refresh',
             onPressed: (_isLoading || _isRefreshing) ? null : () => _fetchNotifications(isRefresh: true),
-            icon: _isRefreshing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      body: _isLoading
-          ? const LottieLoadingCenter()
-          : _errorMessage != null
+      body: _errorMessage != null
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),

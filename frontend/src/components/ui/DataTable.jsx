@@ -16,8 +16,7 @@ export function DataTable({
   emptyDescription = "Try adjusting filters or check back later.",
   emptyIcon,
   filters,
-  onRowClick,
-}) {
+  onRowClick }) {
   const [query, setQuery] = useState(initialQuery);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);

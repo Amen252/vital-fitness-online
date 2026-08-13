@@ -9,9 +9,7 @@ import {
   Button,
   DataTable,
   ErrorState,
-  PageHeader,
-  Spinner,
-} from "../components/ui";
+  PageHeader } from "../components/ui";
 
 function formatWhen(value) {
   if (!value) return "—";
@@ -59,8 +57,7 @@ export default function CoachingProgressPage({ embedded = false }) {
             </Link>
             <p className="text-xs text-[var(--vf-muted)]">@{row.coach?.username}</p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "client",
         header: "Client",
@@ -73,8 +70,7 @@ export default function CoachingProgressPage({ embedded = false }) {
             </Link>
             <p className="text-xs text-[var(--vf-muted)]">@{row.client?.username}</p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "loggedWeight",
         header: "Logged weight",
@@ -84,8 +80,7 @@ export default function CoachingProgressPage({ embedded = false }) {
               {row.progress?.weightKg != null ? `${row.progress.weightKg} kg` : "No weight logged"}
             </p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "progress",
         header: "Recent progress (7 logs)",
@@ -93,11 +88,10 @@ export default function CoachingProgressPage({ embedded = false }) {
           <div className="text-sm">
             <p>In {Math.round(row.progress?.caloriesIn || 0)} · Out {Math.round(row.progress?.caloriesOut || 0)}</p>
             <p className="text-xs text-[var(--vf-muted)]">
-              Water {(Math.round((row.progress?.hydrationMl || 0) / 100) / 10)} L · {row.progress?.logCount || 0} logs
+              Water Math.round((row.progress?.hydrationMl || 0) / 100) / 10 L · {row.progress?.logCount || 0} logs
             </p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "appointments",
         header: "Appointments",
@@ -111,14 +105,12 @@ export default function CoachingProgressPage({ embedded = false }) {
               Next: {row.appointments?.next ? formatWhen(row.appointments.next.dateTime) : "—"}
             </p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "assignedAt",
         header: "Linked",
         sortable: true,
-        render: (row) => formatWhen(row.assignedAt),
-      },
+        render: (row) => formatWhen(row.assignedAt) },
     ],
     [],
   );
@@ -145,7 +137,7 @@ export default function CoachingProgressPage({ embedded = false }) {
         />
       )}
 
-      {loading ? <Spinner label="Loading coaching progress…" /> : null}
+      
       {error ? <ErrorState message={error} onRetry={load} /> : null}
       {!loading && !error ? (
         <DataTable

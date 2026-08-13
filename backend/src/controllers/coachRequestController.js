@@ -1,5 +1,6 @@
 const CoachRequest = require('../models/CoachRequest');
 const CoachAssignment = require('../models/CoachAssignment');
+const CoachClientAssignment = require('../models/CoachClientAssignment');
 const FitnessClass = require('../models/FitnessClass');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
@@ -24,11 +25,11 @@ async function submitCoachRequest(req, res) {
       return res.status(404).json({ message: 'Coach not found' });
     }
 
-    const activeAssignment = await CoachAssignment.findOne({
-      user: req.user._id,
-      status: 'active',
-    });
-    if (activeAssignment) {
+    const [legacyAssignment, modernAssignment] = await Promise.all([
+      CoachAssignment.findOne({ user: req.user._id, status: 'active' }).select('_id'),
+      CoachClientAssignment.findOne({ user_id: req.user._id, status: 'active' }).select('_id'),
+    ]);
+    if (legacyAssignment || modernAssignment) {
       return res.status(400).json({ message: 'You already have an assigned coach' });
     }
 

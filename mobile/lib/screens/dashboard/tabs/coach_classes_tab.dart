@@ -7,6 +7,7 @@ import '../../../widgets/profile_avatar.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import 'coach_class_detail_screen.dart';
 import 'coach_session_detail_sheet.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachClassesTab extends StatefulWidget {
   const CoachClassesTab({super.key});
@@ -457,9 +458,7 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: showInitialLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.accent))
-          : showInitialError
+      body: showInitialError
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -482,7 +481,7 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
 
   Widget _buildGroupClassesList(bool isDark) {
     if (_classes.isEmpty) {
-      return RefreshIndicator(
+      return SilentRefreshIndicator(
         onRefresh: () => _fetchData(isRefresh: true),
         color: CoachDashboardTheme.primary,
         child: refreshableScrollChild(
@@ -522,7 +521,7 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
       );
     }
 
-    return RefreshIndicator(
+    return SilentRefreshIndicator(
       onRefresh: () => _fetchData(isRefresh: true),
       color: CoachDashboardTheme.primary,
       child: ListView.builder(
@@ -590,7 +589,7 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
 
   Widget _buildSessionsList(bool isDark) {
     if (_sessions.isEmpty) {
-      return RefreshIndicator(
+      return SilentRefreshIndicator(
         onRefresh: () => _fetchData(isRefresh: true),
         color: CoachDashboardTheme.primary,
         child: refreshableScrollChild(
@@ -605,7 +604,7 @@ class CoachClassesTabState extends State<CoachClassesTab> with SingleTickerProvi
       );
     }
 
-    return RefreshIndicator(
+    return SilentRefreshIndicator(
       onRefresh: () => _fetchData(isRefresh: true),
       color: CoachDashboardTheme.primary,
       child: ListView.builder(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../services/api_service.dart';
+import '../../../utils/section_data_cache.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 
@@ -20,9 +21,16 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
   List<dynamic> _pending = [];
   String? _error;
 
+  static const _cacheKey = 'coach_workout_review';
+
   @override
   void initState() {
     super.initState();
+    final cached = SectionDataCache.get<List<dynamic>>(_cacheKey);
+    if (cached != null) {
+      _pending = List<dynamic>.from(cached);
+      _isLoading = false;
+    }
     _load();
   }
 
@@ -41,6 +49,7 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
           _pending = data;
         });
       }
+      SectionDataCache.put(_cacheKey, data);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -143,9 +152,7 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
     return CoachPage(
       title: 'Workout Review',
       actions: [IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _load)],
-      body: _isLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null && _pending.isEmpty
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -160,15 +167,16 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
                   ? CoachDashboardTheme.emptyState(
                       icon: Icons.task_alt_rounded,
                       title: 'All caught up',
-                      message: 'No workout submissions awaiting review.',
+                      message: 'No workout submissions pending review.',
                       isDark: isDark,
                     )
                   : ListView.builder(
                       physics: dashboardScrollPhysics,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                      itemCount: _pending.length,
+                      itemCount: _pending.whereType<Map>().length,
                       itemBuilder: (context, index) {
-                        final item = Map<String, dynamic>.from(_pending[index] as Map);
+                        final maps = _pending.whereType<Map>().toList();
+                        final item = Map<String, dynamic>.from(maps[index]);
                         final userMap = item['user'] is Map
                             ? Map<dynamic, dynamic>.from(item['user'] as Map)
                             : null;

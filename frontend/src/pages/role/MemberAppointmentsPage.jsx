@@ -2,7 +2,7 @@ import { CalendarDays, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getUserAppointments, cancelUserAppointment } from "../../api/memberApi";
 import { getErrorMessage } from "../../api/client";
-import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
+import { Badge, Button, Card, useToast } from "../../components/ui";
 import { formatWhen } from "./roleHelpers";
 
 const STATUS_TONE = {
@@ -11,8 +11,7 @@ const STATUS_TONE = {
   completed: "blue",
   rejected: "red",
   cancelled: "red",
-  rescheduled: "amber",
-};
+  rescheduled: "amber" };
 
 const STATUS_ICON = {
   approved: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
@@ -20,8 +19,7 @@ const STATUS_ICON = {
   pending: <Clock className="h-4 w-4 text-amber-500" />,
   rescheduled: <Clock className="h-4 w-4 text-amber-500" />,
   rejected: <XCircle className="h-4 w-4 text-red-500" />,
-  cancelled: <XCircle className="h-4 w-4 text-red-400" />,
-};
+  cancelled: <XCircle className="h-4 w-4 text-red-400" /> };
 
 export default function MemberAppointmentsPage() {
   const toast = useToast();
@@ -78,8 +76,7 @@ export default function MemberAppointmentsPage() {
       const dt = new Date(a.dateTime || a.datetime);
       return dt >= now && ["pending", "approved", "rescheduled"].includes(a.status);
     }).length,
-    completed: appointments.filter((a) => a.status === "completed").length,
-  };
+    completed: appointments.filter((a) => a.status === "completed").length };
 
   return (
     <>
@@ -123,17 +120,12 @@ export default function MemberAppointmentsPage() {
               <option value="all">All</option>
             </select>
             <Button size="sm" variant="secondary" onClick={load} disabled={loading}>
-              {loading ? "…" : "Refresh"}
+              {"Refresh"}
             </Button>
           </div>
         </div>
 
-        {loading ? (
-          <div className="mt-6">
-            <Spinner label="Loading appointments…" />
-          </div>
-        ) : (
-          <ul className="mt-4 space-y-3">
+        <ul className="mt-4 space-y-3">
             {filtered.length === 0 ? (
               <li className="rounded-[12px] border border-[var(--vf-border)] px-4 py-10 text-center">
                 <CalendarDays className="mx-auto h-8 w-8 text-[var(--vf-muted)]" />
@@ -194,7 +186,6 @@ export default function MemberAppointmentsPage() {
               })
             )}
           </ul>
-        )}
       </Card>
     </>
   );

@@ -947,7 +947,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               ),
             ),
           if (_loadingSaved)
-            const LinearProgressIndicator(minHeight: 2, color: CoachDashboardTheme.primary),
+            const SizedBox.shrink(),
           Expanded(
             child: PageView(
               controller: _pageController,
@@ -1054,13 +1054,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             child: ElevatedButton(
               style: CoachDashboardTheme.primaryButtonStyle(),
               onPressed: _isSubmitting || _loadingSaved ? null : _nextStep,
-              child: _isSubmitting
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : Text(isLastStep ? (_isReapply ? 'Resubmit Application' : 'Submit Application') : 'Continue'),
+              child: Text(isLastStep ? (_isReapply ? 'Resubmit Application' : 'Submit Application') : 'Continue'),
             ),
           ),
         ],
@@ -1437,17 +1431,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             onPressed: (totalCount >= _maxCertificates || _validatingCertificates)
                 ? null
                 : _pickCertificates,
-            icon: _validatingCertificates
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.upload_file_rounded),
+            icon: const Icon(Icons.upload_file_rounded),
             label: Text(
-              _validatingCertificates
-                  ? 'Uploading & verifying name…'
-                  : (totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
+              (totalCount == 0 ? 'Upload certificates' : 'Add more certificates'),
             ),
           ),
           if (totalCount > 0)

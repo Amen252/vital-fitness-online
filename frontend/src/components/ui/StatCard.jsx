@@ -6,8 +6,7 @@ export function StatCard({ label, value, hint, icon: Icon, tone = "primary" }) {
     accent: "from-[#0284C7] to-[#0EA5E9]",
     success: "from-[#047857] to-[#059669]",
     warning: "from-[#B45309] to-[#D97706]",
-    pink: "from-[#BE185D] to-[#DB2777]",
-  };
+    pink: "from-[#BE185D] to-[#DB2777]" };
 
   return (
     <div className="vf-card group relative overflow-hidden p-5 transition duration-200 hover:-translate-y-0.5 hover:shadow-md vf-animate-in">

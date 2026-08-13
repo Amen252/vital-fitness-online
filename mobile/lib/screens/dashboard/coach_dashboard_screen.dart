@@ -125,7 +125,14 @@ class _CoachDashboardScreenState extends State<CoachDashboardScreen> {
   void _onNavigate(int index) => _onTabSelected(index);
 
   void _openSection(Widget screen) {
-    AppNavigator.push(context, screen);
+    AppNavigator.push(context, screen).then((_) {
+      if (!mounted) return;
+      _homeTabKey.currentState?.refresh();
+      _clientsTabKey.currentState?.refresh();
+      _classesTabKey.currentState?.refresh();
+      _loadPendingRequestCount();
+      _loadUnreadMessageCount();
+    });
   }
 
   void _onCoachUpdated(User updated) => setState(() => _currentCoach = updated);

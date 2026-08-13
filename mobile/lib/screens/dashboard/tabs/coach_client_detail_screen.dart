@@ -5,6 +5,7 @@ import '../../../services/api_service.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import '../chat_screen.dart';
 import 'coach_progress_tab.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachClientDetailScreen extends StatefulWidget {
   final Map<String, dynamic> clientData;
@@ -287,7 +288,7 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
 
     return CoachPage(
       title: name,
-      body: RefreshIndicator(
+      body: SilentRefreshIndicator(
         onRefresh: _loadGroupData,
         color: CoachDashboardTheme.primary,
         child: ListView(
@@ -427,7 +428,7 @@ class _CoachClientDetailScreenState extends State<CoachClientDetailScreen> {
               const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
+                child: const SizedBox.shrink(),
               )
             else
               TextButton.icon(

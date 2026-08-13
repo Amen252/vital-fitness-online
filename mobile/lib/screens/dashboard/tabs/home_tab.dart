@@ -108,66 +108,95 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
     }
 
     try {
-      final results = await Future.wait<dynamic>([
-        _safe(() => _apiService.getProgress()),
-        _safe(() => _apiService.getUserCoaching()),
-        _safe(() => _apiService.getUserDietProgress(days: 7)),
-        _safe(() => _apiService.getDietPlan()),
-        _safe(() => _apiService.getUserWorkoutSchedules()),
-        _safe(() => _apiService.getUserWorkoutProgress(days: 30)),
-        _safe(() => _apiService.getUserDashboard()),
+      ProgressData? progress;
+      Map<String, dynamic>? coaching;
+      Map<String, dynamic>? dietPayload;
+      Map<String, dynamic>? dietPlanPayload;
+      Map<String, dynamic>? schedules;
+      Map<String, dynamic>? workoutProgress;
+      Map<String, dynamic>? userDash;
+      var paintedOnce = false;
+
+      void paintPartial() {
+        if (!mounted || seq != _loadSeq) return;
+        final dietToday = dietPayload?['today'] is Map
+            ? Map<String, dynamic>.from(dietPayload!['today'] as Map)
+            : (dietPlanPayload?['today'] is Map
+                ? Map<String, dynamic>.from(dietPlanPayload!['today'] as Map)
+                : null);
+        final dietPlan = dietPlanPayload?['plan'] is Map
+            ? Map<String, dynamic>.from(dietPlanPayload!['plan'] as Map)
+            : (dietPayload?['plan'] is Map
+                ? Map<String, dynamic>.from(dietPayload!['plan'] as Map)
+                : null);
+        final todayWorkouts = schedules != null ? _parseTodayWorkouts(schedules) : _todayWorkouts;
+        final summaryRaw = workoutProgress?['summary'];
+        final summary = summaryRaw is Map ? Map<String, dynamic>.from(summaryRaw) : null;
+        final workoutPct = (summary?['completionPercent'] as num?)?.toInt();
+        final steps = userDash != null ? _extractTodaySteps(userDash) : _stepsToday;
+        final hr = (userDash != null || progress != null)
+            ? _extractHeartRate(userDash, progress)
+            : _heartRate;
+
+        setState(() {
+          if (progress != null) _progressData = progress;
+          if (coaching != null) _coachingData = coaching;
+          if (dietToday != null || dietPlanPayload != null) _dietToday = dietToday;
+          if (dietPlan != null || dietPlanPayload != null) _dietPlan = dietPlan;
+          if (schedules != null) _todayWorkouts = todayWorkouts;
+          if (workoutPct != null) _workoutCompletionPercent = workoutPct.clamp(0, 100);
+          if (userDash != null) _stepsToday = steps;
+          if (userDash != null || progress != null) _heartRate = hr;
+          _hasLoadedOnce = true;
+          _errorMessage = null;
+          _isLoading = false;
+          _isRefreshing = false;
+          _mealTick++;
+        });
+        if (!paintedOnce) {
+          paintedOnce = true;
+          if (!hadData && !isRefresh) {
+            _animController.forward(from: 0);
+          } else {
+            _animController.value = 1.0;
+          }
+        }
+      }
+
+      // Paint as soon as the first useful payload arrives; do not wait for all 7.
+      await Future.wait<void>([
+        _safe(() => _apiService.getProgress()).then((v) {
+          progress = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getUserCoaching()).then((v) {
+          coaching = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getUserDietProgress(days: 7)).then((v) {
+          dietPayload = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getDietPlan()).then((v) {
+          dietPlanPayload = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getUserWorkoutSchedules()).then((v) {
+          schedules = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getUserWorkoutProgress(days: 30)).then((v) {
+          workoutProgress = v;
+          paintPartial();
+        }),
+        _safe(() => _apiService.getUserDashboard()).then((v) {
+          userDash = v;
+          paintPartial();
+        }),
       ]).timeout(_homeLoadTimeout);
 
       if (!mounted || seq != _loadSeq) return;
-
-      final progress = results[0] as ProgressData?;
-      final coaching = results[1] as Map<String, dynamic>?;
-      final dietPayload = results[2] as Map<String, dynamic>?;
-      final dietPlanPayload = results[3] as Map<String, dynamic>?;
-      final schedules = results[4] as Map<String, dynamic>?;
-      final workoutProgress = results[5] as Map<String, dynamic>?;
-      final userDash = results[6] as Map<String, dynamic>?;
-
-      final dietToday = dietPayload?['today'] is Map
-          ? Map<String, dynamic>.from(dietPayload!['today'] as Map)
-          : (dietPlanPayload?['today'] is Map
-              ? Map<String, dynamic>.from(dietPlanPayload!['today'] as Map)
-              : null);
-      // Prefer /diet/plan (active assigned plan) so reminder times stay in sync.
-      final dietPlan = dietPlanPayload?['plan'] is Map
-          ? Map<String, dynamic>.from(dietPlanPayload!['plan'] as Map)
-          : (dietPayload?['plan'] is Map
-              ? Map<String, dynamic>.from(dietPayload!['plan'] as Map)
-              : null);
-
-      final todayWorkouts = _parseTodayWorkouts(schedules);
-      final summary = workoutProgress?['summary'] as Map<String, dynamic>?;
-      final workoutPct = (summary?['completionPercent'] as num?)?.toInt() ?? 0;
-      final steps = _extractTodaySteps(userDash);
-      final hr = _extractHeartRate(userDash, progress);
-
-      // Always leave the spinner — show dashboard even when APIs return empty.
-      setState(() {
-        if (progress != null) _progressData = progress;
-        _coachingData = coaching;
-        _dietToday = dietToday;
-        _dietPlan = dietPlan; // null clears reminder when plan is inactive/replaced
-        _todayWorkouts = todayWorkouts;
-        _workoutCompletionPercent = workoutPct.clamp(0, 100);
-        _stepsToday = steps;
-        _heartRate = hr;
-        _hasLoadedOnce = true;
-        _errorMessage = null;
-        _isLoading = false;
-        _isRefreshing = false;
-        _mealTick++;
-      });
-
-      if (!hadData && !isRefresh) {
-        _animController.forward(from: 0);
-      } else {
-        _animController.value = 1.0;
-      }
+      if (!paintedOnce) paintPartial();
 
       if (showFeedback && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -538,15 +567,12 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final showInitialLoading = _isLoading && !_hasLoadedOnce;
     final showInitialError = !_isLoading && _errorMessage != null && !_hasContent;
 
     return Scaffold(
       backgroundColor: CoachDashboardTheme.homeBackground(isDark),
       body: AnimatedContentSwitcher(
-        child: showInitialLoading
-            ? const LottieLoadingCenter(key: ValueKey('loading'))
-            : showInitialError
+        child: showInitialError
                 ? _buildError(key: const ValueKey('error'))
                 : FadeTransition(
                     key: const ValueKey('content'),
@@ -561,7 +587,6 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                             sliver: SliverList(
                               delegate: SliverChildListDelegate([
-                                if (_isRefreshing) const LinearProgressIndicator(minHeight: 2),
                                 if (_isRefreshing) const SizedBox(height: 10),
                                 _sectionLabel(isDark, 'Today at a glance'),
                                 const SizedBox(height: 8),
@@ -849,12 +874,7 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
         const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: value,
-            minHeight: 8,
-            backgroundColor: isDark ? Colors.white12 : Colors.black12,
-            color: color,
-          ),
+          child: const SizedBox.shrink(),
         ),
       ],
     );
@@ -1241,14 +1261,7 @@ class HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: _workoutsPlanned > 0
-                      ? (_workoutsCompleted / _workoutsPlanned).clamp(0.0, 1.0)
-                      : (_workoutCompletionPercent / 100).clamp(0.0, 1.0),
-                  minHeight: 6,
-                  backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                  color: CoachDashboardTheme.primary,
-                ),
+                child: const SizedBox.shrink(),
               ),
             ),
           ],

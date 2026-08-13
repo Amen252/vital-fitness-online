@@ -31,13 +31,11 @@ export function Button({
     accent: "bg-[var(--vf-accent)] text-white hover:brightness-110",
     danger: "bg-[var(--vf-danger)] text-white hover:brightness-110",
     ghost:
-      "bg-transparent text-[var(--vf-muted)] hover:bg-[var(--vf-surface-muted)] hover:text-[var(--vf-text)]",
-  };
+      "bg-transparent text-[var(--vf-muted)] hover:bg-[var(--vf-surface-muted)] hover:text-[var(--vf-text)]" };
   const sizes = {
     sm: "px-3 py-1.5 text-xs",
     md: "px-4 py-2.5 text-sm",
-    lg: "px-5 py-3 text-sm",
-  };
+    lg: "px-5 py-3 text-sm" };
 
   return (
     <button
@@ -65,8 +63,7 @@ export function Badge({ children, tone = "slate", className }) {
     amber:
       "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
     red: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
-    blue: "bg-[color-mix(in_srgb,var(--vf-accent)_14%,white)] text-[var(--vf-accent)] dark:bg-[color-mix(in_srgb,var(--vf-accent)_22%,black)] dark:text-[#7dd3fc]",
-  };
+    blue: "bg-[color-mix(in_srgb,var(--vf-accent)_14%,white)] text-[var(--vf-accent)] dark:bg-[color-mix(in_srgb,var(--vf-accent)_22%,black)] dark:text-[#7dd3fc]" };
   return (
     <span
       className={cn(
@@ -81,7 +78,7 @@ export function Badge({ children, tone = "slate", className }) {
 }
 
 export function Skeleton({ className }) {
-  return <div className={cn("vf-skeleton", className)} />;
+  return null;
 }
 
 export function PageHeader({ title, subtitle, action, breadcrumbs }) {
@@ -136,20 +133,10 @@ export function ErrorState({ message, onRetry }) {
 }
 
 export function LoadingBlock({ rows = 4 }) {
-  return (
-    <div className="space-y-3 vf-animate-in">
-      {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-14 w-full" />
-      ))}
-    </div>
-  );
+  return null;
 }
 
-export function Spinner({ label = "Loading…" }) {
-  return (
-    <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-16 text-center text-[var(--vf-muted)]">
-      <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--vf-border)] border-t-[var(--vf-primary)]" />
-      <p className="max-w-md text-sm font-medium">{label}</p>
-    </div>
-  );
+/** No loading UI — kept for API compatibility with existing imports. */
+export function Spinner() {
+  return null;
 }

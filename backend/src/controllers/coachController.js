@@ -83,13 +83,17 @@ async function getClients(req, res) {
   // light=1 skips heavy per-client snapshots (used by workout forms / pickers).
   const light = req.query.light === '1' || req.query.light === 'true';
 
+  const userSelect = light
+    ? 'username full_name avatar'
+    : 'username full_name phone clientData avatar';
+
   const [legacyAssignments, modernAssignments] = await Promise.all([
     CoachAssignment.find({ coach: coachId, status: 'active' })
-      .populate('user', 'username full_name phone clientData avatar')
+      .populate('user', userSelect)
       .sort({ updatedAt: -1 })
       .lean(),
     CoachClientAssignment.find({ coach_id: coachId, status: 'active' })
-      .populate('user_id', 'username full_name phone clientData avatar')
+      .populate('user_id', userSelect)
       .sort({ updatedAt: -1 })
       .lean(),
   ]);
@@ -112,24 +116,37 @@ async function getClients(req, res) {
     if (!u?._id) continue;
     const key = String(u._id);
     if (!seen.has(key)) {
-      modernToSync.push({ key, user: u, assigned_at: a.assigned_at });
+      modernToSync.push({ key, user: u, assigned_at: a.assigned_at, modernId: a._id });
     }
   }
 
   if (modernToSync.length) {
-    const legacyRows = await Promise.all(
-      modernToSync.map((row) => ensureLegacyCoachAssignment(coachId, row.user._id)),
-    );
-    modernToSync.forEach((row, i) => {
-      const legacy = legacyRows[i];
-      seen.set(row.key, {
-        _id: legacy._id,
-        user: row.user,
-        assigned_at: row.assigned_at,
-        status: 'active',
-        _source: 'CoachClientAssignment',
+    if (light) {
+      // Skip legacy write-sync on light lists — pickers only need ids/names.
+      modernToSync.forEach((row) => {
+        seen.set(row.key, {
+          _id: row.modernId,
+          user: row.user,
+          assigned_at: row.assigned_at,
+          status: 'active',
+          _source: 'CoachClientAssignment',
+        });
       });
-    });
+    } else {
+      const legacyRows = await Promise.all(
+        modernToSync.map((row) => ensureLegacyCoachAssignment(coachId, row.user._id)),
+      );
+      modernToSync.forEach((row, i) => {
+        const legacy = legacyRows[i];
+        seen.set(row.key, {
+          _id: legacy._id,
+          user: row.user,
+          assigned_at: row.assigned_at,
+          status: 'active',
+          _source: 'CoachClientAssignment',
+        });
+      });
+    }
   }
 
   const merged = [...seen.values()].map((assignment) => {
@@ -142,10 +159,18 @@ async function getClients(req, res) {
   });
 
   if (light) {
-    return res.json(merged.map((assignment) => ({
-      ...assignment,
-      groups: [],
-    })));
+    return res.json(merged.map((assignment) => {
+      const userId = assignment.user?._id || assignment.user;
+      return {
+        _id: assignment._id,
+        assignmentId: assignment._id,
+        userId,
+        user: assignment.user,
+        assigned_at: assignment.assigned_at,
+        status: assignment.status || 'active',
+        groups: [],
+      };
+    }));
   }
 
   const withSnapshots = await Promise.all(
@@ -227,9 +252,10 @@ async function createFeedback(req, res) {
   assignment.feedback.push(feedback);
   await assignment.save();
 
+  // Notify the client, not the coach who just wrote the feedback.
   await Notification.create({
-    user: req.user._id,
-    message: `Feedback sent to ${assignment.user || 'client'}`,
+    user: assignment.user,
+    message: 'Your coach sent you new feedback.',
     type: 'update',
   });
 
@@ -295,30 +321,59 @@ async function removeArticle(req, res) {
   return res.json(assignment);
 }
 
-async function deleteAssignment(req, res) {
-  const assignment = await CoachAssignment.findOneAndDelete({
-    _id: req.params.id,
-    coach: req.user._id,
+async function resolveCoachAssignment(coachId, id) {
+  // Accept CoachAssignment id, CoachClientAssignment id, or client user id.
+  let assignment = await CoachAssignment.findOne({ _id: id, coach: coachId });
+  if (assignment) return assignment;
+
+  assignment = await CoachAssignment.findOne({ user: id, coach: coachId });
+  if (assignment) return assignment;
+
+  const modern = await CoachClientAssignment.findOne({
+    $or: [{ _id: id }, { user_id: id }],
+    coach_id: coachId,
   });
+  if (!modern?.user_id) return null;
 
-  if (!assignment) {
-    return res.status(404).json({ message: 'Assignment not found' });
+  return ensureLegacyCoachAssignment(coachId, modern.user_id);
+}
+
+async function deleteAssignment(req, res) {
+  try {
+    const assignment = await resolveCoachAssignment(req.user._id, req.params.id);
+
+    if (!assignment) {
+      // End modern-only link even if legacy row is missing.
+      const modern = await CoachClientAssignment.findOneAndUpdate(
+        {
+          coach_id: req.user._id,
+          $or: [{ _id: req.params.id }, { user_id: req.params.id }],
+          status: 'active',
+        },
+        { $set: { status: 'ended' } },
+      );
+      if (!modern) {
+        return res.status(404).json({ message: 'Assignment not found' });
+      }
+      return res.json({ message: 'Client unlinked successfully', assignmentId: String(modern._id) });
+    }
+
+    await CoachAssignment.deleteOne({ _id: assignment._id, coach: req.user._id });
+    await CoachClientAssignment.updateMany(
+      { coach_id: req.user._id, user_id: assignment.user, status: 'active' },
+      { $set: { status: 'ended' } },
+    );
+
+    return res.json({ message: 'Client unlinked successfully', assignmentId: String(assignment._id) });
+  } catch (error) {
+    console.error('deleteAssignment:', error.message);
+    return res.status(500).json({ message: 'Failed to unlink client' });
   }
-
-  await CoachClientAssignment.updateMany(
-    { coach_id: req.user._id, user_id: assignment.user, status: 'active' },
-    { $set: { status: 'ended' } },
-  );
-
-  return res.json({ message: 'Client unlinked successfully', assignmentId: req.params.id });
 }
 
 async function updateAssignment(req, res) {
   const { status } = req.body;
-  const assignment = await CoachAssignment.findOne({
-    _id: req.params.id,
-    coach: req.user._id,
-  });
+  const assignment = await resolveCoachAssignment(req.user._id, req.params.id);
 
   if (!assignment) {
     return res.status(404).json({ message: 'Assignment not found' });
@@ -340,6 +395,15 @@ async function updateAssignment(req, res) {
   }
 
   await assignment.save();
+
+  // Keep modern CoachClientAssignment in sync when ending a link.
+  if (assignment.status === 'ended') {
+    await CoachClientAssignment.updateMany(
+      { coach_id: req.user._id, user_id: assignment.user, status: 'active' },
+      { $set: { status: 'ended' } },
+    );
+  }
+
   return res.json(assignment);
 }
 
@@ -520,12 +584,8 @@ async function updateActivityStatus(req, res) {
     const activity = await ActivityLog.findById(req.params.id);
     if (!activity) return res.status(404).json({ message: 'Activity not found' });
 
-    const assignment = await CoachAssignment.findOne({
-      coach: req.user._id,
-      user: activity.user,
-      status: 'active',
-    });
-    if (!assignment) return res.status(403).json({ message: 'Not authorized for this client' });
+    const allowed = await hasActiveAssignment(req.user._id, activity.user);
+    if (!allowed) return res.status(403).json({ message: 'Not authorized for this client' });
 
     activity.status = status;
     await activity.save();
@@ -605,7 +665,7 @@ async function reviewWorkoutSubmission(req, res) {
       return res.status(403).json({ message: 'Not authorized for this submission' });
     }
     if (completion.status !== 'pending_review') {
-      return res.status(400).json({ message: 'This workout is not awaiting review' });
+      return res.status(400).json({ message: 'This workout is not pending review' });
     }
 
     if (status === 'approved') {
@@ -743,9 +803,15 @@ function formatFitnessClass(doc) {
 
 async function getClasses(req, res) {
   try {
-    const classes = await FitnessClass.find({ coach: req.user._id })
-      .populate('enrolledStudents', USER_DISPLAY_SELECT)
-      .sort({ date: 1 });
+    const light = req.query.light === '1' || req.query.light === 'true';
+    let query = FitnessClass.find({ coach: req.user._id }).sort({ date: 1 });
+    if (light) {
+      // Picker lists only need titles — skip enrolled student populate.
+      query = query.select('title category date durationMinutes capacity status').lean();
+      const classes = await query;
+      return res.json(classes);
+    }
+    const classes = await query.populate('enrolledStudents', USER_DISPLAY_SELECT);
     return res.json(classes.map(formatFitnessClass));
   } catch (error) {
     return res.status(500).json({ message: 'Error fetching classes' });

@@ -1,14 +1,12 @@
 import { Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getErrorMessage } from "../../api/client";
-import { getCoachClientDetail } from "../../api/coachApi";
+import { getCoachClientDetail, getCoachClients } from "../../api/coachApi";
 import {
   approveCoachRequest,
   getCoachIncomingRequests,
-  rejectCoachRequest,
-} from "../../api/memberApi";
-import { Badge, Button, Card, Modal, Spinner } from "../../components/ui";
-import { fetchCoachDashboard } from "./CoachDashboardPage";
+  rejectCoachRequest } from "../../api/memberApi";
+import { Badge, Button, Card, Modal } from "../../components/ui";
 import { formatWhen } from "./roleHelpers";
 
 function fitnessGoalLabel(goal) {
@@ -96,7 +94,7 @@ function ClientProfileModal({ open, onClose, clientId }) {
 
   return (
     <Modal open={open} onClose={onClose} title="Client profile" wide>
-      {loading ? <Spinner label="Loading profile…" /> : null}
+      
       {error ? <p className="text-sm text-[var(--vf-danger)]">{error}</p> : null}
       {!loading && !error && detail ? (
         <div className="space-y-5">
@@ -150,11 +148,12 @@ export default function CoachClientsPage() {
       setError("");
     }
     try {
-      const [dashboard, pending] = await Promise.all([
-        fetchCoachDashboard(),
+      // Light clients list is far cheaper than the full coach dashboard payload.
+      const [clients, pending] = await Promise.all([
+        getCoachClients({ light: false }),
         getCoachIncomingRequests().catch(() => []),
       ]);
-      setAssignments(dashboard?.assignments || []);
+      setAssignments(Array.isArray(clients) ? clients : []);
       setRequests(Array.isArray(pending) ? pending : []);
     } catch (err) {
       if (!silent) setError(getErrorMessage(err));
@@ -213,7 +212,7 @@ export default function CoachClientsPage() {
         <p className="mt-2 text-sm text-[var(--vf-muted)]">
           Review coaching requests and manage members currently linked to you.
         </p>
-        {loading ? <div className="mt-5"><Spinner label="Loading clients…" /></div> : null}
+        
         {!loading && error ? (
           <div className="mt-5 space-y-2">
             <p className="text-sm text-[var(--vf-danger)]">{error || "Unable to load data"}</p>
@@ -223,8 +222,7 @@ export default function CoachClientsPage() {
         {notice ? <p className="mt-5 text-sm text-emerald-700">{notice}</p> : null}
       </Card>
 
-      {!loading ? (
-        <Card className="p-6">
+      <Card className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold">Pending coach requests</h2>
             <Badge tone="amber">{requests.length} pending</Badge>
@@ -284,10 +282,8 @@ export default function CoachClientsPage() {
             )}
           </ul>
         </Card>
-      ) : null}
 
-      {!loading ? (
-        <Card className="p-6">
+      <Card className="p-6">
           <h2 className="font-bold">Linked clients</h2>
           <p className="mt-1 text-sm text-[var(--vf-muted)]">
             Members who selected you and whose requests you accepted. Open a profile to review fitness details.
@@ -332,7 +328,6 @@ export default function CoachClientsPage() {
             )}
           </ul>
         </Card>
-      ) : null}
 
       <ClientProfileModal
         open={Boolean(selectedClientId)}

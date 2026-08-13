@@ -6,8 +6,7 @@ import {
   getMemberDietProgress,
   getMemberProgress,
   getMemberWorkoutProgress,
-  getMyInvite,
-} from "../../api/memberApi";
+  getMyInvite } from "../../api/memberApi";
 import { Button, Card } from "../../components/ui";
 import { shareOrCopy } from "./roleHelpers";
 
@@ -127,9 +126,7 @@ export default function MemberSharePage() {
         <p className="mt-2 text-sm text-[var(--vf-muted)]">
           Share your personal invite link. Friends register with your code and you get a notification.
         </p>
-        {inviteLoading ? (
-          <p className="mt-3 text-sm text-[var(--vf-muted)]">Loading invite link…</p>
-        ) : invite ? (
+        {invite ? (
           <>
             <div className="mt-4 rounded-[12px] border border-[var(--vf-border)] bg-[var(--vf-surface-muted)] px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--vf-muted)]">Your code</p>

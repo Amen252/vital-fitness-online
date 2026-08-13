@@ -6,8 +6,7 @@ import {
   deleteCoach,
   getCoachApplications,
   getTrainersMeta,
-  rejectCoachApplication,
-} from "../api/adminApi";
+  rejectCoachApplication } from "../api/adminApi";
 import { getErrorMessage, withHardTimeout } from "../api/client";
 import { formatDate, formatList } from "../utils/profileDisplay";
 import { coachDisplayEmail, coachDisplayName, coachProfileFromUser } from "../utils/coachDisplay";
@@ -19,9 +18,7 @@ import {
   ErrorState,
   Modal,
   PageHeader,
-  Spinner,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 
 function approvalOf(coach) {
   return (
@@ -170,8 +167,7 @@ export default function CoachesPage() {
       all: allApplications.length,
       pending: allApplications.filter((a) => a.status === "pending").length,
       approved: allApplications.filter((a) => a.status === "approved").length,
-      rejected: allApplications.filter((a) => a.status === "rejected").length,
-    }),
+      rejected: allApplications.filter((a) => a.status === "rejected").length }),
     [allApplications],
   );
 
@@ -209,8 +205,7 @@ export default function CoachesPage() {
         workingDays: app.workingDays,
         appointmentDays: app.appointmentDays,
         dayAvailability: app.dayAvailability,
-        appointmentDurationMinutes: app.appointmentDurationMinutes,
-      }
+        appointmentDurationMinutes: app.appointmentDurationMinutes }
     );
   }
 
@@ -229,14 +224,12 @@ export default function CoachesPage() {
               <p className="text-xs text-[var(--vf-muted)]">{email || "—"}</p>
             </div>
           );
-        },
-      },
+        } },
       {
         key: "specialization",
         header: "Specialization",
         render: (row) =>
-          row.specialization || formatList(applicationProfile(row).specialization) || "—",
-      },
+          row.specialization || formatList(applicationProfile(row).specialization) || "—" },
       {
         key: "status",
         header: "Status",
@@ -246,20 +239,17 @@ export default function CoachesPage() {
             {(row.status || "pending").charAt(0).toUpperCase() +
               (row.status || "pending").slice(1)}
           </Badge>
-        ),
-      },
+        ) },
       {
         key: "createdAt",
         header: "Applied",
         sortable: true,
-        render: (row) => formatDate(row.createdAt),
-      },
+        render: (row) => formatDate(row.createdAt) },
       {
         key: "reviewedAt",
         header: "Reviewed",
         sortable: true,
-        render: (row) => (row.reviewedAt ? formatDate(row.reviewedAt) : "—"),
-      },
+        render: (row) => (row.reviewedAt ? formatDate(row.reviewedAt) : "—") },
       {
         key: "actions",
         header: "",
@@ -290,8 +280,7 @@ export default function CoachesPage() {
               </>
             ) : null}
           </div>
-        ),
-      },
+        ) },
     ],
     [deleting, reviewingId],
   );
@@ -325,8 +314,7 @@ export default function CoachesPage() {
               </div>
             </div>
           );
-        },
-      },
+        } },
       {
         key: "status",
         header: "Account",
@@ -335,8 +323,7 @@ export default function CoachesPage() {
           <Badge tone={row.status === "active" ? "green" : "amber"}>
             {row.status || "—"}
           </Badge>
-        ),
-      },
+        ) },
       {
         key: "approval_status",
         header: "Approval",
@@ -346,30 +333,25 @@ export default function CoachesPage() {
           const tone =
             approval === "approved" ? "green" : approval === "pending" ? "amber" : "red";
           return <Badge tone={tone}>{approval}</Badge>;
-        },
-      },
+        } },
       {
         key: "phone",
         header: "Phone",
-        render: (row) => row.phone || coachProfileFromUser(row).phone || "—",
-      },
+        render: (row) => row.phone || coachProfileFromUser(row).phone || "—" },
       {
         key: "specialization",
         header: "Specialization",
-        render: (row) => specializationLabel(row),
-      },
+        render: (row) => specializationLabel(row) },
       {
         key: "activeClients",
         header: "Linked clients",
         sortable: true,
-        render: (row) => row.activeClients ?? 0,
-      },
+        render: (row) => row.activeClients ?? 0 },
       {
         key: "createdAt",
         header: "Registered",
         sortable: true,
-        render: (row) => formatDate(row.createdAt),
-      },
+        render: (row) => formatDate(row.createdAt) },
       {
         key: "actions",
         header: "",
@@ -382,7 +364,7 @@ export default function CoachesPage() {
                 </Button>
               </Link>
             ) : (
-              <span className="text-xs text-[var(--vf-muted)]">Awaiting approval</span>
+              <span className="text-xs text-[var(--vf-muted)]">Pending approval</span>
             )}
             <Button
               size="sm"
@@ -393,8 +375,7 @@ export default function CoachesPage() {
               Delete
             </Button>
           </div>
-        ),
-      },
+        ) },
     ],
     [deleting],
   );
@@ -481,7 +462,7 @@ export default function CoachesPage() {
         }
       />
 
-      {loading ? <Spinner label="Loading coaches…" /> : null}
+      
       {error ? <ErrorState message={error} onRetry={() => load()} /> : null}
 
       {!loading && !error && tab === "all" ? (
@@ -593,7 +574,7 @@ export default function CoachesPage() {
               Cancel
             </Button>
             <Button variant="danger" disabled={deleting} onClick={confirmDeleteCoach}>
-              {deleting ? "Deleting…" : "Delete permanently"}
+              {"Delete permanently"}
             </Button>
           </div>
         }

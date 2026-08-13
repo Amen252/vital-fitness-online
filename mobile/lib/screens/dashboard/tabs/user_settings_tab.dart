@@ -11,6 +11,7 @@ import '../../../widgets/language_picker_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../widgets/account/change_password_dialog.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class UserSettingsTab extends StatefulWidget {
   final User user;
@@ -281,19 +282,13 @@ class UserSettingsTabState extends State<UserSettingsTab> {
           IconButton(
             tooltip: 'Refresh',
             onPressed: _isLoading ? null : _refreshProfile,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
       body: Form(
         key: _formKey,
-        child: RefreshIndicator(
+        child: SilentRefreshIndicator(
           onRefresh: _refreshProfile,
           child: ListView(
             controller: _scrollController,
@@ -342,10 +337,7 @@ class UserSettingsTabState extends State<UserSettingsTab> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                          child: const SizedBox.shrink(),
                         )
                       : Text(l10n.saveProfileChanges),
                 ),

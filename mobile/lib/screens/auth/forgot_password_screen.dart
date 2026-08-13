@@ -194,13 +194,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             style: CoachDashboardTheme.primaryButtonStyle().copyWith(
               padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 16)),
             ),
-            child: _isLoading
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)),
-                  )
-                : const Text('Send reset code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            child: const Text('Send reset code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -254,13 +248,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             style: CoachDashboardTheme.primaryButtonStyle().copyWith(
               padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 16)),
             ),
-            child: _isLoading
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)),
-                  )
-                : const Text('Reset password', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            child: const Text('Reset password', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(height: 12),
           TextButton(

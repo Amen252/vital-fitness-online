@@ -12,6 +12,7 @@ import '../../../utils/date_utils.dart';
 import '../../../utils/workout_media_urls.dart';
 import '../../../widgets/workout_proof_sheet.dart';
 import '../../../widgets/workout_mark_complete_control.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class UserClassesTab extends StatefulWidget {
   final User user;
@@ -152,7 +153,7 @@ class UserClassesTabState extends State<UserClassesTab>
           ),
         );
       }
-      // Background refresh only — never keep the Complete spinner waiting on reloads.
+      // Background refresh only — do not block Complete on reloads.
       _fetchData(isRefresh: true);
       widget.onScheduleDataChanged?.call();
       widget.onParentRefresh?.call();
@@ -332,9 +333,6 @@ class UserClassesTabState extends State<UserClassesTab>
   }
 
   Widget _buildContent(bool isDark) {
-    if (showInitialLoading) {
-      return const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (showInitialError) {
       return ScrollableCenter(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -346,7 +344,7 @@ class UserClassesTabState extends State<UserClassesTab>
         ]),
       );
     }
-    return RefreshIndicator(
+    return SilentRefreshIndicator(
       onRefresh: widget.embedded ? _refreshAll : () => _fetchData(isRefresh: true),
       color: CoachDashboardTheme.primary,
       child: TabBarView(
@@ -747,7 +745,7 @@ class UserClassesTabState extends State<UserClassesTab>
                             ? const SizedBox(
                                 height: 18,
                                 width: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: const SizedBox.shrink(),
                               )
                             : Icon(icon, size: 18),
                         label: Text(label),

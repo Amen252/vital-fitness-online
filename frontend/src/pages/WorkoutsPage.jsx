@@ -3,8 +3,7 @@ import {
   approveExercise,
   getExercises,
   getWorkoutsOverview,
-  rejectExercise,
-} from "../api/adminApi";
+  rejectExercise } from "../api/adminApi";
 import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
   Badge,
@@ -13,10 +12,8 @@ import {
   Card,
   ErrorState,
   PageHeader,
-  Spinner,
   StatCard,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 import { Dumbbell, Flame, Timer } from "lucide-react";
 
 export default function WorkoutsPage({ embedded = false }) {
@@ -31,15 +28,27 @@ export default function WorkoutsPage({ embedded = false }) {
     if (!hasContent) setLoading(true);
     setError("");
     try {
-      const [workouts, ex] = await withHardTimeout(
+      let workouts = null;
+      let ex = null;
+      await withHardTimeout(
         Promise.all([
-          getWorkoutsOverview().catch(() => null),
-          getExercises().catch(() => null),
+          getWorkoutsOverview()
+            .then((data) => {
+              workouts = data;
+              setOverview(data);
+              setLoading(false);
+            })
+            .catch(() => null),
+          getExercises()
+            .then((data) => {
+              ex = data;
+              setExercises(data);
+              setLoading(false);
+            })
+            .catch(() => null),
         ]),
       );
-      setOverview(workouts);
-      setExercises(ex);
-      if (workouts == null && ex == null) {
+      if (workouts == null && ex == null && overview == null && exercises == null) {
         setError("Unable to load workout data");
       }
     } catch (err) {
@@ -60,8 +69,7 @@ export default function WorkoutsPage({ embedded = false }) {
         if (!prev?.pendingLogs) return prev;
         return {
           ...prev,
-          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id),
-        };
+          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id) };
       });
       toast.success("Exercise approved");
       void load();
@@ -77,8 +85,7 @@ export default function WorkoutsPage({ embedded = false }) {
         if (!prev?.pendingLogs) return prev;
         return {
           ...prev,
-          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id),
-        };
+          pendingLogs: prev.pendingLogs.filter((e) => e._id !== id && e.id !== id) };
       });
       toast.warning("Exercise rejected");
       void load();
@@ -87,7 +94,7 @@ export default function WorkoutsPage({ embedded = false }) {
     }
   }
 
-  if (loading && overview == null && exercises == null) return <Spinner />;
+  if (loading && overview == null && exercises == null) return null;
   if (error && overview == null && exercises == null) return <ErrorState message={error} onRetry={load} />;
 
   return (
@@ -108,24 +115,24 @@ export default function WorkoutsPage({ embedded = false }) {
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Activity logs"
-          value={overview.totalActivities}
+          value={overview?.totalActivities ?? "—"}
           icon={Dumbbell}
         />
         <StatCard
           label="Calories burned"
-          value={overview.totalCaloriesBurned}
+          value={overview?.totalCaloriesBurned ?? "—"}
           icon={Flame}
           tone="warning"
         />
         <StatCard
           label="Avg duration (min)"
-          value={overview.avgDurationMinutes}
+          value={overview?.avgDurationMinutes ?? "—"}
           icon={Timer}
           tone="accent"
         />
         <StatCard
           label="Completions"
-          value={(overview.completions || []).length}
+          value={(overview?.completions || []).length}
           tone="success"
         />
       </div>
@@ -174,14 +181,14 @@ export default function WorkoutsPage({ embedded = false }) {
         <Card className="p-5">
           <h3 className="font-bold">Completed workouts</h3>
           <div className="mt-4 space-y-3">
-            {(overview.completions || [])
+            {(overview?.completions || [])
               .filter((c) => c.status === "completed")
               .slice(0, 20).length === 0 ? (
               <p className="text-sm text-[var(--vf-muted)]">
                 No workout completions recorded.
               </p>
             ) : (
-              overview.completions
+              (overview?.completions || [])
                 .filter((c) => c.status === "completed")
                 .slice(0, 20)
                 .map((item) => (
@@ -228,7 +235,7 @@ export default function WorkoutsPage({ embedded = false }) {
                 </tr>
               </thead>
               <tbody>
-                {(overview.plans || []).map((plan) => (
+                {(overview?.plans || []).map((plan) => (
                   <tr
                     key={plan._id}
                     className="border-t border-[var(--vf-border)]"
@@ -242,7 +249,7 @@ export default function WorkoutsPage({ embedded = false }) {
                     <td className="px-2 py-2">{plan.exercises?.length || 0}</td>
                   </tr>
                 ))}
-                {(overview.plans || []).length === 0 ? (
+                {(overview?.plans || []).length === 0 ? (
                   <tr>
                     <td
                       colSpan={5}

@@ -177,7 +177,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
         _statusFeedback = 'Your application is still pending admin review.';
       });
       if (!silent) {
-        _showStatusFeedback('Status: Pending — waiting for admin review.', success: false);
+        _showStatusFeedback('Status: Pending — under admin review.', success: false);
       }
     } catch (e) {
       if (mounted) {
@@ -500,13 +500,7 @@ class _CoachPendingScreenState extends State<CoachPendingScreen> {
                       child: ElevatedButton(
                         style: CoachDashboardTheme.primaryButtonStyle(),
                         onPressed: _isRefreshing ? null : () => _refreshStatus(),
-                        child: _isRefreshing
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Text('Check Status'),
+                        child: const Text('Check Status'),
                       ),
                     ),
                     const SizedBox(height: 12),

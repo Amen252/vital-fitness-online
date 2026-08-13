@@ -27,7 +27,6 @@ import CoachDashboardPage from "./pages/role/CoachDashboardPage";
 import CoachClientsPage from "./pages/role/CoachClientsPage";
 import CoachAppointmentsPage from "./pages/role/CoachAppointmentsPage";
 import CoachSessionsPage from "./pages/role/CoachSessionsPage";
-import { Spinner } from "./components/ui";
 
 export function dashboardPath(role) {
   if (role === "admin") return "/";
@@ -37,7 +36,8 @@ export function dashboardPath(role) {
 /** Blocks protected routes until the user has changed their initial password. */
 function SessionGuard({ children, role }) {
   const { user, loading } = useAuth();
-  if (loading) return <Spinner label="Checking session…" />;
+
+  if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.must_change_password) return <Navigate to="/change-password" replace />;
   if (role && user.role !== role) return <Navigate to={dashboardPath(user.role)} replace />;
@@ -47,7 +47,8 @@ function SessionGuard({ children, role }) {
 /** Blocks the change-password page from users who don't need it. */
 function ChangePasswordGuard({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <Spinner label="Checking session…" />;
+
+  if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.must_change_password) return <Navigate to={dashboardPath(user.role)} replace />;
   return children;

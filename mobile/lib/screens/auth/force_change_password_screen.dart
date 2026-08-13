@@ -177,16 +177,7 @@ class _ForceChangePasswordScreenState extends State<ForceChangePasswordScreen> {
                           ElevatedButton(
                             style: CoachDashboardTheme.primaryButtonStyle(),
                             onPressed: _isSaving ? null : _submit,
-                            child: _isSaving
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text('Continue'),
+                            child: const Text('Continue'),
                           ),
                         ],
                       ),

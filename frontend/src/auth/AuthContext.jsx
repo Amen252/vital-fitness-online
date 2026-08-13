@@ -102,8 +102,7 @@ export function AuthProvider({ children }) {
       changePassword,
       refreshUser,
       mustChangePassword: !!user?.must_change_password,
-      errorMessage: getErrorMessage,
-    }),
+      errorMessage: getErrorMessage }),
     [user, token, loading, logout, establishSession, clearPasswordChangeFlag, refreshUser],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

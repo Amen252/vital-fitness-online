@@ -127,9 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-                : _messages.isEmpty
+            child: _messages.isEmpty
                     ? Center(child: Text('No messages yet. Say hi!', style: TextStyle(color: Colors.grey[500])))
                     : ListView.builder(
                         controller: _scrollController,

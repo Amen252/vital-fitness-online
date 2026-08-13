@@ -67,9 +67,6 @@ class AdminClassesTabState extends State<AdminClassesTab> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (_isLoading) {
-      return const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_errorMessage != null) {
       return ScrollableCenter(
         child: Column(

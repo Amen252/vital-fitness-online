@@ -19,6 +19,7 @@ const {
 } = require('../utils/coachProfile');
 const { USER_DISPLAY_SELECT } = require('../utils/userDisplay');
 const { backfillGroupPlanAccess } = require('../utils/backfillGroupPlanAccess');
+const { hasActiveAssignment } = require('../utils/coachVisibility');
 
 /**
  * Prefer coachData.certificateFiles; fall back to the approved CoachApplication
@@ -522,17 +523,14 @@ async function getMyClasses(req, res) {
 
 async function getAvailableClasses(req, res) {
   try {
-    const assignment = await CoachAssignment.findOne({
-      user: req.user._id,
-      status: 'active',
-    });
-
-    if (!assignment) {
+    const { getAuthorizedCoachIdsForUser } = require('../utils/coachVisibility');
+    const coachIds = await getAuthorizedCoachIdsForUser(req.user._id);
+    if (!coachIds.length) {
       return res.json([]);
     }
 
     const classes = await FitnessClass.find({
-      coach: assignment.coach,
+      coach: { $in: coachIds },
       status: { $in: ['scheduled', 'active'] },
       enrolledStudents: { $ne: req.user._id },
       $expr: { $lt: [{ $size: '$enrolledStudents' }, '$capacity'] },
@@ -564,13 +562,8 @@ async function getClassById(req, res) {
     );
 
     if (!isEnrolled) {
-      const assignment = await CoachAssignment.findOne({
-        user: req.user._id,
-        status: 'active',
-        coach: coachId,
-      });
-
-      if (!assignment) {
+      const assigned = await hasActiveAssignment(coachId, req.user._id);
+      if (!assigned) {
         return res.status(403).json({ message: 'You do not have access to this class' });
       }
 
@@ -618,13 +611,8 @@ async function joinClass(req, res) {
     );
 
     if (!isEnrolled) {
-      const assignment = await CoachAssignment.findOne({
-        user: req.user._id,
-        status: 'active',
-        coach: fitnessClass.coach,
-      });
-
-      if (!assignment) {
+      const assigned = await hasActiveAssignment(fitnessClass.coach, req.user._id);
+      if (!assigned) {
         return res.status(403).json({ message: 'You can only join classes from your assigned coach' });
       }
 

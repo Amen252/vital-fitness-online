@@ -280,9 +280,7 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
                     const SizedBox(height: 20),
                     Text('Exercise library', style: CoachDashboardTheme.sectionTitle(isDark)),
                     const SizedBox(height: 8),
-                    if (_libraryLoading)
-                      Text('Loading exercises…', style: TextStyle(color: isDark ? Colors.white54 : Colors.grey))
-                    else if (_exerciseLibrary.isEmpty)
+                    if (_exerciseLibrary.isEmpty)
                       Text('No library exercises yet — add custom ones below.', style: TextStyle(color: isDark ? Colors.white54 : Colors.grey))
                     else
                       Wrap(
@@ -355,9 +353,7 @@ class _WorkoutFormSheetState extends State<WorkoutFormSheet> {
                 child: ElevatedButton(
                   style: CoachDashboardTheme.primaryButtonStyle(),
                   onPressed: _isSubmitting ? null : _submit,
-                  child: _isSubmitting
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(_isEditing ? 'Save Changes' : 'Assign Workout'),
+                  child: Text(_isEditing ? 'Save Changes' : 'Assign Workout'),
                 ),
               ),
             ),

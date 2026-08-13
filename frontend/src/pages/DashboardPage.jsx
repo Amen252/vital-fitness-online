@@ -7,8 +7,7 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis,
-} from "recharts";
+  YAxis } from "recharts";
 import {
   Activity,
   CalendarDays,
@@ -19,14 +18,12 @@ import {
   Users,
   UserRound,
   UtensilsCrossed,
-  Dumbbell,
-} from "lucide-react";
+  Dumbbell } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   getDashboard,
   getStatistics,
-  getCoachApplications,
-} from "../api/adminApi";
+  getCoachApplications } from "../api/adminApi";
 import { useEffect, useMemo, useState } from "react";
 import useStableFetch from "../hooks/useStableFetch";
 import { formatDate } from "../utils/profileDisplay";
@@ -36,16 +33,13 @@ import {
   Button,
   Card,
   ErrorState,
-  LoadingBlock,
   PageHeader,
-  Skeleton,
-  StatCard,
-} from "../components/ui";
+  StatCard } from "../components/ui";
 
 export default function DashboardPage() {
   const [coachApplications, setCoachApplications] = useState([]);
 
-  const { data, loading, error, reload } = useStableFetch(
+  const { data, error, reload } = useStableFetch(
     () =>
       Promise.all([
         getDashboard(),
@@ -53,8 +47,7 @@ export default function DashboardPage() {
       ]).then(([dashboard, statistics]) => ({
         stats: dashboard,
         charts: statistics,
-        pendingApps: dashboard?.pendingCoachApplications ?? 0,
-      })),
+        pendingApps: dashboard?.pendingCoachApplications ?? 0 })),
     [],
   );
   const stats = data?.stats;
@@ -90,8 +83,7 @@ export default function DashboardPage() {
     () => ({
       pending: coachApplications.filter((a) => a.status === "pending").length,
       approved: coachApplications.filter((a) => a.status === "approved").length,
-      rejected: coachApplications.filter((a) => a.status === "rejected").length,
-    }),
+      rejected: coachApplications.filter((a) => a.status === "rejected").length }),
     [coachApplications],
   );
 
@@ -106,63 +98,43 @@ export default function DashboardPage() {
     return "amber";
   }
 
-  if (loading && !stats) {
-    return (
-      <div>
-        <PageHeader
-          title="Dashboard"
-          subtitle="Loading live metrics…"
-          breadcrumbs={
-            <Breadcrumbs items={[{ label: "Home" }, { label: "Dashboard" }]} />
-          }
-        />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 w-full rounded-[16px]" />
-          ))}
-        </div>
-        <div className="mt-6">
-          <LoadingBlock rows={3} />
-        </div>
-      </div>
-    );
-  }
+  if (error && !stats) return <ErrorState message={error} onRetry={reload} />;
 
-  if (error) return <ErrorState message={error} onRetry={reload} />;
-  if (!stats)
-    return (
-      <ErrorState message="Dashboard data is unavailable" onRetry={reload} />
-    );
+  const s = stats || {
+    totalUsers: 0,
+    activeUsers: 0,
+    totalCoaches: 0,
+    totalAppointments: 0,
+    pendingAppointments: 0,
+    totalDietPlans: 0,
+    activeDietPlans: 0,
+    completedWorkouts: 0,
+    totalCaloriesBurned: 0,
+    totalWaterMl: 0,
+    recentSignups: [] };
 
   const growth = (charts?.userGrowth || []).map((row) => ({
     day: row._id,
-    count: row.count,
-  }));
+    count: row.count }));
   const meals = (charts?.mealsByDay || []).map((row) => ({
     day: row._id,
-    calories: row.totalCalories,
-  }));
+    calories: row.totalCalories }));
   const water = (charts?.waterByDay || []).map((row) => ({
     day: row._id,
-    ml: row.totalMl,
-  }));
+    ml: row.totalMl }));
   const weekly = (charts?.weeklyActivity || []).map((row) => ({
     day: row._id,
     count: row.count,
-    calories: row.calories,
-  }));
+    calories: row.calories }));
   const workouts = (charts?.workoutCompletionsByDay || []).map((row) => ({
     day: row._id,
-    count: row.count,
-  }));
+    count: row.count }));
   const diet = (charts?.dietCompletionsByDay || []).map((row) => ({
     day: row._id,
-    count: row.count,
-  }));
+    count: row.count }));
   const appointments = (charts?.appointmentsByStatus || []).map((row) => ({
     status: row._id || "unknown",
-    count: row.count,
-  }));
+    count: row.count }));
 
   return (
     <div>
@@ -205,7 +177,7 @@ export default function DashboardPage() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <p>
             <strong>{pendingApps}</strong> coach application
-            {pendingApps === 1 ? "" : "s"} waiting for your approval.
+            {pendingApps === 1 ? "" : "s"} pending your approval.
           </p>
           <Link
             to="/coaches?tab=applications"
@@ -219,20 +191,20 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total Users"
-          value={stats.totalUsers}
+          value={s.totalUsers}
           icon={Users}
           tone="primary"
         />
         <StatCard
           label="Active Users"
-          value={stats.activeUsers}
+          value={s.activeUsers}
           hint="status = active"
           icon={UserCheck}
           tone="success"
         />
         <StatCard
           label="Total Coaches"
-          value={stats.totalCoaches}
+          value={s.totalCoaches}
           icon={UserRound}
           tone="accent"
         />
@@ -245,33 +217,33 @@ export default function DashboardPage() {
         />
         <StatCard
           label="Appointments"
-          value={stats.totalAppointments}
-          hint={`${stats.pendingAppointments || 0} pending`}
+          value={s.totalAppointments}
+          hint={`${s.pendingAppointments || 0} pending`}
           icon={CalendarDays}
           tone="warning"
         />
         <StatCard
           label="Total Diet Plans"
-          value={stats.totalDietPlans}
-          hint={`${stats.activeDietPlans || 0} active`}
+          value={s.totalDietPlans}
+          hint={`${s.activeDietPlans || 0} active`}
           icon={UtensilsCrossed}
           tone="success"
         />
         <StatCard
           label="Completed Workouts"
-          value={stats.completedWorkouts}
+          value={s.completedWorkouts}
           icon={Dumbbell}
           tone="pink"
         />
         <StatCard
           label="Calories Burned"
-          value={stats.totalCaloriesBurned}
+          value={s.totalCaloriesBurned}
           icon={Flame}
           tone="accent"
         />
         <StatCard
           label="Water Intake (ml)"
-          value={stats.totalWaterMl}
+          value={s.totalWaterMl}
           icon={Droplets}
           tone="accent"
         />
@@ -496,12 +468,12 @@ export default function DashboardPage() {
             <div>
               <h3 className="font-bold text-[var(--vf-text)]">Recent signups</h3>
               <ul className="mt-3 space-y-2">
-                {(stats.recentSignups || []).length === 0 ? (
+                {(s.recentSignups || []).length === 0 ? (
                   <li className="text-sm text-[var(--vf-muted)]">
                     No recent user signups.
                   </li>
                 ) : (
-                  stats.recentSignups.map((u) => (
+                  s.recentSignups.map((u) => (
                     <li
                       key={u._id || u.username}
                       className="flex items-center justify-between gap-3 rounded-[12px] border border-[var(--vf-border)] px-3 py-2 text-sm"

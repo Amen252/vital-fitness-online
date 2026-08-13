@@ -133,6 +133,9 @@ async function createWorkoutSchedule(req, res) {
 
     const start = new Date(startDateTime);
     const end = new Date(endDateTime);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
+    }
     if (end <= start) {
       return res.status(400).json({ message: 'End time must be after start time' });
     }
@@ -208,20 +211,53 @@ async function getCoachWorkoutSchedules(req, res) {
       query.$or = [{ weeklyPlan: null }, { weeklyPlan: { $exists: false } }];
     }
 
+    // Default window keeps list payloads small (past 14 days → next 60 days).
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(from.getDate() - 14);
+    const to = new Date(now);
+    to.setDate(to.getDate() + 60);
+    if (!req.query.from && !req.query.to && !req.query.all) {
+      query.startDateTime = { $gte: from, $lte: to };
+    } else {
+      if (req.query.from) {
+        const f = new Date(req.query.from);
+        if (!Number.isNaN(f.getTime())) query.startDateTime = { ...(query.startDateTime || {}), $gte: f };
+      }
+      if (req.query.to) {
+        const t = new Date(req.query.to);
+        if (!Number.isNaN(t.getTime())) query.startDateTime = { ...(query.startDateTime || {}), $lte: t };
+      }
+    }
+
     const schedules = await WorkoutSchedule.find(query)
-      .populate('workoutTemplate')
+      .populate('workoutTemplate', 'title level')
       .populate('client', USER_DISPLAY_SELECT)
       .populate('fitnessClass', 'title category')
       .populate('weeklyPlan', 'title weekStartDate')
       .sort({ startDateTime: 1 })
+      .limit(Math.min(Number(req.query.limit) || 120, 250))
       .lean();
 
     const scheduleIds = schedules.map((s) => s._id);
-    const completions = await ScheduleCompletion.find({ workoutSchedule: { $in: scheduleIds } })
-      .populate('user', USER_DISPLAY_SELECT)
-      .lean();
+    const completions = scheduleIds.length
+      ? await ScheduleCompletion.find({ workoutSchedule: { $in: scheduleIds } })
+          .populate('user', USER_DISPLAY_SELECT)
+          // List payload: omit proof photo URLs/base64 (keep a boolean flag only).
+          .select('workoutSchedule user status completedAt proofPhoto')
+          .lean()
+      : [];
 
-    const enriched = attachCompletionStats(schedules, completions);
+    const slimCompletions = completions.map((c) => ({
+      _id: c._id,
+      workoutSchedule: c.workoutSchedule,
+      user: c.user,
+      status: c.status,
+      completedAt: c.completedAt,
+      hasProofPhoto: Boolean(c.proofPhoto),
+    }));
+
+    const enriched = attachCompletionStats(schedules, slimCompletions);
 
     const completed = completions.filter((c) => c.status === 'completed').length;
     const pending = completions.filter((c) => c.status === 'pending').length;
@@ -298,8 +334,20 @@ async function updateWorkoutSchedule(req, res) {
     if (notes !== undefined) schedule.notes = notes;
     if (reminderEnabled !== undefined) schedule.reminderEnabled = !!reminderEnabled;
     if (reminderMinutesBefore !== undefined) schedule.reminderMinutesBefore = reminderMinutesBefore;
-    if (startDateTime !== undefined) schedule.startDateTime = new Date(startDateTime);
-    if (endDateTime !== undefined) schedule.endDateTime = new Date(endDateTime);
+    if (startDateTime !== undefined) {
+      const start = new Date(startDateTime);
+      if (Number.isNaN(start.getTime())) {
+        return res.status(400).json({ message: 'Invalid start time' });
+      }
+      schedule.startDateTime = start;
+    }
+    if (endDateTime !== undefined) {
+      const end = new Date(endDateTime);
+      if (Number.isNaN(end.getTime())) {
+        return res.status(400).json({ message: 'Invalid end time' });
+      }
+      schedule.endDateTime = end;
+    }
     if (durationMinutes !== undefined) schedule.durationMinutes = durationMinutes;
 
     if (startDateTime !== undefined || endDateTime !== undefined) {
@@ -425,18 +473,19 @@ async function getUserWorkoutSchedules(req, res) {
       };
     });
 
+    const openStatuses = new Set(['pending', 'pending_review']);
     const today = result.filter((s) => {
       const scheduleDay = calendarDateFromInstant(s.startDateTime, tz);
       if (!isSameCalendarDay(scheduleDay, todayCal)) return false;
       if (s.completion?.status === 'missed') return false;
-      return s.status === 'scheduled' && s.completion?.status === 'pending';
+      return s.status === 'scheduled' && openStatuses.has(s.completion?.status || 'pending');
     });
     const upcoming = result.filter((s) => {
       const scheduleDay = calendarDateFromInstant(s.startDateTime, tz);
       if (scheduleDay < todayCal) return false;
       if (isSameCalendarDay(scheduleDay, todayCal)) return false;
       const d = new Date(s.startDateTime);
-      return d >= now && s.status === 'scheduled' && s.completion?.status === 'pending';
+      return d >= now && s.status === 'scheduled' && openStatuses.has(s.completion?.status || 'pending');
     });
     const history = result.filter((s) => {
       const scheduleDay = calendarDateFromInstant(s.startDateTime, tz);

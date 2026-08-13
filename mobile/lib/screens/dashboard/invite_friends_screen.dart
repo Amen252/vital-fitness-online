@@ -62,9 +62,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),

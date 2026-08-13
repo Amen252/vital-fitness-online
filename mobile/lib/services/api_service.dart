@@ -9,6 +9,7 @@ import '../models/user_model.dart';
 import '../models/activity_log_model.dart';
 import '../models/progress_model.dart';
 import '../utils/password_utils.dart';
+import '../utils/section_data_cache.dart';
 
 /// Thrown when the API returns HTTP 409 (e.g. active diet plan already exists).
 class ApiConflictException implements Exception {
@@ -156,6 +157,7 @@ class ApiService {
 
   Future<void> clearAuth() async {
     _token = null;
+    SectionDataCache.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
   }
@@ -308,7 +310,11 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return User.fromJson(data['user'] as Map<String, dynamic>);
+        final userJson = data is Map ? data['user'] : null;
+        if (userJson is Map) {
+          return User.fromJson(Map<String, dynamic>.from(userJson));
+        }
+        return null;
       } else {
         // Token might be invalid/expired, so clear it
         await clearAuth();
@@ -1928,9 +1934,12 @@ class ApiService {
     throw Exception(_parseError(response));
   }
 
-  Future<List<dynamic>> getCoachClasses() async {
+  Future<List<dynamic>> getCoachClasses({bool light = false}) async {
+    final uri = light
+        ? Uri.parse('$baseUrl/coach/classes').replace(queryParameters: const {'light': '1'})
+        : Uri.parse('$baseUrl/coach/classes');
     final response = await _send(http.get(
-      Uri.parse('$baseUrl/coach/classes'),
+      uri,
       headers: _headers(),
     ));
     if (response.statusCode == 200)

@@ -110,9 +110,9 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _sending ? null : _sendNotification,
                     icon: _sending
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        ? const SizedBox(width: 18, height: 18, child: const SizedBox.shrink())
                         : const Icon(Icons.send_rounded),
-                    label: Text(_sending ? 'Sending...' : 'Send Announcement'),
+                    label: Text('Send Announcement'),
                     style: CoachDashboardTheme.primaryButtonStyle(),
                   ),
                 ),

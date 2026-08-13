@@ -123,13 +123,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
         ElevatedButton(
           style: CoachDashboardTheme.primaryButtonStyle(),
           onPressed: _isSaving ? null : _submit,
-          child: _isSaving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Text('Update Password'),
+          child: const Text('Update Password'),
         ),
       ],
     );

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Droplets, Flame, HeartPulse, Share2, Dumbbell } from "lucide-react";
 import { getShareCard } from "../api/memberApi";
 import { getErrorMessage } from "../api/client";
-import { BrandMark, Button, Card, Spinner } from "../components/ui";
+import { BrandMark, Button, Card } from "../components/ui";
 
 function Metric({ label, value, icon: Icon }) {
   return (
@@ -41,15 +41,9 @@ export default function ShareCardPage() {
     };
   }, [token]);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--vf-bg)]">
-        <Spinner label="Loading share card…" />
-      </div>
-    );
-  }
+  
 
-  if (error || !card) {
+  if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--vf-bg)] p-4">
         <Card className="max-w-md p-8 text-center">
@@ -64,6 +58,10 @@ export default function ShareCardPage() {
         </Card>
       </div>
     );
+  }
+
+  if (!card) {
+    return <div className="min-h-screen bg-[var(--vf-bg)]" />;
   }
 
   const p = card.payload || {};

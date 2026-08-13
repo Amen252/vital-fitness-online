@@ -7,10 +7,9 @@ import {
   completeCoachAppointment,
   createCoachAppointment,
   getCoachAppointments,
-  getCoachClients,
-} from "../../api/coachApi";
+  getCoachClients } from "../../api/coachApi";
 import { getErrorMessage, withHardTimeout } from "../../api/client";
-import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
+import { Badge, Button, Card, useToast } from "../../components/ui";
 import { fieldClass, formatWhen } from "./roleHelpers";
 
 const toneForStatus = {
@@ -19,8 +18,7 @@ const toneForStatus = {
   completed: "blue",
   rejected: "red",
   cancelled: "red",
-  rescheduled: "amber",
-};
+  rescheduled: "amber" };
 
 function toLocalInputValue(date = new Date()) {
   const d = new Date(date);
@@ -42,8 +40,7 @@ export default function CoachAppointmentsPage() {
     clientId: preselectedClient,
     dateTime: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
     durationMinutes: "60",
-    notes: "",
-  });
+    notes: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,8 +79,7 @@ export default function CoachAppointmentsPage() {
         .filter((u) => u?._id)
         .map((u) => ({
           id: u._id,
-          label: `${u.full_name || u.username || "Client"} (@${u.username || "—"})`,
-        })),
+          label: `${u.full_name || u.username || "Client"} (@${u.username || "—"})` })),
     [clients],
   );
 
@@ -103,14 +99,12 @@ export default function CoachAppointmentsPage() {
         clientId: form.clientId,
         dateTime: new Date(form.dateTime).toISOString(),
         durationMinutes: Number(form.durationMinutes) || 60,
-        notes: form.notes.trim(),
-      });
+        notes: form.notes.trim() });
       toast.success("Appointment scheduled with client");
       setForm((current) => ({
         ...current,
         notes: "",
-        dateTime: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
-      }));
+        dateTime: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)) }));
       void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -202,7 +196,7 @@ export default function CoachAppointmentsPage() {
             </label>
             <div className="md:col-span-2">
               <Button type="submit" disabled={saving || clientOptions.length === 0}>
-                {saving ? "Scheduling…" : "Create appointment"}
+                {"Create appointment"}
               </Button>
             </div>
           </form>
@@ -213,13 +207,10 @@ export default function CoachAppointmentsPage() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold">Your appointments</h2>
           <Button size="sm" variant="secondary" onClick={load} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
+            {"Refresh"}
           </Button>
         </div>
-        {loading ? (
-          <div className="mt-5"><Spinner label="Loading appointments…" /></div>
-        ) : (
-          <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-2">
             {appointments.length === 0 ? (
               <li className="rounded-[12px] border border-[var(--vf-border)] px-3 py-6 text-center text-sm text-[var(--vf-muted)]">
                 No appointments yet. Schedule one above.
@@ -264,7 +255,6 @@ export default function CoachAppointmentsPage() {
               })
             )}
           </ul>
-        )}
       </Card>
     </>
   );

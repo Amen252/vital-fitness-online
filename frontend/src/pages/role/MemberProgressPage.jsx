@@ -7,8 +7,7 @@ import {
   getMemberProgress,
   logMemberActivity,
   logMemberWater,
-  logMemberWeight,
-} from "../../api/memberApi";
+  logMemberWeight } from "../../api/memberApi";
 import { Button, Card, useToast } from "../../components/ui";
 import { fieldClass } from "./roleHelpers";
 
@@ -90,8 +89,7 @@ export default function MemberProgressPage() {
       await logMemberActivity({
         activityType: activityType.trim(),
         durationMinutes: minutes,
-        caloriesBurned: activityCalories === "" ? 0 : Number(activityCalories),
-      });
+        caloriesBurned: activityCalories === "" ? 0 : Number(activityCalories) });
       toast.success("Activity logged");
       setActivityCalories("");
       void load();
@@ -128,7 +126,7 @@ export default function MemberProgressPage() {
             ))}
           </div>
           <Button type="submit" className="mt-3 w-full" size="sm" disabled={logging === "water"}>
-            {logging === "water" ? "Saving…" : "Log water"}
+            {"Log water"}
           </Button>
         </form>
 
@@ -148,7 +146,7 @@ export default function MemberProgressPage() {
             {progress?.summary?.bmi != null ? ` · BMI ${progress.summary.bmi}` : ""}
           </p>
           <Button type="submit" className="mt-3 w-full" size="sm" disabled={logging === "weight"}>
-            {logging === "weight" ? "Saving…" : "Log weight"}
+            {"Log weight"}
           </Button>
         </form>
 
@@ -184,7 +182,7 @@ export default function MemberProgressPage() {
             />
           </label>
           <Button type="submit" className="mt-3 w-full" size="sm" disabled={logging === "activity"}>
-            {logging === "activity" ? "Saving…" : "Log activity"}
+            {"Log activity"}
           </Button>
         </form>
       </div>

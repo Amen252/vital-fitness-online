@@ -271,9 +271,9 @@ class _CoachPublicProfileScreenState extends State<CoachPublicProfileScreen> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         icon: _isSubmitting
-                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            ? const SizedBox(height: 18, width: 18, child: const SizedBox.shrink())
                             : const Icon(Icons.send_rounded, size: 18),
-                        label: Text(_isSubmitting ? 'Sending…' : 'Send Request', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        label: Text('Send Request', style: const TextStyle(fontWeight: FontWeight.w700)),
                       ),
                     ),
                   ],
@@ -458,9 +458,7 @@ class _CoachPublicProfileScreenState extends State<CoachPublicProfileScreen> {
         backgroundColor: CoachDashboardTheme.primary,
         foregroundColor: Colors.white,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _errorMessage != null
+      body: _errorMessage != null
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

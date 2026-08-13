@@ -3,6 +3,7 @@ import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
 import '../../utils/date_utils.dart';
 import 'widgets/coach_home/coach_dashboard_theme.dart';
+import '../../widgets/silent_refresh.dart';
 
 class UserClassDetailScreen extends StatefulWidget {
   final String classId;
@@ -123,9 +124,7 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
           IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _load),
         ],
       ),
-      body: _isLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _errorMessage != null && _classData == null
+      body: _errorMessage != null && _classData == null
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -173,7 +172,7 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
                 ? 'Join Session'
                 : 'Enrolled';
 
-    return RefreshIndicator(
+    return SilentRefreshIndicator(
       onRefresh: () => _load(isRefresh: true),
       color: CoachDashboardTheme.primary,
       child: ListView(
@@ -379,7 +378,7 @@ class _UserClassDetailScreenState extends State<UserClassDetailScreen> {
                     ? const SizedBox(
                         height: 18,
                         width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: const SizedBox.shrink(),
                       )
                     : Icon(
                         !isEnrolled

@@ -94,9 +94,7 @@ class _AdminActivityScreenState extends State<AdminActivityScreen> {
           IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _load),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

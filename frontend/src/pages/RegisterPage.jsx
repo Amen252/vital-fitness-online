@@ -13,8 +13,7 @@ export default function RegisterPage() {
     username: "",
     phone: "",
     password: "",
-    gender: "Male",
-  });
+    gender: "Male" });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
@@ -30,8 +29,7 @@ export default function RegisterPage() {
         username: form.username,
         phone: form.phone,
         password: form.password,
-        gender: form.gender,
-      };
+        gender: form.gender };
       const result = await registerMember(payload);
       if (!result?.token || !result?.user) {
         throw new Error("Registration succeeded but sign-in failed. Please sign in.");
@@ -126,7 +124,7 @@ export default function RegisterPage() {
             <p className="rounded bg-emerald-50 p-3 text-sm text-emerald-700 sm:col-span-2">{success}</p>
           ) : null}
           <Button type="submit" className="sm:col-span-2" disabled={saving}>
-            {saving ? "Creating…" : "Create account"}
+            {"Create account"}
           </Button>
         </form>
         <p className="mt-5 text-center text-sm text-[var(--vf-muted)]">

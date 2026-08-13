@@ -277,7 +277,7 @@ class _CoachSessionDetailSheetState extends State<_CoachSessionDetailSheet> {
                       const SizedBox(
                         width: 22,
                         height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: const SizedBox.shrink(),
                       ),
                   ],
                 ),

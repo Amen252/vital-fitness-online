@@ -6,6 +6,7 @@ import '../../../widgets/user_workout_detail_sheet.dart';
 import '../../../widgets/workout_proof_sheet.dart';
 import '../../../widgets/workout_completion_proof_view.dart';
 import '../../../widgets/workout_mark_complete_control.dart';
+import '../../widgets/silent_refresh.dart';
 
 class AssignmentsScreen extends StatefulWidget {
   final Map<String, dynamic>? coachingData;
@@ -204,19 +205,11 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
           IconButton(
             tooltip: 'Refresh',
             onPressed: (_isLoading || _isRefreshing) ? null : () => _load(isRefresh: true),
-            icon: _isRefreshing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error.isNotEmpty
+      body: _error.isNotEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -233,7 +226,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> with SingleTicker
               : Column(
                   children: [
                     Expanded(
-                      child: RefreshIndicator(
+                      child: SilentRefreshIndicator(
                         onRefresh: () => _load(isRefresh: true),
                         color: CoachDashboardTheme.primary,
                         child: CustomScrollView(

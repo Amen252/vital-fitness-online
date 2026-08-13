@@ -3,8 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   approveCoachApplication,
   getCoachApplication,
-  rejectCoachApplication,
-} from "../api/adminApi";
+  rejectCoachApplication } from "../api/adminApi";
 import { getErrorMessage } from "../api/client";
 import CertificateFilesGallery, { pickCertificateFiles } from "../components/CertificateFilesGallery";
 import {
@@ -14,9 +13,7 @@ import {
   Card,
   ErrorState,
   PageHeader,
-  Spinner,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 import { formatDate, formatList } from "../utils/profileDisplay";
 
 function applicationStatusTone(status) {
@@ -109,7 +106,7 @@ export default function CoachApplicationDetailPage() {
     }
   }
 
-  if (loading) return <Spinner label="Loading application…" />;
+  
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!app) return <ErrorState message="Application not found" onRetry={load} />;
 

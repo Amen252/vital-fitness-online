@@ -26,4 +26,8 @@ const fitnessClassSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true }
 );
 
+fitnessClassSchema.index({ coach: 1, status: 1 });
+fitnessClassSchema.index({ enrolledStudents: 1 });
+fitnessClassSchema.index({ coach: 1, date: 1 });
+
 module.exports = mongoose.model('FitnessClass', fitnessClassSchema);

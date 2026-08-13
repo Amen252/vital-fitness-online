@@ -10,9 +10,7 @@ import {
   DataTable,
   ErrorState,
   PageHeader,
-  Spinner,
-  StatCard,
-} from "../components/ui";
+  StatCard } from "../components/ui";
 
 export default function DietPage({ embedded = false }) {
   const [plans, setPlans] = useState([]);
@@ -56,8 +54,7 @@ export default function DietPage({ embedded = false }) {
         key: "title",
         header: "Plan",
         sortable: true,
-        render: (row) => <span className="">{row.title}</span>,
-      },
+        render: (row) => <span className="">{row.title}</span> },
       {
         key: "assigneeName",
         header: "Assignee",
@@ -67,15 +64,13 @@ export default function DietPage({ embedded = false }) {
             <p>{row.assigneeName}</p>
             <p className="text-xs text-[var(--vf-muted)]">{row.assigneeType}</p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "coach.name",
         header: "Coach",
         sortable: true,
         sortKey: "coach.name",
-        render: (row) => row.coach?.name || "—",
-      },
+        render: (row) => row.coach?.name || "—" },
       {
         key: "planType",
         header: "Type",
@@ -84,8 +79,7 @@ export default function DietPage({ embedded = false }) {
           <Badge tone={row.planType === "weekly" ? "blue" : "green"}>
             {row.planType === "weekly" ? "Weekly" : "Single-Day"}
           </Badge>
-        ),
-      },
+        ) },
       { key: "dailyCalories", header: "Calories", sortable: true },
       {
         key: "meals",
@@ -94,8 +88,7 @@ export default function DietPage({ embedded = false }) {
           <span className="text-[var(--vf-muted)]">
             {(row.mealTypes || []).join(", ") || "—"}
           </span>
-        ),
-      },
+        ) },
       {
         key: "status",
         header: "Status",
@@ -104,8 +97,7 @@ export default function DietPage({ embedded = false }) {
           <Badge tone={row.status === "active" ? "green" : "slate"}>
             {row.status}
           </Badge>
-        ),
-      },
+        ) },
     ],
     [],
   );
@@ -129,7 +121,7 @@ export default function DietPage({ embedded = false }) {
         />
       )}
 
-      {loading && plans.length === 0 && !adherence ? <Spinner /> : null}
+      
       {error && plans.length === 0 && !adherence ? <ErrorState message={error} onRetry={load} /> : null}
 
       {(!loading || plans.length > 0 || adherence) && (!error || plans.length > 0 || adherence) ? (

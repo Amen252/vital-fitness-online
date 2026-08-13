@@ -7,8 +7,7 @@ import {
   getMemberDietProgress,
   getMemberProgress,
   getMemberWorkoutProgress,
-  getMyCoachRequest,
-} from "../../api/memberApi";
+  getMyCoachRequest } from "../../api/memberApi";
 import { Badge, Button, Card } from "../../components/ui";
 import { assignedCoachFromUser, formatWhen } from "./roleHelpers";
 import { coachDisplayName } from "../../utils/coachDisplay";
@@ -23,32 +22,50 @@ export default function MemberDashboardPage() {
   const [coaching, setCoaching] = useState(null);
 
   const load = useCallback(async () => {
-    const [meData, notifs, progressData, workoutData, dietData, request, assignment] = await Promise.all([
-      getMe().catch(() => null),
-      getMyNotifications().catch(() => []),
-      getMemberProgress().catch(() => null),
-      getMemberWorkoutProgress(7).catch(() => null),
-      getMemberDietProgress(7).catch(() => null),
-      getMyCoachRequest().catch(() => null),
-      getMemberCoaching().catch(() => null),
-    ]);
-    if (meData?.user) setProfile?.(meData.user);
-    const list = Array.isArray(notifs) ? notifs : [];
-    setUnreadCount?.(list.filter((n) => !n.read).length);
-    const unreadCoach = list.find(
-      (n) =>
-        !n.read &&
-        (n.type === "coach_assigned" ||
-          /coach request was approved/i.test(n.message || "") ||
-          /assigned to coach/i.test(n.message || "")),
-    );
-    setCoachBanner(unreadCoach || null);
-    setCoachRequest(request || null);
-    setCoaching(assignment || null);
-    setProgress(progressData);
-    setWorkoutProgress(workoutData);
-    setDietProgress(dietData);
-  }, [setProfile, setUnreadCount]);
+    // Shell already loads profile + unread count — only refresh me/notifs if needed for coach banner.
+    const tasks = [
+      getMyNotifications()
+        .then((notifs) => {
+          const list = Array.isArray(notifs) ? notifs : [];
+          setUnreadCount?.(list.filter((n) => !n.read).length);
+          const unreadCoach = list.find(
+            (n) =>
+              !n.read &&
+              (n.type === "coach_assigned" ||
+                /coach request was approved/i.test(n.message || "") ||
+                /assigned to coach/i.test(n.message || "")),
+          );
+          setCoachBanner(unreadCoach || null);
+        })
+        .catch(() => {}),
+      getMemberProgress()
+        .then((progressData) => setProgress(progressData))
+        .catch(() => {}),
+      getMemberWorkoutProgress(7)
+        .then((workoutData) => setWorkoutProgress(workoutData))
+        .catch(() => {}),
+      getMemberDietProgress(7)
+        .then((dietData) => setDietProgress(dietData))
+        .catch(() => {}),
+      getMyCoachRequest()
+        .then((request) => setCoachRequest(request || null))
+        .catch(() => {}),
+      getMemberCoaching()
+        .then((assignment) => setCoaching(assignment || null))
+        .catch(() => {}),
+    ];
+    // Soft-refresh profile in background only when shell has no profile yet.
+    if (!profile) {
+      tasks.push(
+        getMe()
+          .then((meData) => {
+            if (meData?.user) setProfile?.(meData.user);
+          })
+          .catch(() => {}),
+      );
+    }
+    await Promise.all(tasks);
+  }, [profile, setProfile, setUnreadCount]);
 
   useEffect(() => {
     load();
@@ -154,7 +171,7 @@ export default function MemberDashboardPage() {
           <p className="mt-4 text-sm text-amber-900">
             <Badge tone="amber">Pending Coach Approval</Badge>
             <span className="ml-2">
-              Waiting for {coachDisplayName(coachRequest?.coach)} to review your request.{" "}
+              Your request to {coachDisplayName(coachRequest?.coach)} is pending review.{" "}
               <Link className="font-semibold text-[var(--vf-primary)]" to="/member/coaches">
                 View status
               </Link>

@@ -8,8 +8,7 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis,
-} from "recharts";
+  YAxis } from "recharts";
 import { getReports } from "../api/adminApi";
 import { getErrorMessage, withHardTimeout } from "../api/client";
 import {
@@ -18,9 +17,7 @@ import {
   Card,
   ErrorState,
   PageHeader,
-  Spinner,
-  StatCard,
-} from "../components/ui";
+  StatCard } from "../components/ui";
 
 export default function ReportsPage({ embedded = false }) {
   const [data, setData] = useState(null);
@@ -44,34 +41,29 @@ export default function ReportsPage({ embedded = false }) {
     load();
   }, []);
 
-  if (loading) return <Spinner label="Building analytics…" />;
+  
+  if (loading) return null;
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!data) return <ErrorState message="Unable to load data" onRetry={load} />;
 
   const meals = (data.mealsByDay || []).map((row) => ({
     day: row._id,
-    calories: row.totalCalories,
-  }));
+    calories: row.totalCalories }));
   const water = (data.waterByDay || []).map((row) => ({
     day: row._id,
-    ml: row.totalMl,
-  }));
+    ml: row.totalMl }));
   const weight = (data.weightSeries || []).map((row) => ({
     day: row._id,
-    weight: Number(row.avgWeight?.toFixed?.(1) ?? row.avgWeight),
-  }));
+    weight: Number(row.avgWeight?.toFixed?.(1) ?? row.avgWeight) }));
   const workouts = (data.workoutCompletionsByDay || []).map((row) => ({
     day: row._id,
-    count: row.count,
-  }));
+    count: row.count }));
   const activities = (data.activityByType || []).map((row) => ({
     type: row._id || "Unknown",
-    total: row.total,
-  }));
+    total: row.total }));
   const growth = (data.userGrowth || []).map((row) => ({
     day: row._id,
-    count: row.count,
-  }));
+    count: row.count }));
 
   return (
     <div>

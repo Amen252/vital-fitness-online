@@ -15,8 +15,7 @@ import {
   UserRound,
   X,
   PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react";
+  PanelLeftOpen } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { useTheme } from "../theme/ThemeContext";
 import { getDashboard } from "../api/adminApi";

@@ -22,4 +22,7 @@ const activityLogSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true }
 );
 
+activityLogSchema.index({ user: 1, date: -1 });
+activityLogSchema.index({ user: 1, status: 1 });
+
 module.exports = mongoose.model('ActivityLog', activityLogSchema);

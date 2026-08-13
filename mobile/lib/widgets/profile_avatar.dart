@@ -159,7 +159,7 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
           ? SizedBox(
               width: widget.radius * 0.6,
               height: widget.radius * 0.6,
-              child: const CircularProgressIndicator(strokeWidth: 2.5),
+              child: const SizedBox.shrink(),
             )
           : (image == null
               ? Text(

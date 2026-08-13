@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../widgets/scrollable_body.dart';
 import '../../widgets/coach_appointment_days_display.dart';
 import 'widgets/coach_home/coach_dashboard_theme.dart';
+import '../../widgets/silent_refresh.dart';
 
 /// Members book appointments only on the coach's selected appointment days,
 /// using per-day hours from the coach profile. Non-working days are disabled.
@@ -362,11 +363,9 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         backgroundColor: CoachDashboardTheme.primary,
         foregroundColor: Colors.white,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? _errorView()
-              : RefreshIndicator(
+              : SilentRefreshIndicator(
                   color: CoachDashboardTheme.primary,
                   onRefresh: _loadAll,
                   child: ScrollableBody(
@@ -474,9 +473,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
             child: FilledButton.icon(
               style: CoachDashboardTheme.primaryButtonStyle(),
               onPressed: (_selectedTime == null || _booking) ? null : _book,
-              icon: _booking
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check_rounded, color: Colors.white),
+              icon: const Icon(Icons.check_rounded, color: Colors.white),
               label: Text(
                 _selectedTime == null
                     ? 'Select a time'
@@ -574,12 +571,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     if (_selectedDate == null) {
       return Text('Select a day to see times.',
           style: TextStyle(fontSize: 13, color: isDark ? Colors.white38 : CoachDashboardTheme.textSecondary));
-    }
-    if (_slotsLoading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary)),
-      );
     }
     if (!_isAppointmentDay(_selectedDate!)) {
       return Text('The coach does not accept appointments on this day.',

@@ -9,9 +9,7 @@ import {
   ErrorState,
   Modal,
   PageHeader,
-  Spinner,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 import { formatDate } from "../utils/profileDisplay";
 import { memberRegistrationFromUser } from "../utils/memberRegistration";
 
@@ -81,8 +79,9 @@ export default function UserDetailPage() {
     }
   }
 
-  if (loading) return <Spinner label="Loading member profile…" />;
+  
   if (redirectToCoach) return <Navigate to={`/coaches/${id}`} replace />;
+  if (loading) return null;
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!data?.user)
     return <ErrorState message="Member not found" onRetry={load} />;
@@ -159,7 +158,7 @@ export default function UserDetailPage() {
               Cancel
             </Button>
             <Button variant="danger" disabled={deleting} onClick={handleDelete}>
-              {deleting ? "Deleting…" : "Delete permanently"}
+              {"Delete permanently"}
             </Button>
           </div>
         }

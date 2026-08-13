@@ -91,8 +91,7 @@ export default function RoleNotificationsPage() {
       await logMemberDietAdherence({
         mealType,
         followed: true,
-        ...(data.dateKey ? { date: data.dateKey } : {}),
-      });
+        ...(data.dateKey ? { date: data.dateKey } : {}) });
       setActionNotice("Meal marked complete. Diet progress updated.");
     } catch (error) {
       setActionError(getErrorMessage(error));
@@ -119,7 +118,7 @@ export default function RoleNotificationsPage() {
           {unreadCount > 0 ? <Badge tone="amber">{unreadCount} new</Badge> : null}
         </div>
         <Button size="sm" variant="secondary" onClick={load} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
+          {"Refresh"}
         </Button>
       </div>
       <ul className="mt-4 space-y-2">
@@ -176,7 +175,7 @@ export default function RoleNotificationsPage() {
             </Button>
             {mealData.mealType ? (
               <Button onClick={markMealCompleted} disabled={completing}>
-                {completing ? "Saving…" : "Mark meal completed"}
+                {"Mark meal completed"}
               </Button>
             ) : null}
           </div>

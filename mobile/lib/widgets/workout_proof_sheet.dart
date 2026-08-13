@@ -194,9 +194,7 @@ class _WorkoutProofSheetState extends State<_WorkoutProofSheet> {
                     border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE5E7EB)),
                     color: isDark ? Colors.white10 : const Color(0xFFF5F6F9),
                   ),
-                  child: _picking
-                      ? const CircularProgressIndicator(color: CoachDashboardTheme.primary)
-                      : Text(
+                  child: Text(
                           'No photo selected',
                           style: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
                         ),

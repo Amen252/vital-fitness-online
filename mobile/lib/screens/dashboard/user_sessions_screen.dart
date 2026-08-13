@@ -6,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../widgets/profile_avatar.dart';
 import '../../widgets/scrollable_body.dart';
 import 'widgets/coach_home/coach_dashboard_theme.dart';
+import '../../widgets/silent_refresh.dart';
 
 /// Member view of coach-created 1-on-1 Sessions (Session collection — not Appointments).
 class UserSessionsScreen extends StatefulWidget {
@@ -172,9 +173,7 @@ class _UserSessionsScreenState extends State<UserSessionsScreen>
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -185,7 +184,7 @@ class _UserSessionsScreenState extends State<UserSessionsScreen>
                     ],
                   ),
                 )
-              : RefreshIndicator(
+              : SilentRefreshIndicator(
                   color: CoachDashboardTheme.primary,
                   onRefresh: () => _load(),
                   child: ScrollableBody(

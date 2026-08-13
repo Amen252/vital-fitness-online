@@ -12,8 +12,7 @@ export function normalizeCertificateFiles(value) {
       url: String(file.url || "").trim(),
       fileName: String(file.fileName || "").trim(),
       mimeType: String(file.mimeType || "").trim(),
-      uploadedAt: file.uploadedAt || null,
-    }))
+      uploadedAt: file.uploadedAt || null }))
     .filter((file) => file.url);
 }
 
@@ -35,8 +34,7 @@ export default function CertificateFilesGallery({
   title = "Certificate files",
   className = "",
   /** When true, always show the section title (even if empty). */
-  showTitleWhenEmpty = false,
-}) {
+  showTitleWhenEmpty = false }) {
   const items = normalizeCertificateFiles(files);
 
   if (!items.length) {

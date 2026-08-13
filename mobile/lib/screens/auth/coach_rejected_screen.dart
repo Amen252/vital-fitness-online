@@ -357,13 +357,7 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
                     width: double.infinity,
                     child: TextButton(
                       onPressed: _isRefreshing ? null : _refreshStatus,
-                      child: _isRefreshing
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Check Status'),
+                      child: const Text('Check Status'),
                     ),
                   ),
                   TextButton(

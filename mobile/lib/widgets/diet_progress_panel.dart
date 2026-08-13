@@ -242,12 +242,7 @@ class DietProgressPanel extends StatelessWidget {
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: (pct / 100).clamp(0.0, 1.0),
-              minHeight: 10,
-              backgroundColor: isDark ? Colors.white12 : Colors.black12,
-              color: CoachDashboardTheme.primary,
-            ),
+            child: const SizedBox.shrink(),
           ),
         ],
       ),
@@ -283,12 +278,7 @@ class DietProgressPanel extends StatelessWidget {
           const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: isDark ? Colors.white12 : Colors.black12,
-              color: color,
-            ),
+            child: const SizedBox.shrink(),
           ),
         ],
       ),

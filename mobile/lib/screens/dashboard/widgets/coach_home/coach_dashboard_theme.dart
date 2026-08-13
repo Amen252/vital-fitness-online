@@ -287,11 +287,14 @@ class CoachDashboardTheme {
       builder: (ctx) => IconButton(
         icon: const Icon(Icons.menu_rounded),
         onPressed: () {
-          final scaffold = Scaffold.maybeOf(ctx);
-          if (scaffold?.hasDrawer ?? false) {
-            scaffold!.openDrawer();
-          } else {
-            Scaffold.of(context).openDrawer();
+          final local = Scaffold.maybeOf(ctx);
+          if (local != null && local.hasDrawer) {
+            local.openDrawer();
+            return;
+          }
+          final root = Scaffold.maybeOf(context);
+          if (root != null && root.hasDrawer) {
+            root.openDrawer();
           }
         },
       ),

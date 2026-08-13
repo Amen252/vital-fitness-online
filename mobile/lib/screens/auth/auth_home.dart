@@ -29,6 +29,11 @@ class _AuthHomeState extends State<AuthHome> {
   @override
   void initState() {
     super.initState();
+    // Open immediately with sync routing; refine async if needed.
+    _home = AuthRouting.homeForUser(
+      widget.user,
+      memberInitialTabIndex: widget.memberInitialTabIndex,
+    );
     _resolveHome();
   }
 
@@ -105,13 +110,10 @@ class _AuthHomeState extends State<AuthHome> {
         ),
       );
     }
-    if (_home == null) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(color: CoachDashboardTheme.primary),
-        ),
-      );
-    }
-    return _home!;
+    return _home ??
+        AuthRouting.homeForUser(
+          widget.user,
+          memberInitialTabIndex: widget.memberInitialTabIndex,
+        );
   }
 }

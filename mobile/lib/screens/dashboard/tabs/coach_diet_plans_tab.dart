@@ -571,9 +571,6 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
 
   Widget _buildCompletionBody(bool isDark, [List<DietPlanCompletion>? items]) {
     final list = items ?? _filteredCompletions;
-    if (_completionLoading) {
-      return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_completionError.isNotEmpty) {
       return Center(child: Text(_completionError, textAlign: TextAlign.center));
     }
@@ -849,12 +846,7 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: (item.progressPercent / 100).clamp(0.0, 1.0),
-                  minHeight: 6,
-                  backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                  color: statusColor,
-                ),
+                child: const SizedBox.shrink(),
               ),
               const SizedBox(height: 8),
               InkWell(
@@ -1054,9 +1046,6 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
   }
 
   Widget _buildBody(bool isDark) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_error.isNotEmpty) {
       return Center(child: Text(_error, textAlign: TextAlign.center));
     }
@@ -1850,9 +1839,7 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
               unselectedLabelColor: isDark ? Colors.white54 : CoachDashboardTheme.textSecondary,
               tabs: const [Tab(text: 'Plan'), Tab(text: 'Progress')],
             ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : widget.createMode
+      body: widget.createMode
               ? _buildPlanForm(isDark, readOnly: readOnly)
               : TabBarView(
                   controller: _tabs,
@@ -2277,7 +2264,7 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
                   ? null
                   : () => _save(status: 'active'),
               child: _saving
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(width: 20, height: 20, child: const SizedBox.shrink())
                   : Text(widget.createMode ? 'Create & Send Plan' : 'Save & Send Plan'),
             ),
           ),
@@ -2353,10 +2340,6 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
   }
 
   Widget _buildProgressTab(bool isDark) {
-    if (_progressLoading) {
-      return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
-
     final mealFollowed = Map<String, bool>.from(_progressMealFollowed);
     if (mealFollowed.isEmpty) {
       for (final entry in _todayProgress.mealAdherence) {

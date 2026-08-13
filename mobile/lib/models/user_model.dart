@@ -333,7 +333,7 @@ class User {
 
   bool get isAdmin => role == 'admin';
 
-  /// Waiting for admin to approve a coach application.
+  /// Coach application is pending admin approval.
   bool get hasPendingCoachApplication =>
       coachApplicationStatus == 'pending';
 

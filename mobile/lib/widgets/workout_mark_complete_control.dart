@@ -33,7 +33,7 @@ class WorkoutMarkCompleteControl extends StatelessWidget {
       return const SizedBox(
         width: 26,
         height: 26,
-        child: CircularProgressIndicator(strokeWidth: 2, color: CoachDashboardTheme.primary),
+        child: const SizedBox.shrink(),
       );
     }
 
@@ -74,7 +74,7 @@ class WorkoutCompleteButton extends StatelessWidget {
       return TextButton.icon(
         onPressed: isLoading ? null : onPressed,
         icon: isLoading
-            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            ? const SizedBox(width: 16, height: 16, child: const SizedBox.shrink())
             : const Icon(Icons.check_circle_outline_rounded, size: 16),
         label: const Text('Mark complete'),
       );
@@ -89,10 +89,10 @@ class WorkoutCompleteButton extends StatelessWidget {
             ? const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                child: const SizedBox.shrink(),
               )
             : const Icon(Icons.check_circle_outline_rounded, size: 18),
-        label: Text(isLoading ? 'Submitting...' : 'Mark complete'),
+        label: Text('Mark complete'),
       ),
     );
   }

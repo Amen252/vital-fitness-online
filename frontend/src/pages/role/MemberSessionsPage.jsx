@@ -2,7 +2,7 @@ import { CalendarDays, CheckCircle2, Clock, Link2, Video, XCircle } from "lucide
 import { useCallback, useEffect, useState } from "react";
 import { cancelSession, getSessions } from "../../api/sessionApi";
 import { getErrorMessage } from "../../api/client";
-import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
+import { Badge, Button, Card, useToast } from "../../components/ui";
 import { formatWhen } from "./roleHelpers";
 
 const STATUS_TONE = {
@@ -12,8 +12,7 @@ const STATUS_TONE = {
   completed: "blue",
   cancelled: "red",
   rescheduled: "amber",
-  no_show: "red",
-};
+  no_show: "red" };
 
 const STATUS_ICON = {
   confirmed: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
@@ -22,8 +21,7 @@ const STATUS_ICON = {
   pending: <Clock className="h-4 w-4 text-amber-500" />,
   rescheduled: <Clock className="h-4 w-4 text-amber-500" />,
   cancelled: <XCircle className="h-4 w-4 text-red-400" />,
-  no_show: <XCircle className="h-4 w-4 text-red-500" />,
-};
+  no_show: <XCircle className="h-4 w-4 text-red-500" /> };
 
 function statusLabel(status = "") {
   switch (status) {
@@ -144,15 +142,12 @@ export default function MemberSessionsPage() {
               <option value="all">All</option>
             </select>
             <Button size="sm" variant="secondary" onClick={load} disabled={loading}>
-              {loading ? "…" : "Refresh"}
+              {"Refresh"}
             </Button>
           </div>
         </div>
 
-        {loading ? (
-          <div className="mt-6"><Spinner label="Loading sessions…" /></div>
-        ) : (
-          <ul className="mt-4 space-y-3">
+        <ul className="mt-4 space-y-3">
             {filtered.length === 0 ? (
               <li className="rounded-[12px] border border-[var(--vf-border)] px-4 py-10 text-center">
                 <CalendarDays className="mx-auto h-8 w-8 text-[var(--vf-muted)]" />
@@ -225,7 +220,6 @@ export default function MemberSessionsPage() {
               })
             )}
           </ul>
-        )}
       </Card>
     </>
   );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/profile_avatar.dart';
@@ -127,21 +129,19 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
     }
 
     try {
-      // light=1: list only — progress stats come from per-client calls below.
-      final results = await Future.wait([
-        _apiService.getCoachClients(light: true).catchError((_) => <dynamic>[]),
-        _apiService.getCoachDashboard().catchError((_) => null),
-      ]).timeout(const Duration(seconds: 35), onTimeout: () => [<dynamic>[], null]);
+      // Paint client list ASAP; dashboard trackings + per-client stats load in background.
+      final clientsFuture = _apiService.getCoachClients(light: true).catchError((_) => <dynamic>[]);
+      final dashFuture = _apiService.getCoachDashboard().catchError((_) => null);
 
-      final rawClients = results[0] is List ? results[0] as List<dynamic> : <dynamic>[];
-      final dash = results[1] as Map<String, dynamic>?;
-
+      final rawClients = await clientsFuture.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => <dynamic>[],
+      );
       final clients = rawClients
           .whereType<Map>()
           .map((c) => Map<String, dynamic>.from(c))
           .toList();
 
-      // Only assigned clients from /coach/clients.
       var filtered = clients;
       if (widget.clientId != null) {
         filtered = clients.where((client) {
@@ -151,20 +151,24 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
         }).toList();
       }
 
-      final trackings = ((dash?['clientProgress'] as Map?)?['dailyTrackings'] as List?)
-              ?.whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList() ??
-          [];
-
-      // Show the client list immediately — do not hold the spinner for N+1 stats.
       if (!mounted) return;
       setState(() {
         _clients = filtered;
-        _dailyTrackings = trackings;
         _isLoading = false;
         _errorMessage = '';
       });
+
+      // Background: daily trackings from coach dashboard (non-blocking).
+      unawaited(dashFuture.then((Object? dash) {
+        if (!mounted || dash is! Map) return;
+        final dashMap = Map<String, dynamic>.from(dash);
+        final trackings = ((dashMap['clientProgress'] as Map?)?['dailyTrackings'] as List?)
+                ?.whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList() ??
+            [];
+        setState(() => _dailyTrackings = trackings);
+      }));
 
       final stats = <String, _ClientWorkoutStats>{};
       await Future.wait(filtered.map((client) async {
@@ -360,9 +364,7 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
                 },
         ),
       ],
-      body: _isLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator())
-          : _errorMessage.isNotEmpty && _clients.isEmpty
+      body: _errorMessage.isNotEmpty && _clients.isEmpty
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -404,13 +406,11 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
                       ),
                     )
                   : showingDetail
-                      ? (_detailLoading
-                          ? const ScrollableCenter(child: CircularProgressIndicator())
-                          : ListView(
+                      ? ListView(
                               physics: dashboardScrollPhysics,
                               padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                               children: [_buildClientDetail(isDark)],
-                            ))
+                            )
                       : _buildClientList(isDark),
     );
   }
@@ -970,7 +970,7 @@ class _CoachProgressTabState extends State<CoachProgressTab> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: const SizedBox.shrink(),
                         )
                       : const Text('Send'),
                 ),

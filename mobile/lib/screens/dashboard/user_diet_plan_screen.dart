@@ -7,6 +7,7 @@ import '../../utils/async_load.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/diet_progress_panel.dart';
 import '../../widgets/scrollable_body.dart';
+import '../../widgets/silent_refresh.dart';
 
 class UserDietPlanScreen extends StatefulWidget {
   final VoidCallback? onDietDataChanged;
@@ -653,7 +654,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
         ),
       ),
       body: _loading && _plan == null && _error.isEmpty && _tabs.index != 2
-          ? const ScrollableCenter(child: CircularProgressIndicator())
+          ? const ScrollableCenter(child: const SizedBox.shrink())
           : TabBarView(
               controller: _tabs,
               children: [
@@ -684,7 +685,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
                               textAlign: TextAlign.center,
                             ),
                           )
-                        : RefreshIndicator(
+                        : SilentRefreshIndicator(
                             onRefresh: () => _load(silent: true),
                             child: _buildPlanTab(isDark),
                           ),
@@ -714,9 +715,6 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
   }
 
   Widget _buildHistoryTab(bool isDark) {
-    if (_historyLoading) {
-      return const ScrollableCenter(child: CircularProgressIndicator());
-    }
     return ListView(
       physics: dashboardScrollPhysics,
       padding: const EdgeInsets.all(18),
@@ -1111,12 +1109,7 @@ class UserDietPlanScreenState extends State<UserDietPlanScreen>
         const SizedBox(height: 5),
         ClipRRect(
           borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: value,
-            minHeight: 8,
-            backgroundColor: isDark ? Colors.white12 : Colors.black12,
-            color: color,
-          ),
+          child: const SizedBox.shrink(),
         ),
       ],
     );

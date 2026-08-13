@@ -651,8 +651,8 @@ class CoachHomeSessionList extends StatelessWidget {
       session['client'] is Map ? Map<dynamic, dynamic>.from(session['client'] as Map) : null,
       fallback: 'Client',
     );
-    final dateStr = session['date'];
-    final date = dateStr != null ? DateTime.tryParse(dateStr) : null;
+    final dateStr = session['date']?.toString() ?? session['dateTime']?.toString() ?? session['datetime']?.toString();
+    final date = (dateStr != null && dateStr.isNotEmpty) ? DateTime.tryParse(dateStr) : null;
     final time = date != null
         ? '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}'
         : 'TBD';

@@ -201,9 +201,7 @@ class UserProgressTabState extends State<UserProgressTab> with SingleTickerProvi
           ),
         ],
       ),
-      body: showInitialLoading
-          ? const LottieLoadingCenter()
-          : showInitialError
+      body: showInitialError
               ? ScrollableCenter(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     const Icon(Icons.error_outline_rounded, color: Color(0xFFFF6B6B), size: 48),
@@ -356,12 +354,7 @@ class UserProgressTabState extends State<UserProgressTab> with SingleTickerProvi
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  CircularProgressIndicator(
-                    value: pct / 100,
-                    strokeWidth: 8,
-                    backgroundColor: Colors.white.withOpacity(0.2),
-                    valueColor: const AlwaysStoppedAnimation(Color(0xFF00D4AA)),
-                  ),
+                  const SizedBox.shrink(),
                   Center(child: Text('${pct.toInt()}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
                 ],
               );

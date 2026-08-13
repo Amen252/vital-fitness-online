@@ -3,8 +3,7 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useState,
-} from "react";
+  useState } from "react";
 import { CheckCircle2, Info, TriangleAlert, X, XCircle } from "lucide-react";
 
 const ToastContext = createContext(null);
@@ -13,8 +12,7 @@ const ICONS = {
   success: CheckCircle2,
   error: XCircle,
   warning: TriangleAlert,
-  info: Info,
-};
+  info: Info };
 
 const TONES = {
   success:
@@ -23,8 +21,7 @@ const TONES = {
     "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/80 dark:text-rose-200",
   warning:
     "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/80 dark:text-amber-200",
-  info: "border-[color-mix(in_srgb,var(--vf-accent)_28%,transparent)] bg-[color-mix(in_srgb,var(--vf-accent)_10%,white)] text-[var(--vf-primary-deep)] dark:border-[color-mix(in_srgb,var(--vf-accent)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--vf-accent)_18%,black)] dark:text-[#7dd3fc]",
-};
+  info: "border-[color-mix(in_srgb,var(--vf-accent)_28%,transparent)] bg-[color-mix(in_srgb,var(--vf-accent)_10%,white)] text-[var(--vf-primary-deep)] dark:border-[color-mix(in_srgb,var(--vf-accent)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--vf-accent)_18%,black)] dark:text-[#7dd3fc]" };
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
@@ -48,9 +45,7 @@ export function ToastProvider({ children }) {
         success: (msg) => push(msg, "success"),
         error: (msg) => push(msg, "error"),
         warning: (msg) => push(msg, "warning"),
-        info: (msg) => push(msg, "info"),
-      },
-    }),
+        info: (msg) => push(msg, "info") } }),
     [push],
   );
 

@@ -8,8 +8,7 @@ export function Modal({
   children,
   onClose,
   footer,
-  wide = false,
-}) {
+  wide = false }) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {

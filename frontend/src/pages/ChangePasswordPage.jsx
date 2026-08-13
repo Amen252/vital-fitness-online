@@ -212,7 +212,7 @@ export default function ChangePasswordPage() {
               size="lg"
               disabled={submitting}
             >
-              {submitting ? "Saving…" : "Set New Password & Continue"}
+              {"Set New Password & Continue"}
             </Button>
           </form>
 

@@ -157,9 +157,6 @@ class _CoachRequestsPanelState extends State<CoachRequestsPanel> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_errorMessage != null) {
       return Center(
         child: Column(
@@ -323,7 +320,7 @@ class _RequestCard extends StatelessWidget {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: const SizedBox.shrink(),
                         )
                       : const Text('Approve'),
                 ),

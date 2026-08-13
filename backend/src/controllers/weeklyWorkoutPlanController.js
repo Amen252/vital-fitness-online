@@ -218,14 +218,18 @@ function normalizeDays(days, planTemplateId = null) {
   });
 }
 
-async function attachWeeklyProgress(plan, completions) {
-  const scheduleIds = await WorkoutSchedule.find({
-    weeklyPlan: plan._id,
-    status: { $ne: 'cancelled' },
-  }).select('_id dayOfWeek');
+function slimDayExercises(exercises) {
+  if (!Array.isArray(exercises)) return [];
+  return exercises.map((e) => ({
+    name: e?.name || '',
+    sets: e?.sets,
+    reps: e?.reps,
+  }));
+}
 
+function attachWeeklyProgress(plan, completions, planSchedules = [], { slim = false } = {}) {
   const scheduleByDay = {};
-  scheduleIds.forEach((s) => {
+  planSchedules.forEach((s) => {
     scheduleByDay[s.dayOfWeek] = s._id;
   });
 
@@ -238,8 +242,17 @@ async function attachWeeklyProgress(plan, completions) {
     const pending = dayCompletions.filter((c) => c.status === 'pending').length;
     const missed = dayCompletions.filter((c) => c.status === 'missed').length;
     const total = dayCompletions.length;
+    const slimCompletions = slim
+      ? dayCompletions.map((c) => ({
+          _id: c._id,
+          user: c.user,
+          status: c.status,
+          completedAt: c.completedAt,
+        }))
+      : dayCompletions;
     return {
       ...day,
+      exercises: slim ? slimDayExercises(day.exercises) : day.exercises,
       dayName: DAY_NAMES[day.dayOfWeek],
       scheduleId,
       progress: {
@@ -248,7 +261,7 @@ async function attachWeeklyProgress(plan, completions) {
         missed,
         total,
         completionPercent: total ? Math.round((completed / total) * 100) : 0,
-        completions: dayCompletions,
+        completions: slimCompletions,
       },
     };
   });
@@ -394,29 +407,51 @@ async function getCoachWeeklyWorkoutPlans(req, res) {
     if (req.query.clientId) query.client = req.query.clientId;
     if (req.query.classId) query.fitnessClass = req.query.classId;
 
+    // Default: recent weeks only — older history is rarely needed in Workout Management.
+    if (!req.query.from && !req.query.all) {
+      const from = new Date();
+      from.setDate(from.getDate() - 28);
+      query.weekStartDate = { $gte: from };
+    }
+
     const plans = await WeeklyWorkoutPlan.find(query)
       .populate('client', USER_DISPLAY_SELECT)
       .populate('fitnessClass', 'title')
-      .populate('workoutTemplate', 'title level exercises')
+      .populate('workoutTemplate', 'title level')
       .populate('days.workoutTemplate', 'title level')
       .sort({ weekStartDate: -1 })
+      .limit(Math.min(Number(req.query.limit) || 24, 60))
       .lean();
 
     const planIds = plans.map((p) => p._id);
-    const schedules = await WorkoutSchedule.find({
-      weeklyPlan: { $in: planIds },
-      status: { $ne: 'cancelled' },
-    }).select('_id weeklyPlan');
+    const schedules = planIds.length
+      ? await WorkoutSchedule.find({
+          weeklyPlan: { $in: planIds },
+          status: { $ne: 'cancelled' },
+        }).select('_id weeklyPlan dayOfWeek').lean()
+      : [];
+
+    const schedulesByPlan = new Map();
+    for (const s of schedules) {
+      const key = String(s.weeklyPlan);
+      if (!schedulesByPlan.has(key)) schedulesByPlan.set(key, []);
+      schedulesByPlan.get(key).push(s);
+    }
 
     const scheduleIds = schedules.map((s) => s._id);
-    const completions = await ScheduleCompletion.find({
-      workoutSchedule: { $in: scheduleIds },
-    })
-      .populate('user', USER_DISPLAY_SELECT)
-      .lean();
+    const completions = scheduleIds.length
+      ? await ScheduleCompletion.find({
+          workoutSchedule: { $in: scheduleIds },
+        })
+          .populate('user', USER_DISPLAY_SELECT)
+          .select('workoutSchedule user status completedAt')
+          .lean()
+      : [];
 
-    const enriched = await Promise.all(
-      plans.map((plan) => attachWeeklyProgress(plan, completions)),
+    const enriched = plans.map((plan) =>
+      attachWeeklyProgress(plan, completions, schedulesByPlan.get(String(plan._id)) || [], {
+        slim: true,
+      }),
     );
 
     return res.json(enriched.map(serializeWeeklyPlan));

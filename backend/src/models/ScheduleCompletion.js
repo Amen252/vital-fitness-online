@@ -19,6 +19,7 @@ const scheduleCompletionSchema = new mongoose.Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 scheduleCompletionSchema.index({ workoutSchedule: 1, user: 1 }, { unique: true });
+scheduleCompletionSchema.index({ workoutSchedule: 1 });
 scheduleCompletionSchema.index({ user: 1, status: 1 });
 scheduleCompletionSchema.index({ coach: 1, createdAt: -1 });
 scheduleCompletionSchema.index({ coach: 1, status: 1 });

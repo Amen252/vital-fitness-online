@@ -11,8 +11,7 @@ import {
   Users,
   UserRound,
   X,
-  Dumbbell,
-} from "lucide-react";
+  Dumbbell } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { getMyNotifications } from "../api/adminApi";
@@ -71,6 +70,7 @@ export default function RoleShell({ role }) {
   const pageTitle =
     role === "coach" ? "Coach workspace" : "Member workspace";
 
+  
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== role) {

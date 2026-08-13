@@ -81,7 +81,6 @@ class _CoachChatTabState extends State<CoachChatTab> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (_isLoading) return const ScrollableCenter(child: CircularProgressIndicator());
     if (_errorMessage.isNotEmpty) {
       return ScrollableCenter(
         child: Column(
@@ -268,9 +267,7 @@ class _ChatThreadScreenState extends State<_ChatThreadScreen> {
 
     return CoachPage(
       title: widget.clientName,
-      body: _isLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator())
-          : Column(
+      body: Column(
               children: [
                 Expanded(
                   child: _messages.isEmpty
@@ -333,7 +330,7 @@ class _ChatThreadScreenState extends State<_ChatThreadScreen> {
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  child: const SizedBox.shrink(),
                                 )
                               : IconButton(
                                   icon: const Icon(Icons.send, color: Colors.white, size: 20),

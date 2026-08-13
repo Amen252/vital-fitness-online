@@ -274,17 +274,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                       ),
-                                      child: _isLoading
-                                          ? const SizedBox(
-                                              height: 18,
-                                              width: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation(Colors.white),
-                                              ),
-                                            )
-                                          : const Text(
+                                      child: const Text(
                                               'Sign In',
                                               style: TextStyle(
                                                 fontSize: 15,

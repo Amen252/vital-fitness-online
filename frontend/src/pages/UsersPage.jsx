@@ -13,9 +13,7 @@ import {
   ErrorState,
   Modal,
   PageHeader,
-  Spinner,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 
 function displayOrDash(value) {
   if (value == null || value === "") return "—";
@@ -70,52 +68,44 @@ export default function UsersPage() {
               </p>
             </div>
           );
-        },
-      },
+        } },
       {
         key: "phone",
         header: "Phone",
-        render: (row) => displayOrDash(memberRegistrationFromUser(row).phone),
-      },
+        render: (row) => displayOrDash(memberRegistrationFromUser(row).phone) },
       {
         key: "clientData.gender",
         header: "Gender",
-        render: (row) => displayOrDash(memberRegistrationFromUser(row).gender),
-      },
+        render: (row) => displayOrDash(memberRegistrationFromUser(row).gender) },
       {
         key: "clientData.age",
         header: "Age",
         sortable: true,
-        render: (row) => displayOrDash(memberRegistrationFromUser(row).age),
-      },
+        render: (row) => displayOrDash(memberRegistrationFromUser(row).age) },
       {
         key: "clientData.height",
         header: "Height",
         render: (row) => {
           const height = memberRegistrationFromUser(row).height;
           return height != null ? `${height} cm` : "—";
-        },
-      },
+        } },
       {
         key: "clientData.weight",
         header: "Weight",
         render: (row) => {
           const weight = memberRegistrationFromUser(row).weight;
           return weight != null ? `${weight} kg` : "—";
-        },
-      },
+        } },
       {
         key: "clientData.fitness_goal",
         header: "Fitness goal",
         render: (row) =>
-          displayOrDash(memberRegistrationFromUser(row).fitness_goal_label),
-      },
+          displayOrDash(memberRegistrationFromUser(row).fitness_goal_label) },
       {
         key: "createdAt",
         header: "Registered",
         sortable: true,
-        render: (row) => formatDate(row.createdAt),
-      },
+        render: (row) => formatDate(row.createdAt) },
       {
         key: "actions",
         header: "",
@@ -140,8 +130,7 @@ export default function UsersPage() {
               Delete
             </Button>
           </div>
-        ),
-      },
+        ) },
     ],
     [navigate, deleting],
   );
@@ -162,7 +151,7 @@ export default function UsersPage() {
           </Button>
         }
       />
-      {loading ? <Spinner label="Loading users…" /> : null}
+      
       {!loading && error ? <ErrorState message={error} onRetry={reload} /> : null}
       {!loading && !error ? (
         <DataTable
@@ -197,7 +186,7 @@ export default function UsersPage() {
               Cancel
             </Button>
             <Button variant="danger" disabled={deleting} onClick={confirmDelete}>
-              {deleting ? "Deleting…" : "Delete permanently"}
+              {"Delete permanently"}
             </Button>
           </div>
         }

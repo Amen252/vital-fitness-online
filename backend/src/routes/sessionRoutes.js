@@ -21,10 +21,20 @@ const requireApprovedCoach = require('../middleware/requireApprovedCoach');
 
 const router = express.Router();
 
-// Existing endpoints (kept)
-router.post('/', auth, roles('user', 'coach'), bookSession);
-router.get('/', auth, getSessions);
-router.patch('/:id/status', auth, updateSessionStatus);
+// Existing endpoints (kept) — coaches must be approved for write/list coach paths.
+router.post('/', auth, roles('user', 'coach'), (req, res, next) => {
+  if (req.user.role === 'user') return next();
+  return requireApprovedCoach(req, res, next);
+}, bookSession);
+router.get('/', auth, (req, res, next) => {
+  if (req.user.role !== 'coach') return next();
+  return requireApprovedCoach(req, res, next);
+}, getSessions);
+router.patch('/:id/status', auth, (req, res, next) => {
+  if (req.user.role === 'user') return next();
+  if (req.user.role === 'coach') return requireApprovedCoach(req, res, next);
+  return res.status(403).json({ message: 'Forbidden' });
+}, updateSessionStatus);
 
 // Additive 1-on-1 coach/member actions (Session collection only)
 router.patch('/:id/confirm', auth, roles('coach'), requireApprovedCoach, confirmSession);

@@ -11,8 +11,7 @@ import {
   Lock,
   AlertCircle,
   Eye,
-  EyeOff,
-} from "lucide-react";
+  EyeOff } from "lucide-react";
 import { dashboardPath } from "../App";
 
 export default function LoginPage() {
@@ -171,7 +170,7 @@ export default function LoginPage() {
                 size="md"
                 disabled={submitting}
               >
-                {submitting ? "Signing in…" : "Sign In"}
+                {"Sign In"}
               </Button>
             </form>
 

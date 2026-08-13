@@ -510,7 +510,7 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
                       Text('1. Select workout', style: CoachDashboardTheme.sectionTitle(isDark)),
                       const SizedBox(height: 8),
                       if (_loadingTemplates)
-                        const LinearProgressIndicator(color: CoachDashboardTheme.primary)
+                        const SizedBox.shrink()
                       else if (_templates.isEmpty)
                         Text(
                           'Create workout templates in the Workouts tab first.',
@@ -681,7 +681,7 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
                         style: CoachDashboardTheme.primaryButtonStyle(),
                         onPressed: _submitting || _templates.isEmpty ? null : _submit,
                         child: _submitting
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            ? const SizedBox(width: 20, height: 20, child: const SizedBox.shrink())
                             : const Text('Save Weekly Plan'),
                       ),
                     ),

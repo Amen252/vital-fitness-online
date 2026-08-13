@@ -81,7 +81,8 @@ async function createWorkoutTemplate(req, res) {
 async function getWorkoutTemplates(req, res) {
   try {
     const templates = await WorkoutTemplate.find({ coach: req.user._id, status: 'active' })
-      .sort({ updatedAt: -1 });
+      .sort({ updatedAt: -1 })
+      .lean();
     return res.json(templates.map(serializeTemplate));
   } catch (error) {
     return res.status(500).json({ message: 'Error fetching workout templates' });

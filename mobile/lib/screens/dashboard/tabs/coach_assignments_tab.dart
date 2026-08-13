@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import '../../../utils/async_load.dart';
+import '../../../utils/section_data_cache.dart';
 import '../../../widgets/coach_workout_detail_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
@@ -9,6 +10,7 @@ import '../widgets/coach_home/coach_dashboard_theme.dart';
 import 'workout_form_sheet.dart';
 import 'workout_schedule_form_sheet.dart';
 import 'weekly_workout_plan_form_sheet.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachAssignmentsTab extends StatefulWidget {
   const CoachAssignmentsTab({super.key});
@@ -18,6 +20,8 @@ class CoachAssignmentsTab extends StatefulWidget {
 }
 
 class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerProviderStateMixin, TabRefreshMixin {
+  static const _cacheKey = 'coach_workout_management';
+
   final ApiService _apiService = ApiService();
   late final TabController _mainTab;
   late final TabController _scheduleFilterTab;
@@ -37,7 +41,16 @@ class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerPr
     _mainTab.addListener(() {
       if (!_mainTab.indexIsChanging) setState(() {});
     });
-    _fetchData();
+    final cached = SectionDataCache.get<Map<String, dynamic>>(_cacheKey);
+    if (cached != null) {
+      _applyPayload(cached);
+      tabHasLoadedOnce = true;
+      tabIsLoading = false;
+      // Soft refresh — keep cached UI visible while fresh data loads.
+      _fetchData(isRefresh: true);
+    } else {
+      _fetchData();
+    }
   }
 
   @override
@@ -47,48 +60,72 @@ class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerPr
     super.dispose();
   }
 
+  void _applyPayload(Map<String, dynamic> payload) {
+    _templates = List<dynamic>.from(payload['templates'] as List? ?? []);
+    _clients = List<dynamic>.from(payload['clients'] as List? ?? []);
+    _classes = List<dynamic>.from(payload['classes'] as List? ?? []);
+    _schedules = List<dynamic>.from(payload['schedules'] as List? ?? []);
+    _weeklyPlans = List<dynamic>.from(payload['weeklyPlans'] as List? ?? []);
+    _scheduleSummary = Map<String, dynamic>.from(payload['scheduleSummary'] as Map? ?? {});
+  }
+
+  Map<String, dynamic> _currentPayload() => {
+        'templates': _templates,
+        'clients': _clients,
+        'classes': _classes,
+        'schedules': _schedules,
+        'weeklyPlans': _weeklyPlans,
+        'scheduleSummary': _scheduleSummary,
+      };
+
   Future<void> _fetchData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      // Isolate each call so one slow endpoint cannot freeze Workout Management.
-      // Clients use light=1 (no snapshots) — this screen only needs ids/names.
-      final results = await waitIsolatedTimed<Object?>([
-        _apiService.getWorkoutTemplates(),
-        _apiService.getCoachClients(light: true),
-        _apiService.getCoachClasses(),
-        _apiService.getCoachWorkoutSchedules(),
-        _apiService.getCoachWeeklyWorkoutPlans(),
-      ], fallback: null);
+      // Paint Workouts tab ASAP from templates; load schedule/assignee data in parallel after.
+      final templatesFuture = _apiService.getWorkoutTemplates().catchError((_) => <dynamic>[]);
+      final clientsFuture = _apiService.getCoachClients(light: true).catchError((_) => <dynamic>[]);
+      final classesFuture = _apiService.getCoachClasses(light: true).catchError((_) => <dynamic>[]);
+      final schedulesFuture = _apiService.getCoachWorkoutSchedules().catchError((_) => <String, dynamic>{});
+      final weeklyFuture = _apiService.getCoachWeeklyWorkoutPlans().catchError((_) => <dynamic>[]);
 
-      final templates = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
-      final clients = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
-      final classes = results[2] is List ? List<dynamic>.from(results[2] as List) : <dynamic>[];
-      final scheduleData = results[3] is Map
-          ? Map<String, dynamic>.from(results[3] as Map)
+      final templates = await templatesFuture.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => <dynamic>[],
+      );
+      if (!mounted) return;
+      setState(() {
+        _templates = List<dynamic>.from(templates as List? ?? []);
+        tabIsLoading = false;
+        tabIsRefreshing = false;
+        tabHasLoadedOnce = true;
+        tabLoadError = null;
+      });
+
+      final rest = await waitIsolatedTimed<Object?>([
+        clientsFuture,
+        classesFuture,
+        schedulesFuture,
+        weeklyFuture,
+      ], fallback: null, timeout: const Duration(seconds: 25));
+
+      if (!mounted) return;
+      final clients = rest[0] is List ? List<dynamic>.from(rest[0] as List) : <dynamic>[];
+      final classes = rest[1] is List ? List<dynamic>.from(rest[1] as List) : <dynamic>[];
+      final scheduleData = rest[2] is Map
+          ? Map<String, dynamic>.from(rest[2] as Map)
           : <String, dynamic>{};
-      final weeklyPlans = results[4] is List ? List<dynamic>.from(results[4] as List) : <dynamic>[];
+      final weeklyPlans = rest[3] is List ? List<dynamic>.from(rest[3] as List) : <dynamic>[];
 
-      final allFailed = results.every((r) => r == null);
-      if (allFailed) {
-        finishTabError(
-          Exception('Unable to load workout data. Please retry.'),
-          isRefresh: isRefresh,
+      finishTabLoad(() {
+        _clients = clients;
+        _classes = classes;
+        _schedules = List<dynamic>.from(scheduleData['schedules'] as List<dynamic>? ?? []);
+        _weeklyPlans = weeklyPlans;
+        _scheduleSummary = Map<String, dynamic>.from(
+          scheduleData['summary'] as Map<String, dynamic>? ?? {},
         );
-        return;
-      }
-
-      if (mounted) {
-        finishTabLoad(() {
-          _templates = templates;
-          _clients = clients;
-          _classes = classes;
-          _schedules = List<dynamic>.from(scheduleData['schedules'] as List<dynamic>? ?? []);
-          _weeklyPlans = weeklyPlans;
-          _scheduleSummary = Map<String, dynamic>.from(
-            scheduleData['summary'] as Map<String, dynamic>? ?? {},
-          );
-        });
-      }
+      });
+      SectionDataCache.put(_cacheKey, _currentPayload());
     } catch (e) {
       finishTabError(e, isRefresh: isRefresh);
     } finally {
@@ -192,13 +229,6 @@ class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerPr
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (showInitialLoading) {
-      return const CoachPage(
-        title: 'Workout Management',
-        body: ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary)),
-      );
-    }
 
     if (showInitialError) {
       return CoachPage(
@@ -344,10 +374,11 @@ class _WorkoutTemplatesView extends StatefulWidget {
 class _WorkoutTemplatesViewState extends State<_WorkoutTemplatesView> {
   String _query = '';
 
-  List<dynamic> get _filtered {
-    if (_query.isEmpty) return widget.templates;
+  List<Map<String, dynamic>> get _filtered {
+    final templates = widget.templates.whereType<Map>().map((t) => Map<String, dynamic>.from(t)).toList();
+    if (_query.isEmpty) return templates;
     final q = _query.toLowerCase();
-    return widget.templates.where((t) {
+    return templates.where((t) {
       final title = (t['title'] as String? ?? '').toLowerCase();
       final level = (t['level'] as String? ?? '').toLowerCase();
       return title.contains(q) || level.contains(q);
@@ -360,7 +391,7 @@ class _WorkoutTemplatesViewState extends State<_WorkoutTemplatesView> {
       children: [
         _SearchField(isDark: widget.isDark, hint: 'Search workouts', onChanged: (v) => setState(() => _query = v)),
         Expanded(
-          child: RefreshIndicator(
+          child: SilentRefreshIndicator(
             onRefresh: () async => widget.onRefresh(),
             color: CoachDashboardTheme.primary,
             child: _filtered.isEmpty
@@ -373,8 +404,11 @@ class _WorkoutTemplatesViewState extends State<_WorkoutTemplatesView> {
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                     itemCount: _filtered.length,
                     itemBuilder: (context, index) {
-                    final t = Map<String, dynamic>.from(_filtered[index] as Map);
-                    final exercises = t['exercises'] as List<dynamic>? ?? [];
+                    final t = _filtered[index];
+                    final exercises = (t['exercises'] as List<dynamic>? ?? const [])
+                        .whereType<Map>()
+                        .map((e) => Map<String, dynamic>.from(e))
+                        .toList();
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(14),
@@ -394,7 +428,9 @@ class _WorkoutTemplatesViewState extends State<_WorkoutTemplatesView> {
                           ],
                           const SizedBox(height: 8),
                           ...exercises.take(5).map((ex) => Text(
-                                '• ${ex['name']} — ${ex['sets']}×${ex['reps']}${ex['durationMinutes'] != null ? ' · ${ex['durationMinutes']}min' : ''}${ex['restSeconds'] != null ? ' · ${ex['restSeconds']}s rest' : ''}',
+                                '• ${ex['name'] ?? 'Exercise'} — ${ex['sets'] ?? '-'}×${ex['reps'] ?? '-'}'
+                                '${ex['durationMinutes'] != null ? ' · ${ex['durationMinutes']}min' : ''}'
+                                '${ex['restSeconds'] != null ? ' · ${ex['restSeconds']}s rest' : ''}',
                                 style: const TextStyle(fontSize: 12, height: 1.4),
                               )),
                           if (exercises.length > 5)
@@ -469,7 +505,7 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
   String _query = '';
 
   List<dynamic> get _displayWeeklyPlans {
-    List<dynamic> list = widget.weeklyPlans;
+    List<dynamic> list = widget.weeklyPlans.whereType<Map>().toList();
     final filter = widget.filterTab.index;
     if (filter == 1) {
       list = list.where((p) => p['client'] != null).toList();
@@ -491,7 +527,10 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
 
   List<dynamic> get _displaySchedules {
     // Standalone schedules only — weekly-plan workouts are managed in Weekly Plans above.
-    List<dynamic> list = widget.schedules.where((s) => s['weeklyPlan'] == null).toList();
+    List<dynamic> list = widget.schedules
+        .whereType<Map>()
+        .where((s) => s['weeklyPlan'] == null)
+        .toList();
     final filter = widget.filterTab.index;
     if (filter == 1) {
       list = list.where((s) => s['client'] != null).toList();
@@ -564,7 +603,7 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
           ],
         ),
         Expanded(
-          child: RefreshIndicator(
+          child: SilentRefreshIndicator(
             onRefresh: () async => widget.onRefresh(),
             color: CoachDashboardTheme.primary,
             child: CustomScrollView(
@@ -614,14 +653,21 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                             if (parseApiDateOnly(p['weekStartDate']?.toString()) case final ws?)
                               Text('Week of ${formatWeekRange(ws)}', style: TextStyle(fontSize: 11, color: widget.isDark ? Colors.white38 : Colors.grey.shade600)),
                             const SizedBox(height: 8),
-                            ...days.where((d) => d is Map && d['enabled'] == true && d['offDay'] != true).take(4).map((raw) {
-                              final day = Map<String, dynamic>.from(raw as Map);
+                            ...days.whereType<Map>().where((d) => d['enabled'] == true && d['offDay'] != true).take(4).map((raw) {
+                              final day = Map<String, dynamic>.from(raw);
                               const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                              final i = day['dayOfWeek'] as int? ?? 0;
-                              final ex = day['exercises'] as List<dynamic>? ?? [];
-                              final names = ex.map((e) => e['name']).whereType<String>().take(3).join(', ');
-                              final progress = day['progress'] as Map<String, dynamic>? ?? {};
-                              final completions = progress['completions'] as List<dynamic>? ?? const [];
+                              final i = (day['dayOfWeek'] as num?)?.toInt() ?? 0;
+                              final ex = (day['exercises'] as List<dynamic>? ?? const [])
+                                  .whereType<Map>()
+                                  .map((e) => Map<String, dynamic>.from(e))
+                                  .toList();
+                              final names = ex.map((e) => e['name']?.toString()).whereType<String>().where((n) => n.isNotEmpty).take(3).join(', ');
+                              final progress = day['progress'] is Map
+                                  ? Map<String, dynamic>.from(day['progress'] as Map)
+                                  : <String, dynamic>{};
+                              final completions = (progress['completions'] as List<dynamic>? ?? const [])
+                                  .whereType<Map>()
+                                  .toList();
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
                                 child: Column(
@@ -638,7 +684,7 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                                           spacing: 8,
                                           runSpacing: 2,
                                           children: completions.map((raw) {
-                                            final completion = Map<String, dynamic>.from(raw as Map);
+                                            final completion = Map<String, dynamic>.from(raw);
                                             final user = completion['user'] is Map
                                                 ? Map<dynamic, dynamic>.from(completion['user'] as Map)
                                                 : null;
@@ -668,12 +714,17 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: List.generate(7, (i) {
-                                final day = days.cast<Map>().firstWhere((d) => d['dayOfWeek'] == i, orElse: () => {'enabled': false, 'offDay': false});
+                                final day = days.whereType<Map>().cast<Map>().firstWhere(
+                                      (d) => d['dayOfWeek'] == i,
+                                      orElse: () => <dynamic, dynamic>{'enabled': false, 'offDay': false},
+                                    );
                                 final offDay = day['offDay'] == true;
                                 final enabled = day['enabled'] == true && !offDay;
-                                final prog = day['progress'] as Map<String, dynamic>? ?? {};
-                                final done = (prog['completed'] as int? ?? 0) > 0;
-                                final missed = (prog['missed'] as int? ?? 0) > 0;
+                                final prog = day['progress'] is Map
+                                    ? Map<String, dynamic>.from(day['progress'] as Map)
+                                    : <String, dynamic>{};
+                                final done = ((prog['completed'] as num?)?.toInt() ?? 0) > 0;
+                                final missed = ((prog['missed'] as num?)?.toInt() ?? 0) > 0;
                                 const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
                                 return Column(
                                   children: [
@@ -806,14 +857,16 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                                   '${progress['completed'] ?? 0} completed · ${progress['pending'] ?? 0} pending · ${progress['missed'] ?? 0} missed',
                                   style: TextStyle(fontSize: 11, color: widget.isDark ? Colors.white54 : Colors.grey),
                                 ),
-                                if ((progress['completions'] as List<dynamic>? ?? const []).isNotEmpty)
+                                if ((progress['completions'] as List<dynamic>? ?? const []).whereType<Map>().isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Wrap(
                                       spacing: 10,
                                       runSpacing: 3,
-                                      children: (progress['completions'] as List<dynamic>).map((raw) {
-                                        final completion = Map<String, dynamic>.from(raw as Map);
+                                      children: (progress['completions'] as List<dynamic>)
+                                          .whereType<Map>()
+                                          .map((raw) {
+                                        final completion = Map<String, dynamic>.from(raw);
                                         final user = completion['user'] is Map
                                             ? Map<dynamic, dynamic>.from(completion['user'] as Map)
                                             : null;
@@ -931,7 +984,7 @@ class _ProgressSummaryCard extends StatelessWidget {
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(value: percent / 100, minHeight: 6, color: CoachDashboardTheme.primary, backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200),
+            child: const SizedBox.shrink(),
           ),
           const SizedBox(height: 8),
           Text('$completed completed · $pending pending · $missed missed', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),

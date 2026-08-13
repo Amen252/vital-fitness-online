@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../services/api_service.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachAppointmentsTab extends StatefulWidget {
   const CoachAppointmentsTab({super.key});
@@ -147,9 +148,7 @@ class _CoachAppointmentsTabState extends State<CoachAppointmentsTab> {
     return CoachPage(
       title: 'Appointments',
       actions: [IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _load)],
-      body: _loading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : _error != null
+      body: _error != null
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -160,7 +159,7 @@ class _CoachAppointmentsTabState extends State<CoachAppointmentsTab> {
                     ],
                   ),
                 )
-              : RefreshIndicator(
+              : SilentRefreshIndicator(
                   color: CoachDashboardTheme.primary,
                   onRefresh: _load,
                   child: ScrollableBody(

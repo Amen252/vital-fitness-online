@@ -329,7 +329,7 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
             if (status == 'pending_review') ...[
               const SizedBox(height: 12),
               Text(
-                'Awaiting coach review',
+                'Pending coach review',
                 style: TextStyle(color: CoachDashboardTheme.warning, fontWeight: FontWeight.w600),
               ),
             ],
@@ -418,9 +418,7 @@ class UserScheduleTabState extends State<UserScheduleTab> with SingleTickerProvi
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            showInitialLoading
-                ? const LottieLoadingCenter()
-                : showInitialError
+            showInitialError
                     ? ScrollableCenter(child: Text(tabLoadError!, style: const TextStyle(color: CoachDashboardTheme.danger)))
                     : PremiumRefreshIndicator(
                         onRefresh: () => _refreshAll(preserveWeek: true, showFeedback: true),

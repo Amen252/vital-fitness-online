@@ -6,11 +6,10 @@ import {
   getMemberCoaching,
   getMemberTrainers,
   getMyCoachRequest,
-  submitCoachRequest,
-} from "../../api/memberApi";
+  submitCoachRequest } from "../../api/memberApi";
 import CertificateFilesGallery, { pickCertificateFiles } from "../../components/CertificateFilesGallery";
 import ProfileDetails from "../../components/ProfileDetails";
-import { Badge, Button, Card, Modal, Spinner } from "../../components/ui";
+import { Badge, Button, Card, Modal } from "../../components/ui";
 import { coachDisplayName, coachProfileFromUser } from "../../utils/coachDisplay";
 import { isSelectableCoach } from "../../utils/coachVisibility";
 
@@ -116,11 +115,7 @@ export default function MemberCoachesPage() {
         </p>
       </Card>
 
-      {loading ? (
-        <div className="mt-5">
-          <Spinner label="Loading coaches…" />
-        </div>
-      ) : null}
+      
       {!loading && error ? (
         <div className="mt-5 space-y-2">
           <p className="text-sm text-[var(--vf-danger)]">{error || "Unable to load data"}</p>
@@ -129,8 +124,7 @@ export default function MemberCoachesPage() {
       ) : null}
       {notice ? <p className="mt-5 text-sm text-emerald-700">{notice}</p> : null}
 
-      {!loading ? (
-        <div className="mt-5 space-y-4">
+      <div className="mt-5 space-y-4">
           {assignedCoach ? (
             <Card className="p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -157,7 +151,7 @@ export default function MemberCoachesPage() {
                 <Badge tone="amber">Pending Coach Approval</Badge>
               </div>
               <p className="mt-2 text-sm text-amber-900">
-                Your request to <strong>{pendingCoachName}</strong> is waiting for their review.
+                Your request to <strong>{pendingCoachName}</strong> is pending their review.
                 You can withdraw it if you want to choose someone else.
               </p>
               <div className="mt-4">
@@ -224,7 +218,7 @@ export default function MemberCoachesPage() {
                             disabled={Boolean(busyId)}
                             onClick={() => requestCoach(id)}
                           >
-                            {busyId === id ? "Sending…" : "Request coach"}
+                            {"Request coach"}
                           </Button>
                         </div>
                       </li>
@@ -235,7 +229,6 @@ export default function MemberCoachesPage() {
             </Card>
           ) : null}
         </div>
-      ) : null}
 
       {detailCoach ? (
         <Modal

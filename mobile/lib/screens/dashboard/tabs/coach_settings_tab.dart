@@ -367,10 +367,10 @@ class _CoachSettingsTabState extends State<CoachSettingsTab> {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: const SizedBox.shrink(),
                         )
                       : const Icon(Icons.save_outlined, size: 18),
-                  label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+                  label: Text('Save Changes'),
                 ),
               ),
             ],
@@ -658,7 +658,7 @@ class _ProfileHeader extends StatelessWidget {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: const SizedBox.shrink(),
                           )
                         : const Icon(Icons.refresh_rounded, color: Colors.white),
                   ),

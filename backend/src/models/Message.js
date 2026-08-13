@@ -12,4 +12,7 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true }
 );
 
+messageSchema.index({ assignment: 1, createdAt: -1 });
+messageSchema.index({ receiver: 1, read: 1 });
+
 module.exports = mongoose.model('Message', messageSchema);

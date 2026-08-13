@@ -8,9 +8,7 @@ import {
   Card,
   DataTable,
   ErrorState,
-  PageHeader,
-  Spinner,
-} from "../components/ui";
+  PageHeader } from "../components/ui";
 
 const TONE = {
   pending: "amber",
@@ -18,8 +16,7 @@ const TONE = {
   completed: "blue",
   rejected: "red",
   cancelled: "red",
-  rescheduled: "amber",
-};
+  rescheduled: "amber" };
 
 function Stat({ icon: Icon, label, value, color = "text-[var(--vf-primary)]" }) {
   return (
@@ -74,8 +71,7 @@ export default function AppointmentsPage() {
         return dt >= now && ["pending", "approved", "rescheduled"].includes(a.status);
       }).length,
       completed: allAppointments.filter((a) => a.status === "completed").length,
-      cancelled: allAppointments.filter((a) => ["cancelled", "rejected"].includes(a.status)).length,
-    };
+      cancelled: allAppointments.filter((a) => ["cancelled", "rejected"].includes(a.status)).length };
   }, [allAppointments]);
 
   const columns = useMemo(
@@ -85,8 +81,7 @@ export default function AppointmentsPage() {
         header: "When",
         sortable: true,
         render: (row) =>
-          row.dateTime ? new Date(row.dateTime).toLocaleString() : "—",
-      },
+          row.dateTime ? new Date(row.dateTime).toLocaleString() : "—" },
       {
         key: "client.full_name",
         header: "Client",
@@ -97,8 +92,7 @@ export default function AppointmentsPage() {
             <p className="font-medium">{row.client?.full_name || row.client?.username || "—"}</p>
             <p className="text-xs text-[var(--vf-muted)]">@{row.client?.username}</p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "coach.full_name",
         header: "Coach",
@@ -109,8 +103,7 @@ export default function AppointmentsPage() {
             <p className="font-medium">{row.coach?.full_name || row.coach?.username || "—"}</p>
             <p className="text-xs text-[var(--vf-muted)]">@{row.coach?.username}</p>
           </div>
-        ),
-      },
+        ) },
       {
         key: "durationMinutes",
         header: "Duration",
@@ -118,16 +111,14 @@ export default function AppointmentsPage() {
           <span className="text-sm text-[var(--vf-muted)]">
             {row.durationMinutes ? `${row.durationMinutes} min` : "—"}
           </span>
-        ),
-      },
+        ) },
       {
         key: "status",
         header: "Status",
         sortable: true,
         render: (row) => (
           <Badge tone={TONE[row.status] || "slate"}>{row.status}</Badge>
-        ),
-      },
+        ) },
       {
         key: "type",
         header: "Type",
@@ -135,8 +126,7 @@ export default function AppointmentsPage() {
           <span className="text-xs text-[var(--vf-muted)]">
             {(row.type || "—").replace(/_/g, " ")}
           </span>
-        ),
-      },
+        ) },
     ],
     [],
   );
@@ -161,7 +151,7 @@ export default function AppointmentsPage() {
         <Stat icon={XCircle} label="Cancelled / Rejected" value={stats.cancelled} color="text-red-400" />
       </div>
 
-      {loading ? <Spinner /> : null}
+      
       {error ? <ErrorState message={error} onRetry={load} /> : null}
 
       {!loading && !error ? (

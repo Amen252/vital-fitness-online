@@ -96,6 +96,9 @@ class AuthRouting {
     if (user.hasPendingCoachApplication) {
       return CoachPendingScreen(user: user);
     }
+    if (user.hasRejectedCoachApplication) {
+      return CoachRejectedScreen(user: user);
+    }
     return DashboardScreen(
       initialUser: user,
       initialTabIndex: memberInitialTabIndex ?? 0,

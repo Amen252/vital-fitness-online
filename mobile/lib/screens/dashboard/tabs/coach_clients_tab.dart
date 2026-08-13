@@ -59,7 +59,7 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
     beginTabLoad(isRefresh: isRefresh);
     try {
       final results = await waitIsolatedTimed<Object?>([
-        _apiService.getCoachClients(),
+        _apiService.getCoachClients(light: true),
         _apiService.getCoachRequests(),
       ], fallback: null);
       if (results.every((r) => r == null)) {
@@ -122,9 +122,7 @@ class CoachClientsTabState extends State<CoachClientsTab> with TabRefreshMixin {
           onPressed: (showInitialLoading || tabIsRefreshing) ? null : refresh,
         ),
       ],
-      body: showInitialLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : showInitialError
+      body: showInitialError
               ? ScrollableCenter(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

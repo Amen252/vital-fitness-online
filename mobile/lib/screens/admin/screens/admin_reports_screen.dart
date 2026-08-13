@@ -78,9 +78,6 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   }
 
   Widget _buildBody(bool isDark) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_errorMessage != null) {
       return Center(
         child: Column(

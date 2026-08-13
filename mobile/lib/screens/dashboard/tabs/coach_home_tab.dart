@@ -9,6 +9,7 @@ import '../widgets/coach_home/coach_home_sections.dart';
 import 'coach_notifications_tab.dart';
 import 'coach_assignments_tab.dart';
 import 'coach_appointments_tab.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachHomeTab extends StatefulWidget {
   final User coach;
@@ -33,6 +34,7 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
   List<dynamic> _clients = [];
   List<dynamic> _sessions = [];
   List<dynamic> _pendingClientRequests = [];
+  int _pendingReviewCount = 0;
 
   @override
   void initState() {
@@ -45,28 +47,43 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
   Future<void> _fetchDashboardData({bool isRefresh = false}) async {
     beginTabLoad(isRefresh: isRefresh);
     try {
-      final results = await waitIsolatedTimed<Object?>([
-        _apiService.getCoachClients(),
-        _apiService.getSessions(),
-        _apiService.getCoachRequests(),
-      ], fallback: null);
+      final clientsFuture =
+          _apiService.getCoachClients(light: true).catchError((_) => <dynamic>[]);
+      final sessionsFuture = _apiService.getSessions().catchError((_) => <dynamic>[]);
+      final requestsFuture = _apiService.getCoachRequests().catchError((_) => <dynamic>[]);
+      final reviewsFuture =
+          _apiService.getPendingWorkoutSubmissions().catchError((_) => <dynamic>[]);
 
-      final clients = results[0] is List ? List<dynamic>.from(results[0] as List) : <dynamic>[];
-      final sessions = results[1] is List ? List<dynamic>.from(results[1] as List) : <dynamic>[];
-      final requests = results[2] is List ? List<dynamic>.from(results[2] as List) : <dynamic>[];
-      if (results.every((r) => r == null)) {
-        finishTabError(
-          Exception('Unable to load dashboard. Please retry.'),
-          isRefresh: isRefresh,
-        );
-        return;
-      }
+      // Paint client count first — usually the hero metric on Home.
+      final clientsRaw = await clientsFuture.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => <dynamic>[],
+      );
+      if (!mounted) return;
+      setState(() {
+        _clients = List<dynamic>.from(clientsRaw);
+        tabIsLoading = false;
+        tabIsRefreshing = false;
+        tabHasLoadedOnce = true;
+        tabLoadError = null;
+      });
+
+      final rest = await waitIsolatedTimed<Object?>([
+        sessionsFuture,
+        requestsFuture,
+        reviewsFuture,
+      ], fallback: null, timeout: const Duration(seconds: 20));
+
+      final sessions = rest[0] is List ? List<dynamic>.from(rest[0] as List) : <dynamic>[];
+      final requests = rest[1] is List ? List<dynamic>.from(rest[1] as List) : <dynamic>[];
+      final reviews = rest[2] is List ? List<dynamic>.from(rest[2] as List) : <dynamic>[];
 
       if (mounted) {
         finishTabLoad(() {
-          _clients = clients;
-          _sessions = sessions;
-          _pendingClientRequests = requests;
+          _clients = List<dynamic>.from(clientsRaw);
+          _sessions = sessions.whereType<Map>().toList();
+          _pendingClientRequests = requests.whereType<Map>().toList();
+          _pendingReviewCount = reviews.whereType<Map>().length;
         });
       }
     } catch (e) {
@@ -98,19 +115,17 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
     return '${days[now.weekday - 1]}, ${months[now.month]} ${now.day}';
   }
 
-  int get _clientsNeedingAction {
-    return _clients.where((c) => c['snapshot']?['analysis']?['isActionRequired'] == true).length;
-  }
+  int get _clientsNeedingAction => _pendingReviewCount;
 
   List<dynamic> get _todaySessions {
     final now = DateTime.now();
-    return _sessions.where((s) {
-      final d = DateTime.tryParse(s['date'] ?? '');
+    return _sessions.whereType<Map>().where((s) {
+      final d = DateTime.tryParse(s['date']?.toString() ?? s['dateTime']?.toString() ?? '');
       return d != null && d.year == now.year && d.month == now.month && d.day == now.day;
     }).toList()
       ..sort((a, b) {
-        final da = DateTime.tryParse(a['date'] ?? '') ?? DateTime(2000);
-        final db = DateTime.tryParse(b['date'] ?? '') ?? DateTime(2000);
+        final da = DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(2000);
+        final db = DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(2000);
         return da.compareTo(db);
       });
   }
@@ -136,7 +151,7 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
         value: '$_clientsNeedingAction',
         icon: Icons.warning_amber_rounded,
         color: CoachDashboardTheme.danger,
-        subtitle: 'Clients to review',
+        subtitle: 'Workouts to review',
       ),
       CoachStatCardData(
         label: 'Client Requests',
@@ -205,16 +220,14 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
 
   void _openDrawer() {
     final scaffold = Scaffold.maybeOf(context);
-    if (scaffold?.hasDrawer == true) scaffold!.openDrawer();
+    if (scaffold != null && scaffold.hasDrawer) {
+      scaffold.openDrawer();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (showInitialLoading) {
-      return const ScrollableCenter(child: CircularProgressIndicator());
-    }
 
     if (showInitialError) {
       return ScrollableCenter(
@@ -233,7 +246,7 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
 
     return Container(
       color: CoachDashboardTheme.homeBackground(isDark),
-      child: RefreshIndicator(
+      child: SilentRefreshIndicator(
         onRefresh: () => _fetchDashboardData(isRefresh: true),
         color: CoachDashboardTheme.primary,
         child: LayoutBuilder(
@@ -318,9 +331,11 @@ class CoachHomeTabState extends State<CoachHomeTab> with TabRefreshMixin {
           child: Text('CLIENT REQUESTS', style: CoachDashboardTheme.sectionLabel(isDark)),
         ),
         ..._pendingClientRequests.take(3).map((request) {
-          final user = request['user'] as Map<String, dynamic>? ?? {};
+          final user = request['user'] is Map
+              ? Map<String, dynamic>.from(request['user'] as Map)
+              : <String, dynamic>{};
           final name = ApiService.displayName(user, fallback: 'Member');
-          final message = request['message'] as String? ?? '';
+          final message = request['message']?.toString() ?? '';
           return Container(
             margin: const EdgeInsets.only(bottom: 10),
             decoration: CoachDashboardTheme.cardDecoration(isDark),

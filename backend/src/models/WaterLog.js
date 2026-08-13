@@ -9,4 +9,6 @@ const waterLogSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true }
 );
 
+waterLogSchema.index({ user: 1, date: -1 });
+
 module.exports = mongoose.model('WaterLog', waterLogSchema);

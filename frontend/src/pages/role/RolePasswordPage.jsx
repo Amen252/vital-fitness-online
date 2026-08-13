@@ -109,7 +109,7 @@ export default function RolePasswordPage({ role }) {
         </label>
         {error ? <p className="text-sm text-[var(--vf-danger)]">{error}</p> : null}
         <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? "Saving…" : "Update password"}
+          {"Update password"}
         </Button>
       </form>
     </Card>

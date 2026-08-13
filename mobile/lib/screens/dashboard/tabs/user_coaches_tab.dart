@@ -13,6 +13,7 @@ import '../../../utils/coach_thread_utils.dart';
 import '../coach_public_profile_screen.dart';
 import '../user_class_detail_screen.dart';
 import '../../../widgets/coach_working_days_display.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class UserCoachesTab extends StatefulWidget {
   final User user;
@@ -276,9 +277,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
           ),
         ],
       ),
-      body: showInitialLoading
-          ? const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary))
-          : showInitialError
+      body: showInitialError
               ? ScrollableCenter(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     const Icon(Icons.error_outline_rounded, color: Color(0xFFFF6B6B), size: 48),
@@ -288,7 +287,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
                     ElevatedButton(onPressed: () => _fetchData(), child: const Text('Retry')),
                   ]),
                 )
-              : RefreshIndicator(
+              : SilentRefreshIndicator(
                   onRefresh: () => _fetchData(isRefresh: true),
                   color: CoachDashboardTheme.primary,
                   child: refreshableScrollChild(
@@ -704,7 +703,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
           if (isPending) ...[
             const SizedBox(height: 12),
             Text(
-              'Your request is awaiting a response from $name. You may withdraw it if you would like to select another coach.',
+              'Your request to $name is pending. You may withdraw it if you would like to select another coach.',
               style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.4),
             ),
             if (message.isNotEmpty) ...[
@@ -722,7 +721,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: const SizedBox.shrink(),
                       )
                     : const Icon(Icons.swap_horiz_rounded, size: 18),
                 label: Text(_mutatingRequest ? 'Withdrawing…' : 'Choose a Different Coach'),
@@ -777,7 +776,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
           ),
           const SizedBox(height: 8),
           Text(
-            'Your request is awaiting a response from $name. You may withdraw it if you would like to select another coach.',
+            'Your request to $name is pending. You may withdraw it if you would like to select another coach.',
             style: const TextStyle(fontSize: 14, color: Colors.grey, height: 1.4),
           ),
           if (message.isNotEmpty) ...[
@@ -793,7 +792,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: const SizedBox.shrink(),
                     )
                   : const Icon(Icons.swap_horiz_rounded, size: 18),
               label: Text(_mutatingRequest ? 'Withdrawing…' : 'Choose a Different Coach'),
@@ -973,7 +972,7 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: const SizedBox.shrink(),
                           )
                         : const Text('Request', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   )

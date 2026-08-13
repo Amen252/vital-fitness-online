@@ -95,50 +95,65 @@ async function getAdminDashboard(req, res) {
 async function getCoachDashboard(req, res) {
   try {
     const coachId = req.user._id;
+    const upcomingFrom = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Fetch assigned clients
-    const assignments = await CoachClientAssignment.find({ coach_id: coachId, status: 'active' })
-      .populate('user_id', 'username full_name phone clientData')
-      .lean();
+    // Appointments do not depend on client ids — fetch in parallel with assignments.
+    const [assignments, appointments] = await Promise.all([
+      CoachClientAssignment.find({ coach_id: coachId, status: 'active' })
+        .populate('user_id', 'username full_name phone clientData avatar')
+        .lean(),
+      Appointment.find({
+        $or: [{ coach_id: coachId }, { coach: coachId }],
+        $and: [
+          {
+            $or: [
+              { datetime: { $gte: upcomingFrom } },
+              { dateTime: { $gte: upcomingFrom } },
+            ],
+          },
+        ],
+      })
+        .populate('user_id', 'username full_name phone')
+        .populate('client', 'username full_name phone')
+        .sort({ datetime: 1, dateTime: 1 })
+        .limit(40)
+        .lean(),
+    ]);
 
-    const clientIds = assignments.map(a => a.user_id?._id).filter(Boolean);
+    const clientIds = assignments.map((a) => a.user_id?._id).filter(Boolean);
 
-    // Fetch coach's appointments
-    const appointments = await Appointment.find({ coach_id: coachId })
-      .populate('user_id', 'username full_name phone')
-      .sort({ datetime: 1 })
-      .lean();
-
-    // Fetch recent daily tracking metrics for assigned clients
-    const dailyTrackings = await DailyTracking.find({
-      user_id: { $in: clientIds },
-      date: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // last 7 days
-    })
-      .populate('user_id', 'username full_name')
-      .sort({ date: -1 })
-      .lean();
-
-    // Fetch client workout logs
-    const workoutLogs = await WorkoutLog.find({
-      user_id: { $in: clientIds }
-    })
-      .populate('user_id', 'username full_name')
-      .sort({ date: -1 })
-      .limit(20)
-      .lean();
+    const [dailyTrackings, workoutLogs] = await Promise.all([
+      clientIds.length
+        ? DailyTracking.find({
+            user_id: { $in: clientIds },
+            date: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+          })
+            .populate('user_id', 'username full_name')
+            .sort({ date: -1 })
+            .limit(100)
+            .lean()
+        : Promise.resolve([]),
+      clientIds.length
+        ? WorkoutLog.find({ user_id: { $in: clientIds } })
+            .populate('user_id', 'username full_name')
+            .sort({ date: -1 })
+            .limit(20)
+            .lean()
+        : Promise.resolve([]),
+    ]);
 
     return res.json({
-      assignments: assignments.map(a => ({
+      assignments: assignments.map((a) => ({
         id: a._id,
         user: a.user_id,
         assigned_at: a.assigned_at,
-        status: a.status
+        status: a.status,
       })),
       appointments,
       clientProgress: {
         dailyTrackings,
-        workoutLogs
-      }
+        workoutLogs,
+      },
     });
   } catch (error) {
     console.error('[DASHBOARD] Coach error:', error);
@@ -152,55 +167,57 @@ async function getUserDashboard(req, res) {
     const CoachAssignment = require('../models/CoachAssignment');
     const { ensureLegacyCoachAssignment } = require('../utils/coachVisibility');
 
-    // Prefer modern assignment; fall back to legacy CoachAssignment for older records.
-    let assignment = await CoachClientAssignment.findOne({ user_id: userId, status: 'active' })
-      .populate('coach_id', 'username full_name phone coachData')
-      .lean();
-
-    if (!assignment) {
-      const legacy = await CoachAssignment.findOne({ user: userId, status: 'active' })
+    const [
+      modernAssignment,
+      legacyAssignment,
+      appointments,
+      workoutPlans,
+      dailyTrackings,
+      workoutLogs,
+    ] = await Promise.all([
+      CoachClientAssignment.findOne({ user_id: userId, status: 'active' })
+        .populate('coach_id', 'username full_name phone coachData')
+        .lean(),
+      CoachAssignment.findOne({ user: userId, status: 'active' })
         .populate('coach', 'username full_name phone coachData')
-        .lean();
-      if (legacy?.coach) {
-        assignment = {
-          _id: legacy._id,
-          coach_id: legacy.coach,
-          assigned_at: legacy.createdAt || legacy.updatedAt,
-        };
-      }
-    } else {
+        .lean(),
+      Appointment.find({
+        $or: [{ user_id: userId }, { client: userId }],
+        $and: [
+          {
+            $or: [
+              { datetime: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+              { dateTime: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+            ],
+          },
+        ],
+      })
+        .populate('coach_id', 'username full_name phone')
+        .populate('coach', 'username full_name phone')
+        .sort({ datetime: 1, dateTime: 1 })
+        .limit(50)
+        .lean(),
+      WorkoutPlan.find({ assigned_to: userId }).sort({ start_date: -1 }).limit(20).lean(),
+      DailyTracking.find({ user_id: userId }).sort({ date: -1 }).limit(30).lean(),
+      WorkoutLog.find({ user_id: userId }).sort({ date: -1 }).limit(30).lean(),
+    ]);
+
+    let assignment = modernAssignment;
+    if (!assignment && legacyAssignment?.coach) {
+      assignment = {
+        _id: legacyAssignment._id,
+        coach_id: legacyAssignment.coach,
+        assigned_at: legacyAssignment.createdAt || legacyAssignment.updatedAt,
+      };
+    } else if (assignment) {
+      // Do not block the dashboard response on legacy sync writes.
       const modernCoachId = assignment.coach_id?._id || assignment.coach_id;
       if (modernCoachId) {
-        try {
-          await ensureLegacyCoachAssignment(modernCoachId, userId);
-        } catch (syncError) {
+        void ensureLegacyCoachAssignment(modernCoachId, userId).catch((syncError) => {
           console.error('[DASHBOARD] legacy assignment sync:', syncError.message);
-        }
+        });
       }
     }
-
-    // Fetch upcoming appointments
-    const appointments = await Appointment.find({ user_id: userId })
-      .populate('coach_id', 'username full_name phone')
-      .sort({ datetime: 1 })
-      .lean();
-
-    // Fetch current workout plans
-    const workoutPlans = await WorkoutPlan.find({ assigned_to: userId })
-      .sort({ start_date: -1 })
-      .lean();
-
-    // Fetch daily tracking metrics (last 30 days)
-    const dailyTrackings = await DailyTracking.find({ user_id: userId })
-      .sort({ date: -1 })
-      .limit(30)
-      .lean();
-
-    // Fetch workout logs (last 30 days)
-    const workoutLogs = await WorkoutLog.find({ user_id: userId })
-      .sort({ date: -1 })
-      .limit(30)
-      .lean();
 
     return res.json({
       assignedCoach: assignment ? {

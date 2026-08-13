@@ -14,10 +14,9 @@ import {
   updateSession,
   updateSessionMeetingLink,
   updateSessionNotes,
-  addSessionAttachment,
-} from "../../api/sessionApi";
+  addSessionAttachment } from "../../api/sessionApi";
 import { getErrorMessage, withHardTimeout } from "../../api/client";
-import { Badge, Button, Card, Spinner, useToast } from "../../components/ui";
+import { Badge, Button, Card, useToast } from "../../components/ui";
 import { fieldClass, formatWhen } from "./roleHelpers";
 
 const toneForStatus = {
@@ -27,8 +26,7 @@ const toneForStatus = {
   completed: "blue",
   cancelled: "red",
   rescheduled: "amber",
-  no_show: "red",
-};
+  no_show: "red" };
 
 function toLocalInputValue(date = new Date()) {
   const d = new Date(date);
@@ -44,6 +42,16 @@ function sessionStartReached(session) {
   if (!session?.date) return false;
   const start = new Date(session.date).getTime();
   return Number.isFinite(start) && Date.now() >= start;
+}
+
+/** Matches backend completeSession: cannot complete before scheduled end (start + duration). */
+function sessionEndReached(session) {
+  if (!session?.date) return false;
+  const start = new Date(session.date).getTime();
+  if (!Number.isFinite(start)) return false;
+  const duration = Number(session.durationMinutes);
+  const minutes = Number.isFinite(duration) && duration > 0 ? duration : 60;
+  return Date.now() >= start + minutes * 60 * 1000;
 }
 
 export default function CoachSessionsPage() {
@@ -63,16 +71,14 @@ export default function CoachSessionsPage() {
     rescheduleAt: "",
     followUpAt: "",
     attachmentUrl: "",
-    attachmentName: "Session attachment",
-  });
+    attachmentName: "Session attachment" });
   const [form, setForm] = useState({
     clientId: "",
     date: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
     durationMinutes: "60",
     notes: "",
     sessionMode: "in_person",
-    meetingLink: "",
-  });
+    meetingLink: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,8 +120,7 @@ export default function CoachSessionsPage() {
       rescheduleAt: selected.date ? toLocalInputValue(new Date(selected.date)) : "",
       followUpAt: toLocalInputValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
       attachmentUrl: "",
-      attachmentName: "Session attachment",
-    });
+      attachmentName: "Session attachment" });
   }, [selected]);
 
   const clientOptions = useMemo(
@@ -125,8 +130,7 @@ export default function CoachSessionsPage() {
         .filter((u) => u?._id)
         .map((u) => ({
           id: u._id,
-          label: `${u.full_name || u.username || "Client"} (@${u.username || "—"})`,
-        })),
+          label: `${u.full_name || u.username || "Client"} (@${u.username || "—"})` })),
     [clients],
   );
 
@@ -144,15 +148,13 @@ export default function CoachSessionsPage() {
         durationMinutes: Number(form.durationMinutes) || 60,
         notes: form.notes.trim(),
         sessionMode: form.sessionMode,
-        meetingLink: form.sessionMode === "online" ? form.meetingLink.trim() : "",
-      });
+        meetingLink: form.sessionMode === "online" ? form.meetingLink.trim() : "" });
       toast.success("1-on-1 session scheduled");
       setForm((c) => ({
         ...c,
         notes: "",
         meetingLink: "",
-        date: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
-      }));
+        date: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)) }));
       void load();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -179,8 +181,7 @@ export default function CoachSessionsPage() {
         confirm: "confirmed",
         start: "in_progress",
         complete: "completed",
-        cancel: "cancelled",
-      };
+        cancel: "cancelled" };
       if (action === "delete") {
         setSessions((prev) => prev.filter((s) => s._id !== id && s.id !== id));
         setSelectedId("");
@@ -279,7 +280,7 @@ export default function CoachSessionsPage() {
           </label>
           <div className="md:col-span-2">
             <Button type="submit" disabled={saving || clientOptions.length === 0}>
-              {saving ? "Scheduling…" : "Create session"}
+              {"Create session"}
             </Button>
           </div>
         </form>
@@ -289,13 +290,10 @@ export default function CoachSessionsPage() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold">Your 1-on-1 sessions</h2>
           <Button size="sm" variant="secondary" onClick={load} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
+            {"Refresh"}
           </Button>
         </div>
-        {loading ? (
-          <div className="mt-5"><Spinner label="Loading sessions…" /></div>
-        ) : (
-          <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-2">
             {sessions.length === 0 ? (
               <li className="rounded-[12px] border border-[var(--vf-border)] px-3 py-6 text-center text-sm text-[var(--vf-muted)]">
                 No sessions yet. Schedule one above.
@@ -415,8 +413,7 @@ export default function CoachSessionsPage() {
                             <Button size="sm" disabled={busyId === s._id} onClick={() => runAction(s._id, "confirm", {
                               coachNotes: detail.coachNotes,
                               sessionMode: detail.sessionMode,
-                              meetingLink: detail.meetingLink,
-                            })}>
+                              meetingLink: detail.meetingLink })}>
                               Confirm
                             </Button>
                           ) : null}
@@ -431,23 +428,21 @@ export default function CoachSessionsPage() {
                               }
                               onClick={() => runAction(s._id, "start", {
                               sessionMode: detail.sessionMode,
-                              meetingLink: detail.meetingLink,
-                            })}>
+                              meetingLink: detail.meetingLink })}>
                               <Video className="mr-1 h-3.5 w-3.5" /> Start
                             </Button>
                           ) : null}
                           {["confirmed", "rescheduled", "in_progress"].includes(s.status) ? (
                             <Button
                               size="sm"
-                              disabled={busyId === s._id || !sessionStartReached(s)}
+                              disabled={busyId === s._id || !sessionEndReached(s)}
                               title={
-                                sessionStartReached(s)
+                                sessionEndReached(s)
                                   ? undefined
-                                  : "Available after the scheduled start time"
+                                  : "Available after the scheduled end time"
                               }
                               onClick={() => runAction(s._id, "complete", {
-                              coachNotes: detail.coachNotes,
-                            })}>
+                              coachNotes: detail.coachNotes })}>
                               Complete
                             </Button>
                           ) : null}
@@ -455,13 +450,11 @@ export default function CoachSessionsPage() {
                             <>
                               <Button size="sm" variant="secondary" disabled={busyId === s._id || !detail.rescheduleAt} onClick={() => runAction(s._id, "reschedule", {
                                 date: new Date(detail.rescheduleAt).toISOString(),
-                                coachNotes: detail.coachNotes,
-                              })}>
+                                coachNotes: detail.coachNotes })}>
                                 Reschedule
                               </Button>
                               <Button size="sm" variant="danger" disabled={busyId === s._id} onClick={() => runAction(s._id, "cancel", {
-                                coachNotes: detail.coachNotes,
-                              })}>
+                                coachNotes: detail.coachNotes })}>
                                 Cancel
                               </Button>
                               <Button size="sm" variant="secondary" disabled={busyId === s._id} onClick={() => runAction(s._id, "update", {
@@ -469,26 +462,22 @@ export default function CoachSessionsPage() {
                                 notes: detail.notes,
                                 coachNotes: detail.coachNotes,
                                 sessionMode: detail.sessionMode,
-                                meetingLink: detail.meetingLink,
-                              })}>
+                                meetingLink: detail.meetingLink })}>
                                 Save details
                               </Button>
                               <Button size="sm" variant="secondary" disabled={busyId === s._id} onClick={() => runAction(s._id, "meeting", {
                                 sessionMode: detail.sessionMode,
-                                meetingLink: detail.meetingLink,
-                              })}>
+                                meetingLink: detail.meetingLink })}>
                                 Save link / type
                               </Button>
                               <Button size="sm" variant="secondary" disabled={busyId === s._id} onClick={() => runAction(s._id, "notes", {
                                 coachNotes: detail.coachNotes,
-                                notes: detail.notes,
-                              })}>
+                                notes: detail.notes })}>
                                 Save notes
                               </Button>
                               <Button size="sm" variant="secondary" disabled={busyId === s._id || !detail.attachmentUrl} onClick={() => runAction(s._id, "attachment", {
                                 file: detail.attachmentUrl,
-                                name: detail.attachmentName,
-                              })}>
+                                name: detail.attachmentName })}>
                                 Add attachment
                               </Button>
                             </>
@@ -500,8 +489,7 @@ export default function CoachSessionsPage() {
                               sessionMode: detail.sessionMode,
                               meetingLink: detail.meetingLink,
                               notes: "Follow-up session",
-                              coachNotes: detail.coachNotes,
-                            })}>
+                              coachNotes: detail.coachNotes })}>
                               Schedule follow-up
                             </Button>
                           ) : null}
@@ -539,7 +527,6 @@ export default function CoachSessionsPage() {
               })
             )}
           </ul>
-        )}
       </Card>
     </>
   );

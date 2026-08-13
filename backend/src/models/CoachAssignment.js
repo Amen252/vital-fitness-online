@@ -24,4 +24,8 @@ const coachAssignmentSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true }
 );
 
+coachAssignmentSchema.index({ coach: 1, status: 1 });
+coachAssignmentSchema.index({ coach: 1, user: 1 });
+coachAssignmentSchema.index({ user: 1, status: 1 });
+
 module.exports = mongoose.model('CoachAssignment', coachAssignmentSchema);

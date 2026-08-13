@@ -10,10 +10,8 @@ import {
   ErrorState,
   Modal,
   PageHeader,
-  Spinner,
   StatCard,
-  useToast,
-} from "../components/ui";
+  useToast } from "../components/ui";
 import { CalendarDays, MapPin, UserRound, Users } from "lucide-react";
 import ProfileDetails from "../components/ProfileDetails";
 import CertificateFilesGallery, { pickCertificateFiles } from "../components/CertificateFilesGallery";
@@ -23,8 +21,7 @@ import {
   coachDisplayName,
   coachProfileFromUser,
   memberDisplayEmail,
-  memberDisplayName,
-} from "../utils/coachDisplay";
+  memberDisplayName } from "../utils/coachDisplay";
 
 /** Coach profile for admins — view details and permanently delete accounts. */
 export default function CoachDetailPage() {
@@ -82,8 +79,9 @@ export default function CoachDetailPage() {
     }
   }
 
-  if (loading) return <Spinner label="Loading coach profile…" />;
+  
   if (redirectToUser) return <Navigate to={`/users/${id}`} replace />;
+  if (loading) return null;
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!data?.user)
     return <ErrorState message="Coach not found" onRetry={load} />;
@@ -208,8 +206,7 @@ export default function CoachDetailPage() {
                       {
                         label: "Application message",
                         value: application.message || "—",
-                        fullWidth: true,
-                      },
+                        fullWidth: true },
                     ]
                   : []
               }
@@ -298,7 +295,7 @@ export default function CoachDetailPage() {
               Cancel
             </Button>
             <Button variant="danger" disabled={deleting} onClick={handleDeleteCoach}>
-              {deleting ? "Deleting…" : "Delete permanently"}
+              {"Delete permanently"}
             </Button>
           </div>
         }

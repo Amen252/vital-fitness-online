@@ -407,9 +407,7 @@ class _WorkoutScheduleFormSheetState extends State<WorkoutScheduleFormSheet> {
                 child: ElevatedButton(
                   style: CoachDashboardTheme.primaryButtonStyle(),
                   onPressed: _isSubmitting || widget.templates.isEmpty ? null : _submit,
-                  child: _isSubmitting
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(_isEditing ? 'Save Schedule' : 'Save Schedule'),
+                  child: Text(_isEditing ? 'Save Schedule' : 'Save Schedule'),
                 ),
               ),
             ),

@@ -5,8 +5,7 @@ export function BrandMark({ size = "md", showText = true, light = false }) {
   const icon = {
     sm: "h-6 w-6",
     md: "h-7 w-7",
-    lg: "h-8 w-8",
-  };
+    lg: "h-8 w-8" };
 
   return (
     <div className="flex items-center gap-3">

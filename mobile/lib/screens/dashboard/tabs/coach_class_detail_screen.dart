@@ -4,6 +4,7 @@ import '../../../widgets/profile_avatar.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import 'workout_form_sheet.dart';
+import '../../../widgets/silent_refresh.dart';
 
 class CoachClassDetailScreen extends StatefulWidget {
   final Map<String, dynamic> classData;
@@ -54,7 +55,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
     try {
       final results = await Future.wait<dynamic>([
         _api.getCoachClass(id),
-        _api.getCoachClients(),
+        _api.getCoachClients(light: true),
       ]);
       final fresh = Map<String, dynamic>.from(results[0] as Map);
       final clients = List<dynamic>.from(results[1] as List);
@@ -116,7 +117,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
     // Always load the latest approved clients so newly approved users appear immediately.
     List<dynamic> clients = widget.clients;
     try {
-      clients = await _api.getCoachClients();
+      clients = await _api.getCoachClients(light: true);
     } catch (_) {
       // Fall back to the snapshot passed from the classes tab.
     }
@@ -594,7 +595,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: const SizedBox.shrink(),
                     )
                   : const Icon(Icons.person_add_rounded),
               label: Text(_actionBusy ? 'Working…' : 'Add to Class'),
@@ -603,7 +604,7 @@ class _CoachClassDetailScreenState extends State<CoachClassDetailScreen>
               elevation: 0,
             )
           : null,
-      body: RefreshIndicator(
+      body: SilentRefreshIndicator(
               onRefresh: _refreshClass,
               child: ListView(
                 physics: dashboardScrollPhysics,

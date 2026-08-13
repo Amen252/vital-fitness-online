@@ -73,9 +73,6 @@ class AdminHomeTabState extends State<AdminHomeTab> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    if (_isLoading) {
-      return const ScrollableCenter(child: CircularProgressIndicator(color: CoachDashboardTheme.primary));
-    }
     if (_errorMessage != null) {
       return ScrollableCenter(
         child: Column(
