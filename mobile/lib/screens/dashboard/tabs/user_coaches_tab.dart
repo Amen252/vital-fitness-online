@@ -50,12 +50,13 @@ class _UserCoachesTabState extends State<UserCoachesTab> with TabRefreshMixin {
       return false;
     }
     final approval = coach['approval_status']?.toString()
-        ?? (coach['coachData'] is Map ? coach['coachData']['approval_status']?.toString() : null)
-        ?? 'approved';
+        ?? (coach['coachData'] is Map ? coach['coachData']['approval_status']?.toString() : null);
+    // Missing approval is allowed for legacy coaches already filtered by the API.
     if (approval == 'pending' || approval == 'rejected') {
       return false;
     }
-    return true;
+    final role = coach['role']?.toString();
+    return role == null || role == 'coach';
   }
 
   List<String> _coachSpecializations(dynamic coach) {

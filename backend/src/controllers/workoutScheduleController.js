@@ -56,6 +56,23 @@ async function createCompletionRecords(schedule, userIds) {
   });
 }
 
+/** Attach enrolledCount from FitnessClass.enrolledStudents for coach UI labels. */
+function withFitnessClassMemberCount(schedule) {
+  const fitnessClass = schedule?.fitnessClass;
+  if (!fitnessClass || typeof fitnessClass !== 'object') return schedule;
+  const enrolled = fitnessClass.enrolledStudents;
+  const enrolledCount = Array.isArray(enrolled)
+    ? enrolled.length
+    : Number(fitnessClass.enrolledCount) || 0;
+  return {
+    ...schedule,
+    fitnessClass: {
+      ...fitnessClass,
+      enrolledCount,
+    },
+  };
+}
+
 function attachCompletionStats(schedules, completions) {
   return schedules.map((schedule) => {
     const scheduleId = String(schedule._id);
@@ -68,7 +85,7 @@ function attachCompletionStats(schedules, completions) {
     const missed = scheduleCompletions.filter((c) => c.status === 'missed').length;
     const total = scheduleCompletions.length;
     const title = schedule.workoutTemplate?.title || schedule.title || 'Workout';
-    return {
+    return withFitnessClassMemberCount({
       ...schedule,
       title,
       progress: {
@@ -80,7 +97,7 @@ function attachCompletionStats(schedules, completions) {
         completionPercent: total ? Math.round((completed / total) * 100) : 0,
         completions: scheduleCompletions,
       },
-    };
+    });
   });
 }
 
@@ -181,7 +198,7 @@ async function createWorkoutSchedule(req, res) {
     const populated = await WorkoutSchedule.findById(schedule._id)
       .populate('workoutTemplate')
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title');
+      .populate('fitnessClass', 'title category enrolledStudents');
 
     const userIds = await getScheduleTargetUserIds(populated);
     await createCompletionRecords(schedule, userIds);
@@ -233,7 +250,7 @@ async function getCoachWorkoutSchedules(req, res) {
     const schedules = await WorkoutSchedule.find(query)
       .populate('workoutTemplate', 'title level')
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title category')
+      .populate('fitnessClass', 'title category enrolledStudents')
       .populate('weeklyPlan', 'title weekStartDate')
       .sort({ startDateTime: 1 })
       .limit(Math.min(Number(req.query.limit) || 120, 250))
@@ -365,7 +382,7 @@ async function updateWorkoutSchedule(req, res) {
     const populated = await WorkoutSchedule.findById(schedule._id)
       .populate('workoutTemplate')
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title');
+      .populate('fitnessClass', 'title category enrolledStudents');
 
     const userIds = await getScheduleTargetUserIds(populated);
     const title = populated.workoutTemplate?.title || 'Workout';
@@ -450,7 +467,8 @@ async function getUserWorkoutSchedules(req, res) {
 
     const result = schedules.map((s) => {
       const completion = completionMap.get(String(s._id));
-      const title = s.workoutTemplate?.title || 'Workout';
+      const title = s.workoutTemplate?.title || s.title || 'Workout';
+      const status = completion?.status || 'pending';
       return {
         ...s,
         title,
@@ -458,6 +476,8 @@ async function getUserWorkoutSchedules(req, res) {
         date: s.startDateTime,
         scheduledAt: s.startDateTime,
         type: 'workout_schedule',
+        assigneeType: s.fitnessClass ? 'group' : 'user',
+        groupName: s.fitnessClass?.title || null,
         completion: completion
           ? {
               _id: completion._id,
@@ -468,8 +488,9 @@ async function getUserWorkoutSchedules(req, res) {
               submittedAt: completion.submittedAt,
               coachFeedback: completion.coachFeedback || '',
               hasProofPhoto: Boolean(completion.proofPhoto),
+              completable: status === 'pending' || status === 'missed',
             }
-          : { status: 'pending' },
+          : { status: 'pending', completable: true },
       };
     });
 

@@ -49,7 +49,19 @@ class AuthRouting {
         return CoachPendingScreen(user: user);
       }
       if (user.hasRejectedCoachApplication) {
-        return CoachRejectedScreen(user: user);
+        final showRejected = await CoachApplicationPrefs.shouldShowRejectionScreen(
+          userId: user.id,
+          reviewedAt: user.coachApplicationReviewedAt,
+        );
+        if (showRejected) return CoachRejectedScreen(user: user);
+        // "Continue as member" dismisses rejection even if role still says coach.
+        return DashboardScreen(
+          initialUser: user,
+          initialTabIndex: memberInitialTabIndex ?? 0,
+        );
+      }
+      if (!user.hasApprovedCoachApplication) {
+        return CoachPendingScreen(user: user);
       }
       return CoachDashboardScreen(coachUser: user);
     }

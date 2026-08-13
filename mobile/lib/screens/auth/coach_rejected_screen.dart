@@ -126,10 +126,13 @@ class _CoachRejectedScreenState extends State<CoachRejectedScreen> {
       reviewedAt: _currentUser.coachApplicationReviewedAt,
     );
     if (!mounted) return;
+    // Refresh so role/approval from MongoDB is current before routing.
+    final latest = await _fetchLatestUser() ?? _currentUser;
+    if (!mounted) return;
     // Stay on the client (member) shell — same as web member experience.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => AuthHome(user: _currentUser),
+        builder: (_) => AuthHome(user: latest),
       ),
     );
   }

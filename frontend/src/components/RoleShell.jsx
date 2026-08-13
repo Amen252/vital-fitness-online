@@ -73,7 +73,12 @@ export default function RoleShell({ role }) {
   
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== role) {
+  const approval =
+    user.coachApplicationStatus || user.coachData?.approval_status || null;
+  const unapprovedCoach =
+    user.role === "coach" && (approval === "pending" || approval === "rejected");
+  // Match SessionGuard: unapproved coaches may use the member shell.
+  if (user.role !== role && !(role === "user" && unapprovedCoach)) {
     const dest =
       user.role === "admin" ? "/" : user.role === "coach" ? "/coach/dashboard" : "/member/dashboard";
     return <Navigate to={dest} replace />;

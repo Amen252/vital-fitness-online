@@ -500,40 +500,42 @@ List<Map<String, dynamic>> mergeUserWorkoutSources({
   required List<dynamic> plans,
   Map<String, dynamic>? scheduleData,
 }) {
-  final merged = plans.map((w) => Map<String, dynamic>.from(w as Map)).toList();
+  final merged = <Map<String, dynamic>>[];
   final seenScheduleIds = <String>{};
 
-  for (final workout in merged) {
-    if (workout['source'] == 'schedule') {
-      seenScheduleIds.add(workout['_id'].toString());
-    }
-    if (workout['source'] == 'weekly_plan') {
-      for (final raw in workout['days'] as List<dynamic>? ?? const []) {
-        if (raw is Map && raw['scheduleId'] != null) {
-          seenScheduleIds.add(raw['scheduleId'].toString());
-        }
-      }
-    }
+  void addScheduleItem(Map<String, dynamic> item) {
+    final id = item['_id']?.toString() ?? '';
+    if (id.isEmpty || seenScheduleIds.contains(id)) return;
+    seenScheduleIds.add(id);
+    merged.add(item);
   }
 
+  for (final raw in plans) {
+    if (raw is! Map) continue;
+    final plan = Map<String, dynamic>.from(raw);
+    final source = plan['source']?.toString() ?? '';
+
+    // Weekly plans are expanded into one My Workouts card per scheduled session.
+    if (source == 'weekly_plan') {
+      for (final session in _expandWeeklyPlanSessions(plan)) {
+        addScheduleItem(session);
+      }
+      continue;
+    }
+
+    if (source == 'schedule') {
+      addScheduleItem(_normalizeWorkoutItem(plan));
+      continue;
+    }
+
+    merged.add(plan);
+  }
+
+  // Include every schedule assigned to this user (individual + group + weekly sync).
   final allSchedules = scheduleData?['all'] as List<dynamic>? ?? const [];
   for (final raw in allSchedules) {
     if (raw is! Map) continue;
-    final schedule = Map<String, dynamic>.from(raw);
-    final id = schedule['_id']?.toString() ?? '';
-    if (id.isEmpty || seenScheduleIds.contains(id)) continue;
-
-    if (schedule['weeklyPlan'] != null) {
-      final weeklyPlanId = schedule['weeklyPlan'] is Map
-          ? schedule['weeklyPlan']['_id']?.toString()
-          : schedule['weeklyPlan']?.toString();
-      final coveredByWeeklyPlan = merged.any(
-        (w) => w['source'] == 'weekly_plan' && w['_id']?.toString() == weeklyPlanId,
-      );
-      if (coveredByWeeklyPlan) continue;
-    }
-
-    merged.add(_scheduleToWorkoutItem(schedule));
+    addScheduleItem(_scheduleToWorkoutItem(Map<String, dynamic>.from(raw)));
   }
 
   merged.sort((a, b) {
@@ -543,6 +545,72 @@ List<Map<String, dynamic>> mergeUserWorkoutSources({
   });
 
   return merged;
+}
+
+/// One weekly plan day with a linked schedule → one row in My Workouts.
+List<Map<String, dynamic>> _expandWeeklyPlanSessions(Map<String, dynamic> plan) {
+  final sessions = <Map<String, dynamic>>[];
+  final planTitle = plan['title']?.toString() ?? 'Workout';
+  final days = plan['days'] as List<dynamic>? ?? const [];
+
+  for (final raw in days) {
+    if (raw is! Map) continue;
+    final day = Map<String, dynamic>.from(raw);
+    if (day['enabled'] != true || day['offDay'] == true) continue;
+
+    final scheduleId = day['scheduleId']?.toString();
+    if (scheduleId == null || scheduleId.isEmpty) continue;
+
+    final completion = day['completion'] is Map
+        ? Map<String, dynamic>.from(day['completion'] as Map)
+        : <String, dynamic>{'status': 'pending'};
+    final status = completion['status']?.toString() ?? 'pending';
+    completion['completable'] = status == 'pending' || status == 'missed';
+
+    final dayExercises = day['exercises'] as List<dynamic>? ?? const [];
+    final planExercises = plan['exercises'] as List<dynamic>? ?? const [];
+
+    sessions.add({
+      '_id': scheduleId,
+      'title': planTitle,
+      'description': day['notes']?.toString().trim().isNotEmpty == true
+          ? day['notes'].toString()
+          : (plan['description']?.toString() ?? ''),
+      'level': plan['level']?.toString() ?? 'Beginner',
+      'exercises': dayExercises.isNotEmpty ? dayExercises : planExercises,
+      'coach': plan['coach'],
+      'client': plan['client'],
+      'fitnessClass': plan['fitnessClass'],
+      'startDateTime': day['startDateTime'],
+      'endDateTime': day['endDateTime'],
+      'durationMinutes': day['durationMinutes'],
+      'weekStartDate': plan['weekStartDate'],
+      'dayName': day['dayName'],
+      'notes': day['notes'],
+      'createdAt': plan['createdAt'],
+      'updatedAt': plan['updatedAt'],
+      'source': 'schedule',
+      'assigneeType': plan['assigneeType']?.toString() ?? 'user',
+      'groupName': plan['groupName'],
+      'weeklyPlanId': plan['_id'],
+      'completion': completion,
+    });
+  }
+
+  return sessions;
+}
+
+Map<String, dynamic> _normalizeWorkoutItem(Map<String, dynamic> workout) {
+  final copy = Map<String, dynamic>.from(workout);
+  final completion = copy['completion'] is Map
+      ? Map<String, dynamic>.from(copy['completion'] as Map)
+      : <String, dynamic>{'status': 'pending', 'completable': true};
+  if (!completion.containsKey('completable')) {
+    final status = completion['status']?.toString() ?? 'pending';
+    completion['completable'] = status == 'pending' || status == 'missed';
+  }
+  copy['completion'] = completion;
+  return copy;
 }
 
 Map<String, dynamic> _scheduleToWorkoutItem(Map<String, dynamic> schedule) {

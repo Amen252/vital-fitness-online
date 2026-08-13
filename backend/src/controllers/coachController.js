@@ -806,10 +806,24 @@ async function getClasses(req, res) {
     const light = req.query.light === '1' || req.query.light === 'true';
     let query = FitnessClass.find({ coach: req.user._id }).sort({ date: 1 });
     if (light) {
-      // Picker lists only need titles — skip enrolled student populate.
-      query = query.select('title category date durationMinutes capacity status').lean();
+      // Picker lists need titles + live member counts (from enrolledStudents in DB).
+      // Skip populating student documents to keep the payload small.
+      query = query
+        .select('title category date durationMinutes capacity status enrolledStudents')
+        .lean();
       const classes = await query;
-      return res.json(classes);
+      return res.json(
+        classes.map((cls) => ({
+          _id: cls._id,
+          title: cls.title,
+          category: cls.category,
+          date: cls.date,
+          durationMinutes: cls.durationMinutes,
+          capacity: cls.capacity,
+          status: cls.status,
+          enrolledCount: Array.isArray(cls.enrolledStudents) ? cls.enrolledStudents.length : 0,
+        })),
+      );
     }
     const classes = await query.populate('enrolledStudents', USER_DISPLAY_SELECT);
     return res.json(classes.map(formatFitnessClass));

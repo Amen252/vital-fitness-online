@@ -1049,6 +1049,9 @@ class _CoachDietPlansTabState extends State<CoachDietPlansTab> with SingleTicker
     if (_error.isNotEmpty) {
       return Center(child: Text(_error, textAlign: TextAlign.center));
     }
+    if (_loading && _plans.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_plans.isEmpty) {
       return Center(
         child: Padding(
@@ -1918,7 +1921,11 @@ class _CoachDietPlanEditorScreenState extends State<CoachDietPlanEditorScreen> w
               final id = cls['_id']?.toString() ?? '';
               final name = cls['title']?.toString() ?? 'Group';
               final count = cls['enrolledCount'] as int? ?? (cls['enrolledStudents'] as List?)?.length ?? 0;
-              return DropdownMenuItem(value: id, child: Text('$name ($count members)'));
+              final memberLabel = count == 1 ? '1 Member' : '$count Members';
+              return DropdownMenuItem(
+                value: id,
+                child: Text('$name — $memberLabel', overflow: TextOverflow.ellipsis),
+              );
             }).toList(),
             onChanged: readOnly
                 ? null

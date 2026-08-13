@@ -25,7 +25,7 @@ function approvalOf(coach) {
     coach?.approval_status ||
     coach?.applicationStatus ||
     coach?.coachData?.approval_status ||
-    "approved"
+    null
   );
 }
 

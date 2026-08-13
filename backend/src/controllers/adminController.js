@@ -26,7 +26,7 @@ const Review = require('../models/Review');
 const { validationResult } = require('express-validator');
 const { purgeUserAccount } = require('../utils/purgeUserAccount');
 const { buildMemberUserFilter } = require('../utils/memberUserQuery');
-const { enrichCoachUser } = require('../utils/coachProfile');
+const { enrichCoachUser, isApprovedPublicCoach } = require('../utils/coachProfile');
 const { USER_DISPLAY_SELECT, normalizeEnrolledStudents, withDisplayName } = require('../utils/userDisplay');
 const {
   sendCoachApplicationApprovedEmail,
@@ -722,7 +722,9 @@ async function createClass(req, res) {
     }
 
     const coach = await User.findOne({ _id: coachId, role: 'coach' });
-    if (!coach) return res.status(400).json({ message: 'Invalid coach selected' });
+    if (!coach || !isApprovedPublicCoach(coach)) {
+      return res.status(400).json({ message: 'Invalid or unapproved coach selected' });
+    }
 
     const fitnessClass = await FitnessClass.create({
       coach: coachId,
@@ -760,7 +762,9 @@ async function updateClass(req, res) {
     if (status) fitnessClass.status = status;
     if (coachId) {
       const coach = await User.findOne({ _id: coachId, role: 'coach' });
-      if (!coach) return res.status(400).json({ message: 'Invalid coach selected' });
+      if (!coach || !isApprovedPublicCoach(coach)) {
+        return res.status(400).json({ message: 'Invalid or unapproved coach selected' });
+      }
       fitnessClass.coach = coachId;
     }
 
@@ -1054,19 +1058,28 @@ async function rejectCoachApplication(req, res) {
       || {};
 
     // Keep the member account so applicants can see rejection status and reapply.
-    await User.findByIdAndUpdate(
-      applicant._id,
-      {
-        $set: {
-          role: 'user',
-          coachData: {
-            ...existingCoachData,
-            approval_status: 'rejected',
+    try {
+      await User.findByIdAndUpdate(
+        applicant._id,
+        {
+          $set: {
+            role: 'user',
+            coachData: {
+              ...existingCoachData,
+              approval_status: 'rejected',
+            },
           },
         },
-      },
-      { runValidators: true },
-    );
+        { runValidators: true },
+      );
+    } catch (userError) {
+      await CoachApplication.findByIdAndUpdate(application._id, {
+        $set: { status: 'pending', rejectionReason: '' },
+        $unset: { reviewedAt: 1 },
+      });
+      console.error('[ADMIN] coach reject user update:', userError.message);
+      return res.status(500).json({ message: 'Failed to reject application' });
+    }
 
     try {
       await Notification.create({

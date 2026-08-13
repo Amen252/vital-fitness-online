@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import '../../../utils/date_utils.dart';
+import '../../../utils/group_labels.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 
 const _dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -49,7 +50,6 @@ class WeeklyWorkoutPlanFormSheet extends StatefulWidget {
 }
 
 class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet> {
-  final _titleController = TextEditingController();
   bool _assignToGroup = false;
   String? _clientId;
   String? _classId;
@@ -71,7 +71,6 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
     _loadTemplates();
     if (widget.existingPlan != null) {
       final p = widget.existingPlan!;
-      _titleController.text = p['title']?.toString() ?? '';
       _assignToGroup = p['fitnessClass'] != null;
       _clientId = p['client']?['_id']?.toString() ?? p['client']?.toString();
       _classId = p['fitnessClass']?['_id']?.toString() ?? p['fitnessClass']?.toString();
@@ -143,12 +142,6 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
     } else {
       _clientId = _validClientId(_clientId) ?? (_clientDropdownItems.isNotEmpty ? _clientDropdownItems.first.value : null);
     }
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    super.dispose();
   }
 
   String _fmt(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -243,10 +236,23 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
           final id = c['_id']?.toString() ?? '';
           if (id.isEmpty || seen.contains(id)) return null;
           seen.add(id);
-          return DropdownMenuItem(value: id, child: Text(c['title']?.toString() ?? 'Group'));
+          return DropdownMenuItem(
+            value: id,
+            child: Text(groupTitleFromClass(c), overflow: TextOverflow.ellipsis),
+          );
         })
         .whereType<DropdownMenuItem<String>>()
         .toList();
+  }
+
+  Map<String, dynamic>? get _selectedClass {
+    if (_classId == null) return null;
+    for (final raw in widget.classes) {
+      if (raw is! Map) continue;
+      final cls = Map<String, dynamic>.from(raw);
+      if (cls['_id']?.toString() == _classId) return cls;
+    }
+    return null;
   }
 
   String? _validClientId(String? id) {
@@ -264,9 +270,6 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
       _workoutTemplateId = id;
       for (final d in _days) {
         d.selectedKeys.clear();
-      }
-      if (_titleController.text.trim().isEmpty && _selectedWorkout != null) {
-        _titleController.text = _selectedWorkout!['title']?.toString() ?? '';
       }
     });
   }
@@ -374,7 +377,7 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
 
       final workoutTitle = _selectedWorkout?['title']?.toString() ?? 'Weekly Workout Plan';
       final payload = <String, dynamic>{
-        'title': _titleController.text.trim().isEmpty ? workoutTitle : _titleController.text.trim(),
+        'title': workoutTitle,
         'workoutTemplateId': _workoutTemplateId,
         'weekStartDate': _fmtDate(_weekStart),
         'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
@@ -502,11 +505,6 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
                         style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey.shade600),
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _titleController,
-                        decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Plan title (optional)', hint: 'Week 1 Strength'),
-                      ),
-                      const SizedBox(height: 12),
                       Text('1. Select workout', style: CoachDashboardTheme.sectionTitle(isDark)),
                       const SizedBox(height: 8),
                       if (_loadingTemplates)
@@ -583,15 +581,27 @@ class _WeeklyWorkoutPlanFormSheetState extends State<WeeklyWorkoutPlanFormSheet>
                         ),
                       ]),
                       const SizedBox(height: 10),
-                      if (_assignToGroup)
+                      if (_assignToGroup) ...[
                         DropdownButtonFormField<String>(
                           key: ValueKey('class-$_classId-${widget.classes.length}'),
                           initialValue: _validClassId(_classId),
+                          isExpanded: true,
                           decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Group'),
                           items: _classDropdownItems,
                           onChanged: widget.existingPlan != null ? null : (v) => setState(() => _classId = v),
-                        )
-                      else
+                        ),
+                        if (_selectedClass != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            '${groupTitleFromClass(_selectedClass)} will receive this weekly plan.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white70 : CoachDashboardTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ] else
                         DropdownButtonFormField<String>(
                           key: ValueKey('client-$_clientId-${widget.clients.length}'),
                           initialValue: _validClientId(_clientId),

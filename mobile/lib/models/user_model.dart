@@ -340,11 +340,16 @@ class User {
   bool get hasRejectedCoachApplication =>
       coachApplicationStatus == 'rejected';
 
-  bool get hasApprovedCoachApplication =>
-      coachApplicationStatus == 'approved'
-      || (isCoach
-          && coachApplicationStatus != 'pending'
-          && coachApplicationStatus != 'rejected');
+  /// Explicit approval, or legacy coach accounts with no status field set.
+  bool get hasApprovedCoachApplication {
+    if (coachApplicationStatus == 'approved') return true;
+    if (coachApplicationStatus == 'pending' || coachApplicationStatus == 'rejected') {
+      return false;
+    }
+    // Legacy admin-created coaches: role=coach and no application status.
+    return isCoach
+        && (coachApplicationStatus == null || coachApplicationStatus!.isEmpty);
+  }
 
   /// Human-readable label for the coach application gate screens.
   String get coachApplicationStatusLabel {

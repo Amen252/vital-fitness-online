@@ -4,7 +4,12 @@ const CoachClientAssignment = require('../models/CoachClientAssignment');
 const FitnessClass = require('../models/FitnessClass');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
-const { PUBLIC_COACH_SELECT, formatPublicCoach, isApprovedPublicCoach } = require('../utils/coachProfile');
+const {
+  PUBLIC_COACH_SELECT,
+  formatPublicCoach,
+  isApprovedPublicCoach,
+  buildMemberVisibleCoachFilter,
+} = require('../utils/coachProfile');
 const { backfillGroupPlanAccess } = require('../utils/backfillGroupPlanAccess');
 
 const USER_DISPLAY_SELECT = 'full_name username phone role status';
@@ -20,7 +25,9 @@ async function submitCoachRequest(req, res) {
       return res.status(400).json({ message: 'Coach ID is required' });
     }
 
-    const coach = await User.findById(coachId).select(PUBLIC_COACH_SELECT);
+    // Same visibility rules as GET /user/trainers — block pending/rejected applicants by ID.
+    const coachFilter = await buildMemberVisibleCoachFilter({ _id: coachId });
+    const coach = await User.findOne(coachFilter).select(PUBLIC_COACH_SELECT);
     if (!coach || !isApprovedPublicCoach(coach)) {
       return res.status(404).json({ message: 'Coach not found' });
     }
@@ -171,8 +178,24 @@ async function approveCoachRequest(req, res) {
       return res.status(404).json({ message: 'Request not found' });
     }
 
+    // Validate optional class enrollment BEFORE creating assignments so a bad
+    // classId cannot leave a half-committed coach link.
+    let fitnessClass = null;
+    if (classId) {
+      fitnessClass = await FitnessClass.findOne({
+        _id: classId,
+        coach: req.user._id,
+        status: { $in: ['scheduled', 'active'] },
+      });
+      if (!fitnessClass) {
+        return res.status(404).json({ message: 'Group class not found' });
+      }
+      if (fitnessClass.enrolledStudents.length >= fitnessClass.capacity) {
+        return res.status(400).json({ message: 'Selected group is at full capacity' });
+      }
+    }
+
     // End any other active assignments for this client (only one active coach)
-    const CoachClientAssignment = require('../models/CoachClientAssignment');
     await CoachClientAssignment.updateMany(
       { user_id: request.user._id, status: 'active' },
       { $set: { status: 'ended' } }
@@ -199,11 +222,15 @@ async function approveCoachRequest(req, res) {
       existingAssignment.status = 'active';
       await existingAssignment.save();
     } else {
-      await CoachAssignment.create({
-        coach: req.user._id,
-        user: request.user._id,
-        status: 'active',
-      });
+      try {
+        await CoachAssignment.create({
+          coach: req.user._id,
+          user: request.user._id,
+          status: 'active',
+        });
+      } catch (createErr) {
+        if (createErr?.code !== 11000) throw createErr;
+      }
     }
 
     const existingClientAssignment = await CoachClientAssignment.findOne({
@@ -214,28 +241,18 @@ async function approveCoachRequest(req, res) {
       existingClientAssignment.status = 'active';
       await existingClientAssignment.save();
     } else {
-      await CoachClientAssignment.create({
-        coach_id: req.user._id,
-        user_id: request.user._id,
-        status: 'active',
-      });
+      try {
+        await CoachClientAssignment.create({
+          coach_id: req.user._id,
+          user_id: request.user._id,
+          status: 'active',
+        });
+      } catch (createErr) {
+        if (createErr?.code !== 11000) throw createErr;
+      }
     }
 
-
-    // Optional: if a classId is provided, enroll immediately (legacy/optional path).
-    let fitnessClass = null;
-    if (classId) {
-      fitnessClass = await FitnessClass.findOne({
-        _id: classId,
-        coach: req.user._id,
-        status: { $in: ['scheduled', 'active'] },
-      });
-      if (!fitnessClass) {
-        return res.status(404).json({ message: 'Group class not found' });
-      }
-      if (fitnessClass.enrolledStudents.length >= fitnessClass.capacity) {
-        return res.status(400).json({ message: 'Selected group is at full capacity' });
-      }
+    if (fitnessClass) {
       const alreadyEnrolled = fitnessClass.enrolledStudents.some(
         (id) => String(id) === String(request.user._id),
       );
@@ -269,7 +286,7 @@ async function approveCoachRequest(req, res) {
     });
 
     const populated = await CoachRequest.findById(request._id)
-      .populate('user', 'name email profile')
+      .populate('user', USER_DISPLAY_SELECT)
       .populate('fitnessClass', 'title date category')
       .lean();
 

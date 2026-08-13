@@ -11,7 +11,11 @@ const coachClientAssignmentSchema = new mongoose.Schema(
 );
 
 coachClientAssignmentSchema.index({ coach_id: 1, status: 1 });
-coachClientAssignmentSchema.index({ coach_id: 1, user_id: 1 });
+coachClientAssignmentSchema.index({ coach_id: 1, user_id: 1 }, { unique: true });
 coachClientAssignmentSchema.index({ user_id: 1, status: 1 });
+coachClientAssignmentSchema.index(
+  { user_id: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' }, name: 'user_id_active_assignment_unique' },
+);
 
 module.exports = mongoose.model('CoachClientAssignment', coachClientAssignmentSchema);

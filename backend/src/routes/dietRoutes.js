@@ -8,13 +8,14 @@ const {
 } = require('../controllers/dietPlanController');
 const auth = require('../middleware/auth');
 const roles = require('../middleware/roles');
+const requireApprovedCoachIfCoach = require('../middleware/requireApprovedCoachIfCoach');
 
 const router = express.Router();
 
 router.post('/log', auth, roles('user', 'admin'), createDietLog);
 router.get('/history', auth, roles('user', 'admin'), getDietHistory);
 router.get('/suggested-plan', auth, roles('user', 'admin'), getSuggestedPlan);
-router.get('/plan', auth, roles('user', 'coach'), getUserAssignedDietPlan);
+router.get('/plan', auth, roles('user', 'coach'), requireApprovedCoachIfCoach, getUserAssignedDietPlan);
 router.get('/plan-history', auth, roles('user', 'admin'), getUserDietPlanHistory);
 router.get('/progress', auth, roles('user', 'admin'), getUserDietProgress);
 router.post('/adherence', auth, roles('user', 'admin'), logUserAdherence);

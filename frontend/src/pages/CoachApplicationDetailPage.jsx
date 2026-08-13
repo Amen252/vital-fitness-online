@@ -106,7 +106,13 @@ export default function CoachApplicationDetailPage() {
     }
   }
 
-  
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--vf-muted)]">
+        Loading application…
+      </div>
+    );
+  }
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!app) return <ErrorState message="Application not found" onRetry={load} />;
 

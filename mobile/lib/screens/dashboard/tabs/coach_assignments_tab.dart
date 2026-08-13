@@ -6,6 +6,7 @@ import '../../../widgets/coach_workout_detail_sheet.dart';
 import '../../../widgets/scrollable_body.dart';
 import '../../../widgets/tab_refresh.dart';
 import '../../../utils/date_utils.dart';
+import '../../../utils/group_labels.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 import 'workout_form_sheet.dart';
 import 'workout_schedule_form_sheet.dart';
@@ -20,7 +21,7 @@ class CoachAssignmentsTab extends StatefulWidget {
 }
 
 class _CoachAssignmentsTabState extends State<CoachAssignmentsTab> with TickerProviderStateMixin, TabRefreshMixin {
-  static const _cacheKey = 'coach_workout_management';
+  static const _cacheKey = 'coach_workout_management_v2';
 
   final ApiService _apiService = ApiService();
   late final TabController _mainTab;
@@ -624,7 +625,7 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                     (context, index) {
                       final p = Map<String, dynamic>.from(_displayWeeklyPlans[index] as Map);
                       final assignee = p['fitnessClass'] != null
-                          ? (p['fitnessClass']?['title'] as String? ?? 'Group')
+                          ? groupTitleFromClass(p['fitnessClass'])
                           : ApiService.displayName(
                               p['client'] is Map ? Map<dynamic, dynamic>.from(p['client'] as Map) : null,
                               fallback: 'Client',
@@ -818,7 +819,7 @@ class _ScheduleManagementViewState extends State<_ScheduleManagementView> {
                         final s = Map<String, dynamic>.from(_displaySchedules[index] as Map);
                         final isGroup = s['fitnessClass'] != null;
                         final assignee = isGroup
-                            ? (s['fitnessClass']?['title'] as String?) ?? 'Group'
+                            ? groupTitleFromClass(s['fitnessClass'])
                             : ApiService.displayName(
                                 s['client'] is Map ? Map<dynamic, dynamic>.from(s['client'] as Map) : null,
                                 fallback: 'Client',

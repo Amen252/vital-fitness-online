@@ -163,7 +163,9 @@ class _CoachWorkoutReviewTabState extends State<CoachWorkoutReviewTab> {
                     ],
                   ),
                 )
-              : _pending.isEmpty
+              : _isLoading && _pending.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : _pending.isEmpty
                   ? CoachDashboardTheme.emptyState(
                       icon: Icons.task_alt_rounded,
                       title: 'All caught up',

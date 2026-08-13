@@ -25,7 +25,11 @@ const coachAssignmentSchema = new mongoose.Schema(
 );
 
 coachAssignmentSchema.index({ coach: 1, status: 1 });
-coachAssignmentSchema.index({ coach: 1, user: 1 });
+coachAssignmentSchema.index({ coach: 1, user: 1 }, { unique: true });
 coachAssignmentSchema.index({ user: 1, status: 1 });
+coachAssignmentSchema.index(
+  { user: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' }, name: 'user_active_assignment_unique' },
+);
 
 module.exports = mongoose.model('CoachAssignment', coachAssignmentSchema);

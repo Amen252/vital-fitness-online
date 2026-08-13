@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import '../../../utils/date_utils.dart';
+import '../../../utils/group_labels.dart';
 import '../widgets/coach_home/coach_dashboard_theme.dart';
 
 class WorkoutScheduleFormSheet extends StatefulWidget {
@@ -109,6 +110,16 @@ class _WorkoutScheduleFormSheetState extends State<WorkoutScheduleFormSheet> {
           (t) => t['_id']?.toString() == _selectedTemplateId,
           orElse: () => <String, dynamic>{},
         ) as Map<String, dynamic>?;
+  }
+
+  Map<String, dynamic>? get _selectedClass {
+    if (_selectedClassId == null) return null;
+    for (final raw in widget.classes) {
+      if (raw is! Map) continue;
+      final cls = Map<String, dynamic>.from(raw);
+      if (cls['_id']?.toString() == _selectedClassId) return cls;
+    }
+    return null;
   }
 
   Future<void> _submit() async {
@@ -291,18 +302,57 @@ class _WorkoutScheduleFormSheetState extends State<WorkoutScheduleFormSheet> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    if (_assignToGroup)
+                    if (_assignToGroup) ...[
                       DropdownButtonFormField<String>(
                         initialValue: _selectedClassId,
+                        isExpanded: true,
                         decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'Group'),
-                        items: widget.classes.map((cls) {
+                        items: widget.classes.map((raw) {
+                          final cls = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
                           final id = cls['_id']?.toString() ?? '';
-                          final title = cls['title']?.toString() ?? 'Group';
-                          return DropdownMenuItem(value: id, child: Text(title));
+                          final label = groupTitleFromClass(cls);
+                          return DropdownMenuItem(
+                            value: id,
+                            child: Text(label, overflow: TextOverflow.ellipsis),
+                          );
                         }).toList(),
                         onChanged: _isEditing ? null : (v) => setState(() => _selectedClassId = v),
-                      )
-                    else
+                      ),
+                      if (_selectedClass != null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: CoachDashboardTheme.primary.withValues(alpha: isDark ? 0.10 : 0.06),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CoachDashboardTheme.primary.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.groups_rounded,
+                                size: 20,
+                                color: CoachDashboardTheme.primary.withValues(alpha: 0.9),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  '${groupTitleFromClass(_selectedClass)} will receive this workout.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : CoachDashboardTheme.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ] else
                       DropdownButtonFormField<String>(
                         initialValue: _selectedClientId,
                         decoration: CoachDashboardTheme.fieldDecoration(isDark: isDark, label: 'User'),

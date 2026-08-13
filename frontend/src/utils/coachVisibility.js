@@ -8,7 +8,9 @@ export function isSelectableCoach(coach) {
   const approval =
     coach.approval_status ||
     coach.coachData?.approval_status ||
-    "approved";
+    null;
+  // Explicit pending/rejected never selectable. Missing approval = legacy coach
+  // (backend list already hides pending/rejected applicants).
   if (approval === "pending" || approval === "rejected") {
     return false;
   }

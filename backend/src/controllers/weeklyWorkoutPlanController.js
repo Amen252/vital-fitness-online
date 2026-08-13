@@ -183,6 +183,20 @@ async function syncWeeklySchedules(planOrId) {
   for (const schedule of activeSchedules) {
     await ensureCompletionRecords(schedule, freshUserIds);
   }
+
+  // Also backfill exercise plans + any schedules for members who joined after sync.
+  if (plan.fitnessClass) {
+    const classId = plan.fitnessClass._id || plan.fitnessClass;
+    const { backfillGroupPlanAccess } = require('../utils/backfillGroupPlanAccess');
+    const fitnessClass = await FitnessClass.findById(classId).select('enrolledStudents').lean();
+    await Promise.all(
+      (fitnessClass?.enrolledStudents || []).map((uid) =>
+        backfillGroupPlanAccess(uid, classId).catch((err) => {
+          console.error('backfillGroupPlanAccess syncWeeklySchedules:', err.message);
+        }),
+      ),
+    );
+  }
 }
 
 function normalizeDays(days, planTemplateId = null) {
@@ -286,13 +300,27 @@ function attachWeeklyProgress(plan, completions, planSchedules = [], { slim = fa
 
 function serializeWeeklyPlan(plan) {
   if (!plan) return plan;
+  let fitnessClass = plan.fitnessClass;
+  if (fitnessClass && typeof fitnessClass === 'object') {
+    const enrolled = fitnessClass.enrolledStudents;
+    const enrolledCount = Array.isArray(enrolled)
+      ? enrolled.length
+      : Number(fitnessClass.enrolledCount) || 0;
+    fitnessClass = { ...fitnessClass, enrolledCount };
+  }
+  const memberLabel = fitnessClass
+    ? `${fitnessClass.enrolledCount === 1 ? '1 Member' : `${fitnessClass.enrolledCount || 0} Members`}`
+    : null;
   return {
     ...plan,
     client: plan.client ? withDisplayName(plan.client) : plan.client,
+    fitnessClass,
     weekStartDate: formatDateOnlyIso(plan.weekStartDate),
     assigneeName: plan.client
       ? (withDisplayName(plan.client)?.name || 'Client')
-      : (plan.fitnessClass?.title || 'Group'),
+      : (fitnessClass
+        ? `${fitnessClass.title || 'Group'} — ${memberLabel}`
+        : 'Group'),
   };
 }
 
@@ -377,7 +405,7 @@ async function createWeeklyWorkoutPlan(req, res) {
 
     const populated = await WeeklyWorkoutPlan.findById(plan._id)
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title')
+      .populate('fitnessClass', 'title enrolledStudents')
       .populate('workoutTemplate', 'title level exercises')
       .populate('days.workoutTemplate', 'title level')
       .lean();
@@ -416,7 +444,7 @@ async function getCoachWeeklyWorkoutPlans(req, res) {
 
     const plans = await WeeklyWorkoutPlan.find(query)
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title')
+      .populate('fitnessClass', 'title enrolledStudents')
       .populate('workoutTemplate', 'title level')
       .populate('days.workoutTemplate', 'title level')
       .sort({ weekStartDate: -1 })
@@ -511,7 +539,7 @@ async function updateWeeklyWorkoutPlan(req, res) {
 
     const populated = await WeeklyWorkoutPlan.findById(plan._id)
       .populate('client', USER_DISPLAY_SELECT)
-      .populate('fitnessClass', 'title')
+      .populate('fitnessClass', 'title enrolledStudents')
       .populate('workoutTemplate', 'title level exercises')
       .populate('days.workoutTemplate', 'title level')
       .lean();

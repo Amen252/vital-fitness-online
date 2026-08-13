@@ -33,6 +33,14 @@ export function dashboardPath(role) {
   return role === "coach" ? "/coach/dashboard" : "/member/dashboard";
 }
 
+function coachApprovalStatus(user) {
+  return (
+    user?.coachApplicationStatus ||
+    user?.coachData?.approval_status ||
+    null
+  );
+}
+
 /** Blocks protected routes until the user has changed their initial password. */
 function SessionGuard({ children, role }) {
   const { user, loading } = useAuth();
@@ -40,6 +48,21 @@ function SessionGuard({ children, role }) {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.must_change_password) return <Navigate to="/change-password" replace />;
+
+  const approval = coachApprovalStatus(user);
+  const unapprovedCoach =
+    user.role === "coach" && (approval === "pending" || approval === "rejected");
+
+  // Unapproved coaches must not use the coach shell — send them to member UI.
+  if (role === "coach" && unapprovedCoach) {
+    return <Navigate to="/member/dashboard" replace />;
+  }
+
+  // Allow unapproved coaches into the member shell (role may still be "coach").
+  if (role === "user" && unapprovedCoach) {
+    return children;
+  }
+
   if (role && user.role !== role) return <Navigate to={dashboardPath(user.role)} replace />;
   return children;
 }
